@@ -32,221 +32,98 @@ function calcoloY(nodiVisualArray) {
     return;
   }
 
-  // 1) Reset di tutte le Y
-  for (let node of nodiVisualArray) {
+  // Reset di tutte le Y
+  for (const node of nodiVisualArray) {
     node.relY = 0;
   }
 
-  // 2) Per evitare sovrapposizioni orizzontali, teniamo traccia
-  //    del massimo Y già assegnato per ciascuna “colonna” relX
+  // Per ogni colonna relativa, traccia la Y più bassa già occupata
   const maxYAtColumn = {};
 
-  /**
-   * Funzione ricorsiva che assegna la relY a currentNodeIndex.
-   * * @param {number} currentNodeIndex          – Indice nell’array flow.nodes / nodiVisualArray
-   * @param {number} predecessorBottomY        – Punto di partenza (in relY) sotto cui posizionare questo nodo
-   * @param {Set<number>} visitedInPath       – Set di nodi già visti lungo questo percorso (evita cicli)
-   * @returns {number}                        – Y “massima” (bottom) raggiunta da questo percorso ricorsivo
-   */
-  function calculateNodeYRecursive(currentNodeIndex, predecessorBottomY, visitedInPath) {
-    if (
-      currentNodeIndex === null ||
-      currentNodeIndex === undefined ||
-      visitedInPath.has(currentNodeIndex)
-    ) {
-      // Se non c’è nodo valido o abbiamo già visitato questo indice → esco restituendo la Y passata
-      return predecessorBottomY;
+  function placeNode(idx, topRel, col) {
+    const v = nodiVisualArray[idx];
+    const n = flow.nodes[idx];
+    if (!v || !n) return null;
+    const nodeH = (v.height || NODE_BASE_HEIGHT_PX) / h;
+    const colKey = col.toFixed(2);
+    let proposedTop = topRel;
+    if (maxYAtColumn[colKey] !== undefined && maxYAtColumn[colKey] > proposedTop) {
+      proposedTop = maxYAtColumn[colKey];
     }
-    visitedInPath.add(currentNodeIndex);
-
-    const visualNode  = nodiVisualArray[currentNodeIndex];
-    const logicalNode = flow.nodes[currentNodeIndex];
-    if (!visualNode || !logicalNode) {
-      return predecessorBottomY;
+    if (v.relY > proposedTop) {
+      proposedTop = v.relY;
     }
-
-    // Calcolo altezza del nodo (relativa al canvas)
-    const nodeHeightRel = (visualNode.height || NODE_BASE_HEIGHT_PX) / h;
-    const columnKey     = visualNode.relX.toFixed(2);
-
-    // 2.a) Decido la Y “top” di questo nodo:
-    //      deve essere almeno predecessorBottomY,  
-    //      ma non deve sovrapporsi a un nodo già in quella stessa colonna.
-    let proposedTopY = predecessorBottomY;
-    if (maxYAtColumn[columnKey] !== undefined && maxYAtColumn[columnKey] > proposedTopY) {
-      proposedTopY = maxYAtColumn[columnKey];
+    v.relY = proposedTop;
+    v.relX = 0.5 + col * IF_BRANCH_X_OFFSET_REL;
+    const bottom = v.relY + nodeH;
+    const bottomWithGap = bottom + NODE_VERTICAL_SPACING_BASE_REL;
+    if (!maxYAtColumn[colKey] || bottomWithGap > maxYAtColumn[colKey]) {
+      maxYAtColumn[colKey] = bottomWithGap;
     }
-    if (visualNode.relY > proposedTopY) {
-      proposedTopY = visualNode.relY;
-    }
-
-    // Assegno relY
-    visualNode.relY = proposedTopY;
-
-    // Calcolo bottomY (top + altezza + spacing)
-    const bottomY = visualNode.relY + nodeHeightRel + NODE_VERTICAL_SPACING_BASE_REL;
-    if (!maxYAtColumn[columnKey] || bottomY > maxYAtColumn[columnKey]) {
-      maxYAtColumn[columnKey] = bottomY;
-    }
-
-    // Per default, il “massimo percorso” inizia come questo bottomY
-    let maxPathYReached = bottomY;
-
-    // 3) Se è un IF, devo decidere se trattarlo “lineare” o “ramificato”
-    if (logicalNode.type === "if" && typeof logicalNode.next === "object" && logicalNode.next !== null) {
-      const trueNextIdx  = parseInt(logicalNode.next.true, 10);
-      const falseNextIdx = parseInt(logicalNode.next.false, 10);
-
-      // Se next.true === next.false, NON è stato ancora creato un ramo
-      // → comportiamoci come se fosse un collegamento “normale” a quell’unico nodo
-      if (!isNaN(trueNextIdx) && trueNextIdx === falseNextIdx) {
-        // scendo direttamente, senza ramificare
-        const yDown = calculateNodeYRecursive(
-          trueNextIdx,
-          bottomY,
-          new Set(visitedInPath)
-        );
-        maxPathYReached = Math.max(maxPathYReached, yDown);
-      }
-      // Altrimenti (trueNextIdx !== falseNextIdx), è un IF veramente ramificato:
-      // disegno i due sub‐rami a partire da un “branch start Y”
-      else {
-        const branchStartY = visualNode.relY + nodeHeightRel + IF_BRANCH_START_Y_OFFSET_REL;
-
-        // 3.a) Ramo TRUE
-        if (!isNaN(trueNextIdx)) {
-          const yTrue = calculateNodeYRecursive(
-            trueNextIdx,
-            branchStartY,
-            visitedInPath
-          );
-          if (yTrue > maxPathYReached) maxPathYReached = yTrue;
-        }
-        // 3.b) Ramo FALSE
-        if (!isNaN(falseNextIdx)) {
-          const yFalse = calculateNodeYRecursive(
-          falseNextIdx,
-          branchStartY,
-          visitedInPath
-        );
-          if (yFalse > maxPathYReached) maxPathYReached = yFalse;
-        }
-
-        // 3.c) Se i due rami confluiscono su uno stesso nodo (join),
-        //       lo posiziono subito sotto il massimo dei due.
-        if (trueNextIdx === falseNextIdx && !isNaN(trueNextIdx)) {
-          const joinIdx    = trueNextIdx;
-          const joinNode   = nodiVisualArray[joinIdx];
-          const joinTopY   = maxPathYReached + NODE_VERTICAL_SPACING_BASE_REL;
-          if (joinNode && (joinNode.relY < joinTopY)) {
-            joinNode.relY = joinTopY;
-            const joinBottomY = joinNode.relY + (joinNode.height / h) + NODE_VERTICAL_SPACING_BASE_REL;
-            const ck = joinNode.relX.toFixed(2);
-            if (!maxYAtColumn[ck] || joinBottomY > maxYAtColumn[ck]) {
-              maxYAtColumn[ck] = joinBottomY;
-            }
-            // 3.c.i) Dopodiché, lavoro sul nodo successivo al join (se esiste)
-            const nextOfJoin = flow.nodes[joinIdx].next;
-            if (typeof nextOfJoin === "string") {
-              const postIdx = parseInt(nextOfJoin, 10);
-              if (!isNaN(postIdx)) {
-                const yAfterJoin = calculateNodeYRecursive(
-                  postIdx,
-                  joinBottomY,
-                  new Set(visitedInPath)
-                );
-                if (yAfterJoin > joinBottomY) {
-                  maxPathYReached = yAfterJoin;
-                }
-              }
-            }
-            // Se non ci sono ulteriori nodi, il maxPathYReached rimane joinBottomY
-            maxPathYReached = Math.max(maxPathYReached, joinBottomY);
-          }
-        }
-      }
-
-      return maxPathYReached;
-    }
-
-    // 4) Se NON è un IF ma ha un next “normale”
-    if (typeof logicalNode.next === "string" && logicalNode.next !== null) {
-      const nextIdx = parseInt(logicalNode.next, 10);
-      if (!isNaN(nextIdx)) {
-        const yNext = calculateNodeYRecursive(
-          nextIdx,
-          bottomY,
-          new Set(visitedInPath)
-        );
-        if (yNext > maxPathYReached) maxPathYReached = yNext;
-      }
-    }
-
-    return maxPathYReached;
+    return bottom;
   }
 
-  // 5) Trovo “start” (o indice 0 se non c’è) e do il via alla ricorsione
-  let startIndex = flow.nodes.findIndex(nd => nd.type === "start");
-  if (startIndex < 0 && flow.nodes.length > 0) startIndex = 0;
+  function layoutNode(idx, topRel, col, visited, stopIdx) {
+    if (idx === null || idx === undefined || visited.has(idx) || idx === stopIdx) {
+      return topRel;
+    }
+    visited.add(idx);
+    const v = nodiVisualArray[idx];
+    const n = flow.nodes[idx];
+    if (!v || !n) return topRel;
 
+    const bottom = placeNode(idx, topRel, col);
+
+    if (n.type === "if" && typeof n.next === "object" && n.next !== null) {
+      const sub = collectBranchNodes(idx);
+      const branchTop = bottom + IF_BRANCH_START_Y_OFFSET_REL;
+
+      let trueDepth = branchTop;
+      if (sub.trueList.length > 0) {
+        let curTop = branchTop;
+        for (const nodeIdx of sub.trueList) {
+          curTop = layoutNode(nodeIdx, curTop, col + 1, visited, sub.joinIndex);
+        }
+        const lastV = nodiVisualArray[sub.trueList[sub.trueList.length - 1]];
+        trueDepth = lastV.relY + (lastV.height || NODE_BASE_HEIGHT_PX) / h;
+      }
+
+      let falseDepth = branchTop;
+      if (sub.falseList.length > 0) {
+        let curTop = branchTop;
+        for (const nodeIdx of sub.falseList) {
+          curTop = layoutNode(nodeIdx, curTop, col - 1, visited, sub.joinIndex);
+        }
+        const lastV = nodiVisualArray[sub.falseList[sub.falseList.length - 1]];
+        falseDepth = lastV.relY + (lastV.height || NODE_BASE_HEIGHT_PX) / h;
+      }
+
+      const reconnectRelY = Math.max(trueDepth, falseDepth) + IF_RECONNECT_GAP_REL;
+
+      if (sub.joinIndex !== null && !visited.has(sub.joinIndex)) {
+        const joinTop = reconnectRelY + IF_JOIN_GAP_REL;
+        placeNode(sub.joinIndex, joinTop, col);
+        const joinBottom = nodiVisualArray[sub.joinIndex].relY + (nodiVisualArray[sub.joinIndex].height || NODE_BASE_HEIGHT_PX) / h;
+        return layoutNode(sub.joinIndex, joinTop, col, visited, stopIdx);
+      }
+      return reconnectRelY;
+    }
+
+    if (typeof n.next === "string" && n.next !== null) {
+      const nextIdx = parseInt(n.next, 10);
+      if (!isNaN(nextIdx)) {
+        if (nextIdx === stopIdx) return bottom;
+        return layoutNode(nextIdx, bottom + NODE_VERTICAL_SPACING_BASE_REL, col, visited, stopIdx);
+      }
+    }
+
+    return bottom + NODE_VERTICAL_SPACING_BASE_REL;
+  }
+
+  const startIndex = flow.nodes.findIndex(nd => nd && nd.type === "start");
   if (startIndex >= 0 && nodiVisualArray[startIndex]) {
-    const startNode    = nodiVisualArray[startIndex];
-    startNode.relY     = NODE_VERTICAL_SPACING_BASE_REL / 2; // un po’ di margine su Y=0
-    const startHeight  = (startNode.height || NODE_BASE_HEIGHT_PX) / h;
-    const startBotY    = startNode.relY + startHeight + NODE_VERTICAL_SPACING_BASE_REL;
-    const col0         = startNode.relX.toFixed(2);
-    maxYAtColumn[col0] = startBotY;
-
-    const logicStart   = flow.nodes[startIndex];
-    // Se è IF, controllo se next.true===next.false per elaborarlo di conseguenza
-    if (logicStart.type === "if" && typeof logicStart.next === "object" && logicStart.next !== null) {
-      const t0 = parseInt(logicStart.next.true, 10);
-      const f0 = parseInt(logicStart.next.false, 10);
-
-      if (!isNaN(t0) && t0 === f0) {
-        // IF lineare: trattalo come un normale “next”
-        calculateNodeYRecursive(t0, startBotY, new Set([startIndex]));
-      } else {
-        // IF ramificato: faccio i due rami sotto
-        const branchY = startNode.relY + startHeight + IF_BRANCH_START_Y_OFFSET_REL;
-        if (!isNaN(t0)) {
-          calculateNodeYRecursive(t0, branchY, new Set([startIndex]));
-        }
-        if (!isNaN(f0)) {
-          calculateNodeYRecursive(f0, branchY, new Set([startIndex]));
-        }
-        // Se confluiscono sullo stesso nodo (join iniziale)
-        if (t0 === f0 && !isNaN(t0)) {
-          const joinIdx   = t0;
-          const joinNode  = nodiVisualArray[joinIdx];
-          const joinTopY  = branchY; // max dei due rami è branchY, perché erano allo stesso livello
-          if (joinNode && (joinNode.relY < joinTopY)) {
-            joinNode.relY = joinTopY;
-            const joinBotY = joinNode.relY + ((joinNode.height || NODE_BASE_HEIGHT_PX) / h) + NODE_VERTICAL_SPACING_BASE_REL;
-            const colJ     = joinNode.relX.toFixed(2);
-            if (!maxYAtColumn[colJ] || joinBotY > maxYAtColumn[colJ]) {
-              maxYAtColumn[colJ] = joinBotY;
-            }
-            // Poi eventuale next dopo merge
-            const post = flow.nodes[joinIdx].next;
-            if (typeof post === "string") {
-              const postIdx = parseInt(post, 10);
-              if (!isNaN(postIdx)) {
-                calculateNodeYRecursive(postIdx, joinBotY, new Set([startIndex, joinIdx]));
-              }
-            }
-          }
-        }
-      }
-    }
-    // Se “start” non è IF ma ha un next normale
-    else if (typeof logicStart.next === "string") {
-      const nxt0 = parseInt(logicStart.next, 10);
-      if (!isNaN(nxt0)) {
-        calculateNodeYRecursive(nxt0, startBotY, new Set([startIndex]));
-      }
-    }
-  } else {
-    console.warn("calcoloY: nodo di start non trovato o non valido.");
+    layoutNode(startIndex, NODE_VERTICAL_SPACING_BASE_REL / 2, 0, new Set(), null);
+  } else if (nodiVisualArray.length > 0) {
+    layoutNode(0, NODE_VERTICAL_SPACING_BASE_REL / 2, 0, new Set(), null);
   }
 }

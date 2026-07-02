@@ -10,6 +10,9 @@ let h = canvas.height; // Altezza del canvas
 const NODE_BASE_HEIGHT_PX = 40; // Altezza base di un nodo in pixel
 const NODE_VERTICAL_SPACING_BASE_REL = 0.06; // Spaziatura verticale relativa base tra nodi sequenziali (6% dell'altezza del canvas)
 const IF_BRANCH_START_Y_OFFSET_REL = 0.05; // Spaziatura verticale relativa addizionale tra un nodo IF e l'inizio dei suoi rami
+const IF_RECONNECT_GAP_REL = 0.04; // Spazio verticale tra il fondo del ramo più lungo e il punto di ricongiunzione
+const IF_JOIN_GAP_REL = 0.06; // Spazio verticale tra il punto di ricongiunzione e il nodo successivo all'IF
+const IF_BRANCH_X_OFFSET_REL = 0.18; // Distanza orizzontale dei rami true/false dal centro dell'IF
 
 // Ridimensiona il canvas per adattarsi dinamicamente al contenuto dei nodi.
 let saved; // Flag per indicare se ci sono modifiche non salvate nel flowchart

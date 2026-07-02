@@ -112,10 +112,22 @@ function inserisciNodo(tipo) {
     const newTargetStr = newActualNodeIndex.toString(); // Indice del nuovo nodo come stringa
 
     // A seconda del tipo di freccia cliccata, si aggiorna il ramo corretto dell'IF genitore
-    if (arrowType === "if_join") { 
-      parentLogic.next.true  = newTargetStr;
-      parentLogic.next.false = newTargetStr;
-      console.log(`inserisciNodo INFO: JOIN sotto IF → next.true e next.false = ${newTargetStr}`);
+    if (arrowType === "if_join") {
+      // Il nuovo nodo diventa il punto di ricongiunzione: i due rami devono terminare in esso.
+      const sub = collectBranchNodes(parentNodeIndex);
+      if (sub.trueList.length > 0) {
+        const lastTrue = sub.trueList[sub.trueList.length - 1];
+        if (flow.nodes[lastTrue]) flow.nodes[lastTrue].next = newTargetStr;
+      } else if (parentLogic.next && typeof parentLogic.next === "object") {
+        parentLogic.next.true = newTargetStr;
+      }
+      if (sub.falseList.length > 0) {
+        const lastFalse = sub.falseList[sub.falseList.length - 1];
+        if (flow.nodes[lastFalse]) flow.nodes[lastFalse].next = newTargetStr;
+      } else if (parentLogic.next && typeof parentLogic.next === "object") {
+        parentLogic.next.false = newTargetStr;
+      }
+      console.log(`inserisciNodo INFO: JOIN sotto IF → rami convergono su ${newTargetStr}`);
     }
     else if (arrowType === "if_true") { // Inserimento nel ramo true
       parentLogic.next.true = newTargetStr;

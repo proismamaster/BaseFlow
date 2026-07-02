@@ -17,6 +17,85 @@ function isPointNearAnyLineSegment(px, py, x1, y1, x2, y2, d) {
   return (dx * dx + dy * dy) <= (d * d); 
 }
 
+// Per un nodo IF, restituisce il nodo di join calcolato dinamicamente.
+// Per un nodo normale, restituisce il suo next come numero.
+function effectiveNext(idx) {
+  const node = flow.nodes[idx];
+  if (!node) return null;
+  if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
+    const sub = collectBranchNodes(idx);
+    return sub.joinIndex;
+  }
+  if (typeof node.next === "string") {
+    const n = parseInt(node.next, 10);
+    return isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+// Raccoglie i nodi dei due rami di un IF e calcola il join.
+// Restituisce { trueList, falseList, joinIndex }.
+function collectBranchNodes(ifIdx) {
+  const ifNode = flow.nodes[ifIdx];
+  if (!ifNode || typeof ifNode.next !== "object" || ifNode.next === null) {
+    return { trueList: [], falseList: [], joinIndex: null };
+  }
+  const tStart = parseInt(ifNode.next.true, 10);
+  const fStart = parseInt(ifNode.next.false, 10);
+  if (isNaN(tStart) || isNaN(fStart)) {
+    return { trueList: [], falseList: [], joinIndex: null };
+  }
+  if (tStart === fStart) {
+    return { trueList: [], falseList: [], joinIndex: tStart };
+  }
+
+  const trueList = [];
+  const seenT = new Set();
+  let cur = tStart;
+  while (cur !== null && !seenT.has(cur)) {
+    const node = flow.nodes[cur];
+    if (!node) break;
+    seenT.add(cur);
+    trueList.push(cur);
+    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
+      cur = collectBranchNodes(cur).joinIndex;
+    } else if (typeof node.next === "string" && node.next !== null) {
+      cur = parseInt(node.next, 10);
+      if (isNaN(cur)) cur = null;
+    } else {
+      cur = null;
+    }
+  }
+
+  const falseList = [];
+  const seenF = new Set();
+  let join = null;
+  cur = fStart;
+  while (cur !== null && !seenF.has(cur)) {
+    if (seenT.has(cur)) {
+      join = cur;
+      break;
+    }
+    const node = flow.nodes[cur];
+    if (!node) break;
+    seenF.add(cur);
+    falseList.push(cur);
+    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
+      cur = collectBranchNodes(cur).joinIndex;
+    } else if (typeof node.next === "string" && node.next !== null) {
+      cur = parseInt(node.next, 10);
+      if (isNaN(cur)) cur = null;
+    } else {
+      cur = null;
+    }
+  }
+  if (join === null && cur !== null && seenT.has(cur)) {
+    join = cur;
+  }
+
+  return { trueList, falseList, joinIndex: join };
+}
+
 // Trova l'indice del nodo di join a cui convergono i rami di un nodo IF.
 // Restituisce null se non è un IF valido, i nodi dei rami non esistono o non c'è un join comune.
 function findJoinNode(ifNodeIndex) {

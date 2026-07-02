@@ -163,6 +163,17 @@ function draw(forme) {
   }
 
   // 4) DISEGNO DEI COLLEGAMENTI
+  // Raccoglie i nodi che fanno parte di un ramo IF: i loro collegamenti sono gestiti dal genitore IF.
+  const branchNodes = new Set();
+  for (let i = 0; i < flow.nodes.length; i++) {
+    const n = flow.nodes[i];
+    if (n && n.type === "if" && typeof n.next === "object" && n.next !== null) {
+      const sub = collectBranchNodes(i);
+      sub.trueList.forEach(idx => branchNodes.add(idx));
+      sub.falseList.forEach(idx => branchNodes.add(idx));
+    }
+  }
+
   for (let i = 0; i < forme.length; i++) {
     const node = forme[i]; // Nodo visuale di partenza
     const logicNode = flow.nodes[i]; // Nodo logico di partenza
@@ -172,91 +183,119 @@ function draw(forme) {
     const yMid = node.relY * h; // Coordinata Y del centro del nodo di partenza
     const nodeHeight = node.height; // Altezza del nodo di partenza
 
-    // 4.a) Se è IF, disegno solo i rametti interni che vanno ai nodi successivi dei rami true/false
+    // 4.a) Se è IF, disegno i rami con la nuova logica
     if (logicNode.type === "if" && typeof logicNode.next === "object" && logicNode.next !== null) {
-      const trueIndex  = parseInt(logicNode.next.true,  10); // Indice del nodo successivo per il ramo true
-      const falseIndex = parseInt(logicNode.next.false, 10); // Indice del nodo successivo per il ramo false
-
-      // Disegno ramo “true” e catturo Y di svolta/arrivo
-      let turnY_true;
-      if (!isNaN(trueIndex) && forme[trueIndex]){ // Coordinata Y del "gomito" o arrivo del ramo true
-        drawArrowFromRight(node, forme[trueIndex], "T", i, trueIndex); // "T" è l'etichetta del ramo
-      }else{
-        turnY_true = null;
-      }
-
-      // Disegno ramo “false” e catturo Y di svolta/arrivo
-      let turnY_false;
-      if (!isNaN(falseIndex) && forme[falseIndex]){ // Coordinata Y del "gomito" o arrivo del ramo false
-        drawArrowFromLeft(node, forme[falseIndex], "F", i, falseIndex); // "F" è l'etichetta del ramo
-      }else{
-        turnY_false = null;
-      }
-      // 4.a.1) Se entrambi i rami convergono allo stesso nodo “next” (IF che si comporta linearmente o join immediato)
-      if (trueIndex === falseIndex && !isNaN(trueIndex)) {
-        // Decido la Y di partenza per il segmento di join:
-        let startY; //
-        if (turnY_true !== null) {
-            startY = turnY_true;
-        } else if (turnY_false !== null) {
-            startY = turnY_false;
-        } else {
-            startY = yMid + nodeHeight / 2;
-        }
-        const startX = node.relX * w; // X di partenza del segmento di join (centro dell'IF)
-        const targetNodeVisual = forme[trueIndex]; // Nodo visuale di destinazione del join
-        const targetX = targetNodeVisual.relX * w; // X del nodo di destinazione
-        const targetY = targetNodeVisual.relY * h - targetNodeVisual.height / 2; // Y del bordo superiore del nodo di destinazione
-
-        // Spezzone verticale “join” cliccabile → etichetta ‘if_join’
-        drawLine(
-          startX, // Da X del nodo IF
-          startY, // Dalla Y calcolata sotto l'IF
-          startX, // A X del nodo IF (linea verticale)
-          targetY, // Fino al bordo superiore del nodo target
-          true, 
-          i, 
-          trueIndex, // Indice del nodo target (arrivo)
-          'if_join'
-        );
-        // Spezzone orizzontale “join” cliccabile → etichetta ‘if_join’
-        drawLine(
-          startX, // Da X del nodo IF (fine del segmento verticale)
-          targetY,  // Dalla Y del bordo superiore del nodo target
-          targetX, // A X del nodo target (linea orizzontale)
-          targetY,  // Alla Y del bordo superiore del nodo target
-          true, 
-          i, 
-          trueIndex, 
-          'if_join' 
-        );
-      }
+      drawIfBranches(i, node);
+      continue;
     }
+
     // 4.b) Collegamento “normale” (next è una stringa che indica l'indice del prossimo nodo)
-    else if (typeof logicNode.next === "string" && logicNode.next !== null) {
+    if (typeof logicNode.next === "string" && logicNode.next !== null) {
       const nextIndex = parseInt(logicNode.next, 10); // Indice del prossimo nodo
       if (isNaN(nextIndex) || !forme[nextIndex]) continue; // Salta se l'indice non è valido o il nodo visuale non esiste
 
-      const targetNodeVisual = forme[nextIndex]; // Nodo visuale di destinazione
+      // Se il nodo corrente fa parte di un ramo IF, il suo collegamento è gestito dal genitore IF
+      if (branchNodes.has(i)) continue;
 
-      // Se il nodo di destinazione è un punto di join (ha 2 o più ingressi), usa drawJoinConnectionFromLast
-      if (joinSet.has(nextIndex)) {
-        drawJoinConnectionFromLast(node, targetNodeVisual, i, nextIndex);
-      } else {
-        // Altrimenti disegna una singola freccia verticale diretta
-        drawLine(
-          xMid, // Dal centro X del nodo di partenza
-          yMid + nodeHeight / 2, // Dal bordo inferiore del nodo di partenza
-          targetNodeVisual.relX * w, // Al centro X del nodo di destinazione
-          targetNodeVisual.relY * h - targetNodeVisual.height / 2, // Al bordo superiore del nodo di destinazione
-          true, 
-          i, 
-          nextIndex,
-          'normal' 
-        );
-      }
+      const targetNodeVisual = forme[nextIndex]; // Nodo visuale di destinazione
+      drawLine(
+        xMid, // Dal centro X del nodo di partenza
+        yMid + nodeHeight / 2, // Dal bordo inferiore del nodo di partenza
+        targetNodeVisual.relX * w, // Al centro X del nodo di destinazione
+        targetNodeVisual.relY * h - targetNodeVisual.height / 2, // Al bordo superiore del nodo di destinazione
+        true,
+        i,
+        nextIndex,
+        'normal'
+      );
     }
   }
+}
+
+// Disegna i rami di un IF secondo la nuova logica:
+// - stelo e biforcazione NON cliccabili;
+// - archi verticali di ingresso ai rami CLICCABILI;
+// - archi orizzontali di ricongiunzione NON cliccabili;
+// - arco verticale di uscita dall'IF CLICCABILE.
+function drawIfBranches(ifIdx, node) {
+  const sub = collectBranchNodes(ifIdx);
+  const cx = node.relX * w;
+  const cy = node.relY * h;
+  const diaBottom = cy + node.height / 2;
+  const forkY = diaBottom + IF_BRANCH_START_Y_OFFSET_REL * h;
+  const trueX = cx + IF_BRANCH_X_OFFSET_REL * w;
+  const falseX = cx - IF_BRANCH_X_OFFSET_REL * w;
+
+  // Stelo verticale non cliccabile sotto il rombo
+  drawLine(cx, diaBottom, cx, forkY, false);
+
+  // Biforcazione orizzontale non cliccabile
+  drawLine(cx, forkY, trueX, forkY, false);
+  drawLine(cx, forkY, falseX, forkY, false);
+
+  // Profondità dei due rami (in pixel)
+  const trueBottomY = sub.trueList.length > 0
+    ? nodi[sub.trueList[sub.trueList.length - 1]].relY * h + nodi[sub.trueList[sub.trueList.length - 1]].height / 2
+    : forkY;
+  const falseBottomY = sub.falseList.length > 0
+    ? nodi[sub.falseList[sub.falseList.length - 1]].relY * h + nodi[sub.falseList[sub.falseList.length - 1]].height / 2
+    : forkY;
+  const reconnectY = Math.max(trueBottomY, falseBottomY) + IF_RECONNECT_GAP_REL * h;
+
+  // Archi verticali cliccabili dalle colonne dei rami verso il basso
+  if (sub.trueList.length === 0) {
+    drawLine(trueX, forkY, trueX, reconnectY, true, ifIdx, sub.joinIndex, 'if_true');
+  } else {
+    const first = nodi[sub.trueList[0]];
+    drawLine(trueX, forkY, trueX, first.relY * h - first.height / 2, true, ifIdx, sub.trueList[0], 'if_true');
+  }
+
+  if (sub.falseList.length === 0) {
+    drawLine(falseX, forkY, falseX, reconnectY, true, ifIdx, sub.joinIndex, 'if_false');
+  } else {
+    const first = nodi[sub.falseList[0]];
+    drawLine(falseX, forkY, falseX, first.relY * h - first.height / 2, true, ifIdx, sub.falseList[0], 'if_false');
+  }
+
+  // Collegamenti interni ai rami e archi di ricongiunzione
+  function drawBranchConnections(list, sideX) {
+    for (let i = 0; i < list.length - 1; i++) {
+      const fromNode = nodi[list[i]];
+      const toNode = nodi[list[i + 1]];
+      drawLine(
+        fromNode.relX * w,
+        fromNode.relY * h + fromNode.height / 2,
+        toNode.relX * w,
+        toNode.relY * h - toNode.height / 2,
+        true,
+        list[i],
+        list[i + 1],
+        'normal'
+      );
+    }
+    if (list.length > 0) {
+      const last = nodi[list[list.length - 1]];
+      drawLine(last.relX * w, last.relY * h + last.height / 2, sideX, reconnectY, false);
+    }
+    drawLine(sideX, reconnectY, cx, reconnectY, false);
+  }
+
+  drawBranchConnections(sub.trueList, trueX);
+  drawBranchConnections(sub.falseList, falseX);
+
+  // Arco verticale cliccabile dal punto di ricongiunzione al nodo successivo
+  if (sub.joinIndex !== null && nodi[sub.joinIndex]) {
+    const joinNode = nodi[sub.joinIndex];
+    drawLine(cx, reconnectY, cx, joinNode.relY * h - joinNode.height / 2, true, ifIdx, sub.joinIndex, 'if_join');
+  }
+
+  // Etichette T/F sopra la biforcazione
+  ctx.fillStyle = "black";
+  ctx.font = "bold 13px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("T", (cx + trueX) / 2, forkY - 10);
+  ctx.fillText("F", (cx + falseX) / 2, forkY - 10);
 }
 
 // Disegna il collegamento a forma di Lda:
