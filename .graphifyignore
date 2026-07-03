@@ -1,0 +1,11 @@
+# Ignora asset non codice per Graphify (codice-only = nessuna API key)
+README.md
+*.md
+*.html
+demo.mp4
+img/
+*.png
+*.jpg
+*.webp
+*.gif
+server.log
