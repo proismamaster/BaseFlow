@@ -1,1 +1,3 @@
-/node_modules.worktrees/
+/node_modules/
+.worktrees/
+server.log
