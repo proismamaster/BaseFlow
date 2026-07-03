@@ -3,31 +3,13 @@
 function resizeCanvas() {
   canvas.width = window.innerWidth - 10; // Imposta la larghezza del canvas quasi come la finestra
   canvas.height = window.innerHeight - 10; // Imposta l'altezza del canvas quasi come la finestra
-  ctx = canvas.getContext("2d"); 
+  ctx = canvas.getContext("2d");
   w = canvas.width; // Aggiorna la larghezza globale
   h = canvas.height; // Aggiorna l'altezza globale
   draw(nodi); // Ridisegna tutto
 }
 
 // Disegna una linea e, se salva=true, la registra nell'array frecce[].
-function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType) {
-  if (salva) {
-    frecce.push({
-      inzioX: x1, inzioY: y1, fineX: x2, fineY: y2,
-      id: frecce.length, // ID univoco per la freccia
-      fromNodeIndex, // Indice del nodo di partenza
-      toNodeIndex, // Indice del nodo di destinazione
-      type: arrowType // Tipo di freccia (es. 'normal', 'if_true')
-    });
-  }
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.strokeStyle = "black"; 
-  ctx.lineWidth = 2; 
-  ctx.stroke();
-}
-
 // Disegna una linea tra due punti.
 // Se 'salva' è true, la linea viene aggiunta all'array 'frecce' per la rilevazione dei click,
 // includendo informazioni sul nodo di partenza, di destinazione e il tipo di freccia.
@@ -37,7 +19,7 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType) 
       inzioX: x1, inzioY: y1, fineX: x2, fineY: y2, // Coordinate della freccia
       id: frecce.length,
       fromNodeIndex: fromNodeIndex, // Indice del nodo di partenza nella logica flow.nodes
-      toNodeIndex: toNodeIndex,     
+      toNodeIndex: toNodeIndex,
       type: arrowType         // Tipo di freccia: 'normal', 'if_true', 'if_false'
     });
   }
@@ -55,16 +37,16 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType) 
 //  Costruisce joinSet = un insieme di indici di nodi che hanno almeno 2 collegamenti in entrata.
 //  Disegna i nodi (considerando colori, forme specifiche per tipo, e testo interno).
 //  Per ogni collegamento “next” definito in flow.nodes:
-//      Se il collegamento proviene da un nodo IF (distinguendo ramo true e false), 
+//      Se il collegamento proviene da un nodo IF (distinguendo ramo true e false),
 //       utilizza le funzioni drawArrowFromRight o drawArrowFromLeft.
 //      Altrimenti (collegamento “normale”), se il nodo di destinazione è in joinSet (cioè ha multipli ingressi),
 //       disegna una connessione spezzata (verticale, orizzontale, verticale).
 //      Se non è un IF e non va a un join node, disegna una linea retta semplice usando drawLine
-function draw(forme) { 
+function draw(forme) {
   // 1) Calcolo incomingCount e joinSet
   const incomingCount = Array(flow.nodes.length).fill(0); //per contare gli ingressi per ogni nodo
   for (let i = 0; i < flow.nodes.length; i++) {
-    const nd = flow.nodes[i]; 
+    const nd = flow.nodes[i];
     if (!nd) continue;
     if (nd.type === "if" && typeof nd.next === "object" && nd.next !== null) {
       const t = parseInt(nd.next.true, 10); // Indice del nodo successivo per il ramo true
@@ -93,7 +75,7 @@ function draw(forme) {
     if (!node) continue;
 
     const tipo = flow.nodes[i].type; // Tipo del nodo logico corrispondente
-    let coloreNodo; 
+    let coloreNodo;
     switch (tipo) {
       case "start":       coloreNodo = "green";      break;
       case "end":         coloreNodo = "red";        break;
@@ -105,22 +87,22 @@ function draw(forme) {
     }
 
     let x0 = node.relX * w - node.width / 2;
-    const y0 = node.relY * h - node.height / 2; 
+    const y0 = node.relY * h - node.height / 2;
     const cx = x0 + node.width / 2;
-    const cy = y0 + node.height / 2; 
+    const cy = y0 + node.height / 2;
 
     // Disegno della forma (rettangolo arrotondato, parallelogramma, rombo, o rettangolo normale)
     ctx.fillStyle   = coloreNodo; // Imposta il colore di riempimento
     ctx.strokeStyle = "black"; // Imposta il colore del bordo
 
-    let toWrite = node.text; // Testo base del nodo 
+    let toWrite = node.text; // Testo base del nodo
       if (flow.nodes[i] && !["start", "end"].includes(flow.nodes[i].type)) {
         toWrite += ":" + (flow.nodes[i].info || ""); // Aggiunge le informazioni specifiche del nodo se non è start/end
     }
-    const textMeasure = ctx.measureText(toWrite); 
-    
+    const textMeasure = ctx.measureText(toWrite);
+
     // Adattamento larghezza nodo al testo
-    let difference = node.width  - textMeasure.width + 20; 
+    let difference = node.width  - textMeasure.width + 20;
     if(difference>100){ // Limita la riduzione della larghezza
       node.width = 100;
       x0 = node.relX * w - node.width / 2;
@@ -153,12 +135,12 @@ function draw(forme) {
     ctx.fill(); // Riempie la forma
     ctx.stroke(); // Disegna il bordo
 
-    if (node.text) {  
-      ctx.font = `bold 16px Arial`; 
-      ctx.fillStyle = "black"; 
-      ctx.textAlign = "center"; 
-      ctx.textBaseline = "middle"; 
-      ctx.fillText(toWrite, cx, cy); 
+    if (node.text) {
+      ctx.font = `bold 16px Arial`;
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(toWrite, cx, cy);
     }
   }
 
@@ -222,7 +204,9 @@ function drawIfBranches(ifIdx, node) {
   const cx = node.relX * w;
   const cy = node.relY * h;
   const diaBottom = cy + node.height / 2;
-  const forkY = diaBottom + IF_BRANCH_START_Y_OFFSET_REL * h;
+  // La biforcazione si ferma a metà dell'offset: la metà restante è l'arco
+  // verticale di ingresso al ramo, che deve avere lunghezza > 0 per essere cliccabile.
+  const forkY = diaBottom + (IF_BRANCH_START_Y_OFFSET_REL * h) / 2;
   const trueX = cx + IF_BRANCH_X_OFFSET_REL * w;
   const falseX = cx - IF_BRANCH_X_OFFSET_REL * w;
 
@@ -301,7 +285,7 @@ function drawIfBranches(ifIdx, node) {
 // Disegna il collegamento a forma di Lda:
 //   l’ultimo nodo di un ramo IF (lastNode)
 //   al bordo superiore del nodo esterno a cui si ricongiunge (joinNode)
-//   1) una linea verticale dal centro del bordo inferiore di lastNode fino 
+//   1) una linea verticale dal centro del bordo inferiore di lastNode fino
 //      alla coordinata Y del bordo superiore di joinNode,
 //   2) una linea orizzontale da (startX, targetY) a (targetX, targetY).
 function drawJoinConnectionFromLast(lastNode, joinNode, fromNodeIndex, toNodeIndex) {
@@ -315,25 +299,25 @@ function drawJoinConnectionFromLast(lastNode, joinNode, fromNodeIndex, toNodeInd
 
   // 3) Traccio il primo spezzone verticale (da startY fino a targetY, mantenendo startX)
   drawLine(
-    startX, 
-    startY, 
-    startX, 
+    startX,
+    startY,
+    startX,
     targetY,
-    true,            
-    fromNodeIndex, 
-    toNodeIndex, 
-    'normal' 
+    true,
+    fromNodeIndex,
+    toNodeIndex,
+    'normal'
   );
 
   // 4) Traccio il secondo spezzone orizzontale (da startX a targetX, mantenendo targetY)
   drawLine(
-    startX, 
-    targetY, 
-    targetX, 
+    startX,
     targetY,
-    false,         
-    fromNodeIndex, 
-    toNodeIndex, 
+    targetX,
+    targetY,
+    false,
+    fromNodeIndex,
+    toNodeIndex,
     'normal' // Tipo di freccia
   );
 }
@@ -347,16 +331,16 @@ function drawJoinConnection(fromNode, toNode, fromIndex, toIndex) {
   const fromY = fromNode.relY * h + fromNode.height / 2; // Y del bordo inferiore del nodo di partenza
   const toX = toNode.relX * w; // X del nodo di arrivo
   const toY = toNode.relY * h - toNode.height / 2; // Y del bordo superiore del nodo di arrivo
-  
+
   // Calcola una coordinata Y intermedia per il segmento orizzontale del "ponte"
   const joinY = Math.max(fromY, toY) + 80; // 80px sotto il più basso tra fromY e toY (o sopra se toY è molto in alto)
-  
+
   // Linea verticale dal nodo 'from' al punto di joinY (non salvata come cliccabile individualmente)
   drawLine(fromX, fromY, fromX, joinY, false);
-  
+
   // Linea orizzontale di join (salvata come cliccabile, rappresenta il "ponte")
   drawLine(fromX, joinY, toX, joinY, true, fromIndex, toIndex, 'join'); // 'join' come tipo
-  
+
   // Linea verticale dal punto di joinY al nodo 'to' (non salvata come cliccabile individualmente)
   drawLine(toX, joinY, toX, toY, false);
 }
@@ -398,7 +382,7 @@ function drawDiamond(x, y, w, h) {
 // Disegna la freccia per il ramo TRUE di un nodo IF (esce dal lato destro del nodo IF).
 function drawArrowFromRight(from, to, label, fromNodeIndex, toNodeIndex) {
   const verticalGapBeforeNode = 25; // Spazio verticale in px prima di entrare nel nodo target
-  const startX_abs = from.relX * w + from.width / 2; // X del bordo destro del nodo 
+  const startX_abs = from.relX * w + from.width / 2; // X del bordo destro del nodo
   const startY_abs = from.relY * h; // Y del centro del nodo 'from' (IF)
   const elbowColumnX_abs = startX_abs + 40; // X della colonna verticale del "gomito" (40px a destra di 'from')
   const targetX = to.relX * w; // X del centro del nodo 'to' (target del ramo true)
@@ -407,52 +391,52 @@ function drawArrowFromRight(from, to, label, fromNodeIndex, toNodeIndex) {
 
   // 1) Segmento orizzontale in uscita dal nodo IF (puramente visivo, non cliccabile individualmente)
   drawLine(
-    startX_abs, startY_abs, 
-    elbowColumnX_abs, startY_abs, 
-    false, fromNodeIndex, toNodeIndex, 'if_true_h_out' 
+    startX_abs, startY_abs,
+    elbowColumnX_abs, startY_abs,
+    false, fromNodeIndex, toNodeIndex, 'if_true_h_out'
   );
 
   // 2) Caso “nodi allineati verticalmente sotto il gomito” → discesa verticale diretta dal gomito al nodo 'to'
   if (Math.abs(elbowColumnX_abs - targetX) < 0.5) { // Se la X del gomito e del target sono (quasi) uguali
     drawLine(
-      elbowColumnX_abs, startY_abs, 
-      elbowColumnX_abs, targetY,   
-      true, fromNodeIndex, toNodeIndex, 'if_true' 
+      elbowColumnX_abs, startY_abs,
+      elbowColumnX_abs, targetY,
+      true, fromNodeIndex, toNodeIndex, 'if_true'
     );
     // Etichetta “T” (True) a metà del segmento verticale
-    const midY_for_label = (startY_abs + targetY) / 2; 
+    const midY_for_label = (startY_abs + targetY) / 2;
     ctx.fillStyle = "black";
     ctx.font       = "12px Arial";
     ctx.textAlign  = "center";
     ctx.fillText(label, elbowColumnX_abs + 20, midY_for_label);
-    return targetY; 
+    return targetY;
   }
 
   // 3) Caso “nodi non allineati verticalmente” → disegnare un gomito interno (V1 + H + V2)
   drawLine(
-    elbowColumnX_abs, startY_abs, 
-    elbowColumnX_abs, turnY,      
-    true, fromNodeIndex, toNodeIndex, 'if_true' 
+    elbowColumnX_abs, startY_abs,
+    elbowColumnX_abs, turnY,
+    true, fromNodeIndex, toNodeIndex, 'if_true'
   );
   //   3.b) H: Segmento orizzontale visivo da X del gomito a X del target, alla quota 'turnY'
   drawLine(
     elbowColumnX_abs, turnY,
-    targetX, turnY,          
-    false, fromNodeIndex, toNodeIndex, 'if_true_h_in' 
+    targetX, turnY,
+    false, fromNodeIndex, toNodeIndex, 'if_true_h_in'
   );
   //   3.c) V2: Segmento verticale visivo finale da 'turnY' fino al bordo superiore di 'to'
   drawLine(
-    targetX, turnY,   
-    targetX, targetY, 
-    false, fromNodeIndex, toNodeIndex, 'if_true_v_to_target' 
+    targetX, turnY,
+    targetX, targetY,
+    false, fromNodeIndex, toNodeIndex, 'if_true_v_to_target'
   );
   // Etichetta “T” (True) a metà del primo segmento verticale (V1)
   const midY_for_label = (startY_abs + turnY) / 2;
   ctx.fillStyle = "black";
   ctx.font       = "12px Arial";
   ctx.textAlign  = "center";
-  ctx.fillText(label, elbowColumnX_abs + 20, midY_for_label); 
-  return turnY; 
+  ctx.fillText(label, elbowColumnX_abs + 20, midY_for_label);
+  return turnY;
 }
 
 // Disegna il “ramo false” di un IF fino al nodo di destinazione.
@@ -494,7 +478,7 @@ function drawArrowFromLeft(from, to, label, fromNodeIndex, toNodeIndex) {
     elbowColumnX_abs, startY_abs,
     elbowColumnX_abs, turnY,
     true, fromNodeIndex, toNodeIndex, 'if_false'
-  );   
+  );
   drawLine(
     elbowColumnX_abs, turnY,
     targetX, turnY,

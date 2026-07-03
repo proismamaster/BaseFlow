@@ -7,14 +7,14 @@ function isPointNearAnyLineSegment(px, py, x1, y1, x2, y2, d) {
 
   const ABx = B.x - A.x, ABy = B.y - A.y;  //lunghzza linea
   const APx = P.x - A.x, APy = P.y - A.y;  //spostamento verticale necessario per andare da A a P
-  const magAB2 = ABx * ABx + ABy * ABy; 
-  let t = (APx * ABx + APy * ABy) / magAB2; 
+  const magAB2 = ABx * ABx + ABy * ABy;
+  let t = (APx * ABx + APy * ABy) / magAB2;
   if (t < 0) t = 0;
-  if (t > 1) t = 1; 
+  if (t > 1) t = 1;
 
-  const closest = { x: A.x + ABx * t, y: A.y + ABy * t }; 
+  const closest = { x: A.x + ABx * t, y: A.y + ABy * t };
   const dx = P.x - closest.x, dy = P.y - closest.y;
-  return (dx * dx + dy * dy) <= (d * d); 
+  return (dx * dx + dy * dy) <= (d * d);
 }
 
 // Per un nodo IF, restituisce il nodo di join calcolato dinamicamente.
@@ -93,6 +93,13 @@ function collectBranchNodes(ifIdx) {
     join = cur;
   }
 
+  // Il walk del ramo true prosegue fino a fine catena: rimuove il nodo di join
+  // e tutti i successivi, che non fanno parte del ramo.
+  if (join !== null) {
+    const cut = trueList.indexOf(join);
+    if (cut !== -1) trueList.length = cut;
+  }
+
   return { trueList, falseList, joinIndex: join };
 }
 
@@ -101,30 +108,30 @@ function collectBranchNodes(ifIdx) {
 function findJoinNode(ifNodeIndex) {
     const ifNode = flow.nodes[ifNodeIndex]; //Nodo IF logico
     if (!ifNode || !ifNode.next) return null; // Controllo
-    
+
     let truePathEnd = parseInt(ifNode.next.true); // Indice del nodo target del ramo true
     let falsePathEnd = parseInt(ifNode.next.false); // Indice del nodo target del ramo false
-    
+
     // Controllo per assicurare che i nodi dei rami esistano
     if (!flow.nodes[truePathEnd] || !flow.nodes[falsePathEnd]) return null;
-    
+
     // Trova l'ultimo nodo del ramo true che punta al join node (ifNode.join)
     while (flow.nodes[truePathEnd] && flow.nodes[truePathEnd].next !== ifNode.join) {
         truePathEnd = parseInt(flow.nodes[truePathEnd].next);
         if (isNaN(truePathEnd)) break; // Previene loop infiniti se la struttura è malformata
     }
-    
+
     // Trova l'ultimo nodo del ramo false che punta al join node (ifNode.join)
     while (flow.nodes[falsePathEnd] && flow.nodes[falsePathEnd].next !== ifNode.join) {
         falsePathEnd = parseInt(flow.nodes[falsePathEnd].next);
-        if (isNaN(falsePathEnd)) break; 
+        if (isNaN(falsePathEnd)) break;
     }
-    
+
     // Controlla se i nodi finali dei percorsi sono validi
     if (!flow.nodes[truePathEnd] || !flow.nodes[falsePathEnd]) return null;
-    
+
     // Il nodo di join è il successivo comune; se puntano allo stesso nodo, quello è il join.
-    return flow.nodes[truePathEnd].next === flow.nodes[falsePathEnd].next ? 
+    return flow.nodes[truePathEnd].next === flow.nodes[falsePathEnd].next ?
         parseInt(flow.nodes[truePathEnd].next) : null;
 }
 
@@ -153,7 +160,7 @@ function findParentIf(nodeIndex) {
 
   // Controlla se una stringa è un nome di variabile valido (inizia con lettera, seguita da lettere o numeri).
   function lettereENumeri(str) {
-    return /^[a-zA-Z][a-zA-Z0-9]*$/.test(str); 
+    return /^[a-zA-Z][a-zA-Z0-9]*$/.test(str);
   }
 
 // Verifica se il flowchart è "vuoto" (contiene solo i nodi Start e End di default).
