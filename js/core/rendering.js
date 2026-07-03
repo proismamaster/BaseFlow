@@ -258,8 +258,21 @@ function drawIfBranches(ifIdx, node) {
       );
     }
     if (list.length > 0) {
-      const last = nodi[list[list.length - 1]];
-      drawLine(last.relX * w, last.relY * h + last.height / 2, sideX, reconnectY, false);
+      const lastIdx = list[list.length - 1];
+      const last = nodi[lastIdx];
+      // Arco verticale dall'ultimo nodo del ramo al punto di ricongiunzione:
+      // reso CLICCABILE cosi e' possibile inserire un blocco DOPO l'ultimo del ramo
+      // (prima del join). Escluso il caso di IF annidato come ultimo nodo, gestito
+      // dal proprio arco if_join.
+      const canInsertAfter =
+        sub.joinIndex !== null &&
+        flow.nodes[lastIdx] &&
+        flow.nodes[lastIdx].type !== "if";
+      drawLine(
+        last.relX * w, last.relY * h + last.height / 2,
+        sideX, reconnectY,
+        canInsertAfter, lastIdx, sub.joinIndex, 'normal'
+      );
     }
     drawLine(sideX, reconnectY, cx, reconnectY, false);
   }

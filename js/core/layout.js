@@ -101,9 +101,12 @@ function calcoloY(nodiVisualArray) {
       const reconnectRelY = Math.max(trueDepth, falseDepth) + IF_RECONNECT_GAP_REL;
 
       if (sub.joinIndex !== null && !visited.has(sub.joinIndex)) {
-        const joinTop = reconnectRelY + IF_JOIN_GAP_REL;
-        placeNode(sub.joinIndex, joinTop, col);
-        const joinBottom = nodiVisualArray[sub.joinIndex].relY + (nodiVisualArray[sub.joinIndex].height || NODE_BASE_HEIGHT_PX) / h;
+        // Gap FISSO in px (convertito in relativo con l'h corrente): l'arco finale
+        // dell'IF resta di lunghezza costante e non si allunga quando i rami crescono.
+        // NB: il join viene piazzato una sola volta dentro layoutNode (che chiama placeNode).
+        // Un placeNode esplicito qui lo piazzerebbe due volte, gonfiando maxYAtColumn e
+        // spingendo il join giu' di (altezza + spacing) -> arco che cresce con h. Rimosso.
+        const joinTop = reconnectRelY + IF_JOIN_GAP_PX / h;
         return layoutNode(sub.joinIndex, joinTop, col, visited, stopIdx);
       }
       return reconnectRelY;
