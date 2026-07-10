@@ -8,6 +8,18 @@ function isPointNearAnyLineSegment(px, py, x1, y1, x2, y2, d) {
   const ABx = B.x - A.x, ABy = B.y - A.y;  //lunghzza linea
   const APx = P.x - A.x, APy = P.y - A.y;  //spostamento verticale necessario per andare da A a P
   const magAB2 = ABx * ABx + ABy * ABy;
+  // FIX round-2 P1 (piano 2026-07-06-nested-loops-round2, trovato dal Test 25 di
+  // test-if.js): un segmento DEGENERE (lunghezza zero, es. l'arco 'loop_body' di un
+  // Do-While col corpo gia' non vuoto, vedi rendering.js drawDoWhileBranches) ha
+  // magAB2=0 -- la proiezione "t = .../magAB2" diventa 0/0 = NaN, che si propaga fino
+  // al confronto finale (NaN <= d*d e' sempre false), quindi questa funzione NON
+  // rilevava MAI un click/hover esattamente su un arco degenere, a differenza di
+  // isPointNearLine (usata da clickFreccia) che non soffre dello stesso problema.
+  // Per un segmento degenere la distanza e' semplicemente quella dal punto A (=B).
+  if (magAB2 === 0) {
+    const dx0 = P.x - A.x, dy0 = P.y - A.y;
+    return (dx0 * dx0 + dy0 * dy0) <= (d * d);
+  }
   let t = (APx * ABx + APy * ABy) / magAB2;
   if (t < 0) t = 0;
   if (t > 1) t = 1;
@@ -49,6 +61,28 @@ function collectBranchNodes(ifIdx) {
     return { trueList: [], falseList: [], joinIndex: tStart };
   }
 
+  // BUG B4 (review Fable, 2026-07-04 notte-2): quando un ciclo (While/For/Do) e'
+  // membro di un ramo, il walk deve "vederci attraverso" fino alla sua uscita reale
+  // (next.false) per trovare il vero join -- esattamente come gia' fa per un IF
+  // annidato tramite il suo joinIndex. Senza questo, un ciclo veniva trattato come
+  // un vicolo cieco (il ramo "else { cur = null }" scattava perche' next e' un
+  // oggetto ma il tipo non e' "if"), la ricerca del join falliva silenziosamente:
+  // join sbagliato/fuori colonna, arco mancante dopo il ciclo, diagonali spurie.
+  function nextAfterBranchMember(node, curIdx) {
+    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
+      return collectBranchNodes(curIdx).joinIndex;
+    }
+    if (isBranchingNodeType(node.type) && typeof node.next === "object" && node.next !== null) {
+      const exit = parseInt(node.next.false, 10);
+      return isNaN(exit) ? null : exit;
+    }
+    if (typeof node.next === "string" && node.next !== null) {
+      const n = parseInt(node.next, 10);
+      return isNaN(n) ? null : n;
+    }
+    return null;
+  }
+
   const trueList = [];
   const seenT = new Set();
   let cur = tStart;
@@ -57,14 +91,7 @@ function collectBranchNodes(ifIdx) {
     if (!node) break;
     seenT.add(cur);
     trueList.push(cur);
-    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
-      cur = collectBranchNodes(cur).joinIndex;
-    } else if (typeof node.next === "string" && node.next !== null) {
-      cur = parseInt(node.next, 10);
-      if (isNaN(cur)) cur = null;
-    } else {
-      cur = null;
-    }
+    cur = nextAfterBranchMember(node, cur);
   }
 
   const falseList = [];
@@ -80,14 +107,7 @@ function collectBranchNodes(ifIdx) {
     if (!node) break;
     seenF.add(cur);
     falseList.push(cur);
-    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
-      cur = collectBranchNodes(cur).joinIndex;
-    } else if (typeof node.next === "string" && node.next !== null) {
-      cur = parseInt(node.next, 10);
-      if (isNaN(cur)) cur = null;
-    } else {
-      cur = null;
-    }
+    cur = nextAfterBranchMember(node, cur);
   }
   if (join === null && cur !== null && seenT.has(cur)) {
     join = cur;
@@ -101,6 +121,153 @@ function collectBranchNodes(ifIdx) {
   }
 
   return { trueList, falseList, joinIndex: join };
+}
+
+// Restituisce i confini VERI del sottoalbero di un IF (per drag&drop di un intero
+// blocco, moveIfBlock). NON si puo' assumere che il sottoalbero occupi esattamente
+// l'intervallo [ifIdx, joinIndex): questo e' falso quando un IF annidato converge
+// direttamente sullo STESSO nodo lontano a cui converge anche un suo antenato
+// (nessun nodo di join separato in mezzo) — in quel caso un fratello dell'antenato,
+// posizionato fisicamente fra il sottoalbero e il join condiviso, verrebbe
+// erroneamente incluso in un taglio "a intervallo". Bug reale (screenshot di Ismail,
+// vedi PROBLEMS.md): un IF annidato senza contenuto dopo di se' nel proprio ramo,
+// il cui `joinIndex` coincide con quello di un antenato, "catturava" per errore un
+// fratello dell'antenato fisicamente adiacente. Fix: si espande RICORSIVAMENTE
+// l'appartenenza reale (trueList+falseList, con gli IF annidati espansi a loro
+// volta), si calcola min/max dell'insieme risultante, e si verifica che sia
+// effettivamente contiguo (nessun buco) prima di fidarsene.
+function collectFullIfSubtreeMembers(ifIdx) {
+  const node = flow.nodes[ifIdx];
+  if (!node || node.type !== "if") return null;
+  const members = new Set([ifIdx]);
+  function expand(list) {
+    for (const idx of list) {
+      members.add(idx);
+      const n = flow.nodes[idx];
+      if (n && n.type === "if") {
+        const inner = collectFullIfSubtreeMembers(idx);
+        if (inner) for (const m of inner.sorted) members.add(m);
+      } else if (n && isBranchingNodeType(n.type) && n.type !== "if") {
+        // FIX M1 (review Fable, 2026-07-04 notte-6): un ciclo in un ramo contribuiva
+        // solo con se stesso, mai col suo corpo -- a differenza del gemello
+        // collectFullLoopSubtreeMembers che espande ENTRAMBI (IF e cicli). Senza
+        // questo, il corpo del ciclo restava fuori dai membri del blocco IF: con
+        // rami pieni i membri risultavano non-contigui (move rifiutato in silenzio),
+        // con ramo vuoto risultavano "contigui" ma sbagliati (move corrompeva il
+        // grafo, screenshot Ismail: while.next.true puntava all'IF stesso, End
+        // arruolato nel corpo del loop, corpo orfano a y=0).
+        const innerLoop = collectFullLoopSubtreeMembers(idx);
+        if (innerLoop) for (const m of innerLoop.sorted) members.add(m);
+      }
+    }
+  }
+  const sub = collectBranchNodes(ifIdx);
+  expand(sub.trueList);
+  expand(sub.falseList);
+  const sorted = [...members].sort((a, b) => a - b);
+  const contiguous = sorted.every((v, i) => i === 0 || v === sorted[i - 1] + 1);
+  return { sorted, blockStart: sorted[0], blockEnd: sorted[sorted.length - 1] + 1, contiguous, joinIndex: sub.joinIndex };
+}
+
+// Raccoglie i nodi del CORPO di un ciclo (While/For/Do): a differenza di collectBranchNodes
+// (join in AVANTI di un IF), un ciclo ha un BACK-EDGE che torna alla condizione stessa
+// (loopIdx), non un nodo di join successivo. Cammina lungo next.true dal nodo di corpo
+// finche' non incontra di nuovo loopIdx (fine del corpo) o un vicolo cieco. Un ciclo
+// annidato dentro il corpo viene trattato come unita' opaca (si esce dal suo next.false),
+// analogamente a come un IF annidato viene trattato tramite il suo joinIndex.
+// Restituisce { bodyList, exitIndex }: bodyList = indici del corpo in ordine di esecuzione
+// (vuoto per un corpo ancora self-loop), exitIndex = indice del nodo dopo il ciclo (next.false).
+// FIX A2 (review Fable, 2026-07-05): il piano cicli originale prevedeva un flag
+// `hasBackEdge`/`backEdgeFound` per distinguere un corpo che chiude regolarmente sul
+// ciclo da un corpo che finisce in un vicolo cieco (struttura corrotta) -- perso per
+// strada nell'implementazione. Senza di esso, un flow corrotto (es. il corpo del while
+// che finisce dritto su End invece di tornare al while) veniva accettato in silenzio:
+// il walk si fermava al vicolo cieco e restituiva comunque `bodyList`/`exitIndex` come
+// se fosse tutto normale, "reclamando" nodi come End dentro il corpo del ciclo (arco
+// cliccabile disegnato da End, diagonale spuria attraverso il canvas). Ripristinato:
+// `hasBackEdge` e' true SOLO se il walk e' terminato incontrando di nuovo `loopIdx`
+// (o se il corpo e' vuoto, self-loop diretto -- il back-edge degenere e' immediato).
+function collectLoopBody(loopIdx) {
+  const loopNode = flow.nodes[loopIdx];
+  if (!loopNode || !isBranchingNodeType(loopNode.type) || typeof loopNode.next !== "object" || loopNode.next === null) {
+    return { bodyList: [], exitIndex: null, hasBackEdge: false };
+  }
+  const bodyStart = parseInt(loopNode.next.true, 10);
+  const exitStartRaw = parseInt(loopNode.next.false, 10);
+  const exitIndex = isNaN(exitStartRaw) ? null : exitStartRaw;
+
+  if (isNaN(bodyStart) || bodyStart === loopIdx) {
+    // Corpo vuoto: self-loop diretto sul nodo ciclo stesso -- back-edge banale, presente.
+    return { bodyList: [], exitIndex, hasBackEdge: true };
+  }
+
+  const bodyList = [];
+  const seen = new Set();
+  let cur = bodyStart;
+  while (cur !== null && cur !== loopIdx && !seen.has(cur)) {
+    const node = flow.nodes[cur];
+    if (!node) break;
+    seen.add(cur);
+    bodyList.push(cur);
+    if (node.type === "if" && typeof node.next === "object" && node.next !== null) {
+      // IF annidato nel corpo: entra ed esce dal suo joinIndex (unita' opaca, come nel resto del codice).
+      cur = collectBranchNodes(cur).joinIndex;
+    } else if (isBranchingNodeType(node.type) && typeof node.next === "object" && node.next !== null) {
+      // Ciclo annidato nel corpo: unita' opaca, si prosegue dalla sua uscita (next.false).
+      const inner = parseInt(node.next.false, 10);
+      cur = isNaN(inner) ? null : inner;
+    } else if (typeof node.next === "string" && node.next !== null) {
+      const nxt = parseInt(node.next, 10);
+      cur = isNaN(nxt) ? null : nxt;
+    } else {
+      cur = null;
+    }
+  }
+
+  // Il back-edge e' presente SOLO se il walk si e' fermato ritrovando esattamente
+  // `loopIdx` -- un vicolo cieco (`cur === null`, es. corpo che finisce su End) o un
+  // ciclo che rientra su se stesso senza mai toccare `loopIdx` (`seen.has(cur)`, un
+  // altro tipo di struttura corrotta) NON sono un back-edge valido.
+  const hasBackEdge = (cur === loopIdx);
+
+  return { bodyList, exitIndex, hasBackEdge };
+}
+
+// Restituisce i confini VERI del sottoalbero di un ciclo (While/For/Do), per il futuro
+// drag&drop di un intero blocco While (N6, review Fable 2026-07-04 notte-4, sul modello
+// di collectFullIfSubtreeMembers per l'IF). NON si puo' assumere che [loopIdx, ultimo
+// indice del bodyList] sia un intervallo contiguo: collectLoopBody tratta un IF o un
+// ciclo annidato nel corpo come unita' OPACA (salta dal suo indice al suo joinIndex/
+// uscita), quindi se quell'unita' NON e' l'ultimo membro del corpo, i nodi FISICAMENTE
+// posizionati fra il suo indice e la sua uscita (es. i due rami di un IF interno)
+// restano fuori da bodyList pur facendo parte a tutti gli effetti del blocco -- stesso
+// identico bug-pattern gia' fixato per moveIfBlock (fratelli "catturati" o esclusi per
+// errore da un taglio a intervallo). Fix: si espande RICORSIVAMENTE l'appartenenza reale
+// (bodyList, con IF annidati espansi via collectFullIfSubtreeMembers e cicli annidati
+// espansi ricorsivamente via questa stessa funzione), si calcola min/max dell'insieme
+// risultante, e si verifica che sia effettivamente contiguo prima di fidarsene.
+function collectFullLoopSubtreeMembers(loopIdx) {
+  const node = flow.nodes[loopIdx];
+  if (!node || !isBranchingNodeType(node.type) || node.type === "if") return null;
+  const members = new Set([loopIdx]);
+  function expand(list) {
+    for (const idx of list) {
+      members.add(idx);
+      const n = flow.nodes[idx];
+      if (n && n.type === "if") {
+        const inner = collectFullIfSubtreeMembers(idx);
+        if (inner) for (const m of inner.sorted) members.add(m);
+      } else if (n && isBranchingNodeType(n.type) && n.type !== "if") {
+        const innerLoop = collectFullLoopSubtreeMembers(idx);
+        if (innerLoop) for (const m of innerLoop.sorted) members.add(m);
+      }
+    }
+  }
+  const body = collectLoopBody(loopIdx);
+  expand(body.bodyList);
+  const sorted = [...members].sort((a, b) => a - b);
+  const contiguous = sorted.every((v, i) => i === 0 || v === sorted[i - 1] + 1);
+  return { sorted, blockStart: sorted[0], blockEnd: sorted[sorted.length - 1] + 1, contiguous, exitIndex: body.exitIndex };
 }
 
 // Trova l'indice del nodo di join a cui convergono i rami di un nodo IF.
@@ -146,7 +313,6 @@ function findParentIf(nodeIndex) {
   }
   return -1; // Nessun IF genitore trovato
 }
-
   // Verifica se un punto (clickX, clickY) è "vicino" a un segmento di linea (x1,y1)-(x2,y2).
   function isPointNearLine(clickX, clickY, x1, y1, x2, y2, distanza) {
     let f = false; // Flag: true se il punto è vicino alla linea
@@ -197,3 +363,125 @@ function isEmpty(){
     }
     return false; // Se non trovato secondo la logica sopra
   }
+
+// FIX A1 (review Fable, 2026-07-05): il caricamento file non validava NULLA -- un file
+// salvato durante le settimane dei vecchi bug di corruzione (o comunque semanticamente
+// rotto) veniva assegnato direttamente a `flow` e renderizzato senza battere ciglio
+// (garbage silenzioso: nodi "reclamati" per errore da un ciclo il cui corpo non torna
+// mai indietro, join non calcolabili, nodi irraggiungibili...). Riprodotto col file
+// esatto di Ismail: un while il cui corpo (a causa di un vecchio bug ormai fixato)
+// finisce dritto su End invece di tornare al while -- vedi test-fixtures/
+// corrupted-while-no-backedge.json. `validateFlow(parsed)` va chiamata PRIMA di
+// assegnare `parsed` a `flow`: se il risultato non e' valido, il caricamento va
+// rifiutato (alert con l'elenco leggibile dei problemi) e lo stato corrente lasciato
+// intatto -- nessuna riparazione automatica in questa fase (l'intento originale di un
+// file corrotto e' ambiguo: nel file di Ismail, il corpo doveva tornare al while? o
+// l'uscita era quella? meglio un rifiuto spiegato che un "repair" indovinato male).
+//
+// Restituisce { valid: bool, errors: string[] }. Le funzioni esistenti
+// (collectLoopBody/collectBranchNodes) operano sulla variabile globale `flow`: per
+// riusarle su un `parsed` non ancora commesso, si scambia temporaneamente lo stato
+// globale, poi lo si ripristina SEMPRE (try/finally) prima di restituire il risultato
+// -- il chiamante decide se committare `parsed` solo dopo aver visto un esito valido,
+// questa funzione non lascia mai lo stato globale alterato quando ritorna.
+const VALID_NODE_TYPES = ["start", "end", "input", "output", "print", "write", "read", "assign", "assignment", "if", "while", "for", "do", "comment", "pause", "forward", "turn", "home", "pen", "gclear"];
+
+function validateFlow(parsed) {
+  const errors = [];
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.nodes)) {
+    return { valid: false, errors: ["struttura non valida: \"nodes\" deve essere un array"] };
+  }
+  const nodes = parsed.nodes;
+  const n = nodes.length;
+  if (n === 0) {
+    return { valid: false, errors: ["il flowchart non contiene nessun nodo"] };
+  }
+
+  // 1) Struttura per-nodo: tipo noto, next della forma giusta, indici in range.
+  nodes.forEach((node, i) => {
+    if (!node || typeof node !== "object") { errors.push(`nodo ${i}: non e' un oggetto valido`); return; }
+    if (!VALID_NODE_TYPES.includes(node.type)) { errors.push(`nodo ${i}: tipo sconosciuto "${node.type}"`); return; }
+    if (isBranchingNodeType(node.type)) {
+      if (typeof node.next !== "object" || node.next === null || !("true" in node.next) || !("false" in node.next)) {
+        errors.push(`nodo ${i} (${node.type}): "next" deve essere un oggetto {true,false}`);
+        return;
+      }
+      const t = parseInt(node.next.true, 10), f = parseInt(node.next.false, 10);
+      if (isNaN(t) || t < 0 || t >= n) errors.push(`nodo ${i} (${node.type}): next.true fuori range o non numerico`);
+      if (isNaN(f) || f < 0 || f >= n) errors.push(`nodo ${i} (${node.type}): next.false fuori range o non numerico`);
+    } else if (node.type === "end") {
+      // next puo' legittimamente essere null: nodo terminale.
+    } else {
+      if (typeof node.next !== "string") { errors.push(`nodo ${i} (${node.type}): "next" deve essere una stringa`); return; }
+      const nx = parseInt(node.next, 10);
+      if (isNaN(nx) || nx < 0 || nx >= n) errors.push(`nodo ${i} (${node.type}): next fuori range o non numerico`);
+    }
+  });
+  if (errors.length) return { valid: false, errors };
+
+  // 2) Esattamente un "start", almeno un "end".
+  const startIdxs = [], endIdxs = [];
+  nodes.forEach((node, i) => {
+    if (node.type === "start") startIdxs.push(i);
+    if (node.type === "end") endIdxs.push(i);
+  });
+  if (startIdxs.length !== 1) errors.push(`atteso esattamente un nodo "start", trovati ${startIdxs.length}`);
+  if (endIdxs.length < 1) errors.push("nessun nodo \"end\" trovato");
+  if (errors.length) return { valid: false, errors };
+
+  const savedFlow = (typeof flow !== "undefined") ? flow : undefined;
+  try {
+    flow = { nodes, variables: Array.isArray(parsed.variables) ? parsed.variables : [] };
+
+    const endSet = new Set(endIdxs);
+    const startSet = new Set(startIdxs);
+
+    // 3) Ogni ciclo: il corpo deve chiudersi col back-edge (A2) e non contenere start/end.
+    // 5) Ogni IF: il join deve essere calcolabile (i rami riconvergono).
+    for (let i = 0; i < n; i++) {
+      const node = nodes[i];
+      if (isBranchingNodeType(node.type) && node.type !== "if") {
+        const body = collectLoopBody(i);
+        if (!body.hasBackEdge) {
+          errors.push(`ciclo ${node.type}(${i}): corpo senza back-edge (non torna al ciclo)`);
+        } else {
+          for (const bi of body.bodyList) {
+            if (endSet.has(bi)) errors.push(`ciclo ${node.type}(${i}): il corpo contiene il nodo "end" (indice ${bi})`);
+            if (startSet.has(bi)) errors.push(`ciclo ${node.type}(${i}): il corpo contiene il nodo "start" (indice ${bi})`);
+          }
+        }
+      } else if (node.type === "if") {
+        const sub = collectBranchNodes(i);
+        if (sub.joinIndex === null || sub.joinIndex === undefined) {
+          errors.push(`if(${i}): join non calcolabile (i rami non riconvergono)`);
+        }
+      }
+    }
+
+    // 4) Reachability: ogni nodo deve essere raggiungibile dallo start.
+    const reached = new Set();
+    const stack = [startIdxs[0]];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === null || cur === undefined || cur < 0 || cur >= n || reached.has(cur)) continue;
+      reached.add(cur);
+      const node = nodes[cur];
+      if (!node) continue;
+      if (isBranchingNodeType(node.type)) {
+        const t = parseInt(node.next.true, 10), f = parseInt(node.next.false, 10);
+        if (!isNaN(t)) stack.push(t);
+        if (!isNaN(f)) stack.push(f);
+      } else if (typeof node.next === "string") {
+        const nx = parseInt(node.next, 10);
+        if (!isNaN(nx)) stack.push(nx);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      if (!reached.has(i)) errors.push(`nodo ${i} (${nodes[i].type}): irraggiungibile dallo start`);
+    }
+  } finally {
+    flow = savedFlow;
+  }
+
+  return { valid: errors.length === 0, errors };
+}

@@ -1,4 +1,18 @@
 
+// Rilievo 34: prima di aprire un file, se ci sono modifiche non salvate chiedi conferma.
+function openFileWithGuard() {
+  const inp = document.getElementById('fileInput');
+  if (!inp) return;
+  const dirty = (typeof saved !== 'undefined' && !saved) && !(typeof isEmpty === 'function' && isEmpty());
+  if (dirty && typeof showStyledConfirm === 'function') {
+    const msg = (typeof i18nText === 'function' && i18nText('unsaved')) || 'Ci sono modifiche non salvate. Continuare?';
+    showStyledConfirm(msg, function () { inp.click(); }, { danger: true, okLabel: (typeof i18nText === 'function' && i18nText('yes')) || 'S\u00ec' });
+    return;
+  }
+  inp.click();
+}
+if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
+
   // Listener per l'evento 'change' sull'input di tipo file (per caricare un flowchart).
   document.getElementById('fileInput').addEventListener('change', (event) => {
   const file = event.target.files[0]; // File selezionato dall'utente
@@ -9,6 +23,30 @@
       console.log("Contenuto file:", content);
       try {
         const json = JSON.parse(content); // Parsing del contenuto JSON
+
+        // FIX A1 (review Fable, 2026-07-05): PRIMA di toccare lo stato corrente, si
+        // valida il file appena parsato. Un file salvato durante le settimane dei
+        // vecchi bug di corruzione (o comunque semanticamente rotto) veniva prima
+        // assegnato direttamente a `flow` e renderizzato senza alcun controllo --
+        // garbage silenzioso (nodi "reclamati" per errore da un ciclo il cui corpo
+        // non torna mai al ciclo, join non calcolabili, nodi irraggiungibili...). Se
+        // la validazione fallisce: alert con l'elenco leggibile dei problemi e
+        // caricamento RIFIUTATO, lo stato corrente resta intatto (nessuna riparazione
+        // automatica: l'intento originale di un file corrotto e' ambiguo).
+        if (typeof validateFlow === "function") {
+          const validation = validateFlow(json);
+          if (!validation.valid) {
+            alert(
+              "Impossibile caricare il file: la struttura del flowchart non e' valida.\n\n" +
+              validation.errors.map((e) => "- " + e).join("\n") +
+              "\n\nIl flowchart attualmente aperto non e' stato modificato."
+            );
+            event.target.value = ""; // permette di ri-selezionare lo stesso file
+            return;
+          }
+        }
+
+        if (typeof clearHistory === 'function') clearHistory(); // reset Undo/Redo al caricamento
         flow = json; // Aggiorna la struttura logica 'flow' con quella caricata
 
         // Ricostruisce l'array dei nodi visuali 'nodi' basandosi su flow.nodes
@@ -21,7 +59,7 @@
             width: 100, // Larghezza standard
             height: NODE_BASE_HEIGHT_PX, // Altezza standard
             color: "white", // Colore di default
-            text: tipo.charAt(0).toUpperCase() + tipo.slice(1) // Testo (es. "Start", "If")
+            text: (typeof nodeText === 'function' ? nodeText(tipo) : tipo.charAt(0).toUpperCase() + tipo.slice(1)) // etichetta corretta (Move/Draw, Pen, ...)
           });
         }
 
@@ -55,6 +93,8 @@
 
         calcoloY(nodi); // Ricalcola le posizioni Y
         draw(nodi);     // Ridisegna il flowchart
+        // FIX (Ismail 2026-07-08): centra il grafo caricato nell'area visibile.
+        if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 120); }
         saved = true;   // Considera il flowchart caricato come "salvato"
       } catch (err) {
         alert("Errore nel parsing del file JSON: " + err.message); // Gestione errore parsing

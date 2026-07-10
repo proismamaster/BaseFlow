@@ -1,3 +1,11 @@
+:root {
+  --primary: #6200ea;
+  --primary-dark: #3700b3;
+  --surface: #ede7f6;
+  --accent: #b39ddb;
+  --border: #d1c4e9;
+}
+
 html, body {
   height: 100%;
   margin: 0;
@@ -16,24 +24,46 @@ html, body {
     position: relative; /* Importante per il corretto posizionamento dei popup al suo interno */
     /* Potresti anche voler aggiungere per sicurezza, anche se flex-grow:1 dovrebbe bastare: */
     width: 100%; /* O un min-width: 0; in alcuni casi complessi di flexbox */
+    /* FIX (Ismail 2026-07-08, "non vedo la barra per scorrere orizzontalmente"):
+       #canvas-container e' un elemento del GRID #main. Senza min-width:0 un figlio di
+       grid/flex ha min-width:auto (= larghezza del contenuto) -> con un canvas piu' largo
+       della viewport il container si ALLARGAVA per contenerlo invece di clippare e mostrare
+       la PROPRIA scrollbar orizzontale. Con min-width:0 il container resta nella sua traccia
+       e overflow:auto produce la barra orizzontale. */
+    min-width: 0;
     min-height: 0;
+    padding-top: 14px; /* stacca il canvas dalla toolbar (era il margin-top precedente: causava una riga visibile dovuta al border) */
+    padding-right: 0; /* la copertura del terminale ora e' margin-right (sotto): la scrollbar orizzontale resta nello spazio VISIBILE, non sotto il terminale */
+    margin-right: var(--console-cover-width, 0px);
+    box-sizing: border-box;
+    transition: padding-right 0.15s ease;
     overflow: auto; /* Molto importante: aggiunge le barre di scorrimento quando il contenuto (il canvas) è più grande */
-    border: 1px solid #ccc; /* Opzionale: per vedere i bordi del contenitore scrollabile */
 }
 canvas {
   display: block;
+  margin: 0 auto; /* centra il canvas quando piu' stretto del contenitore (zoom-out) */
 }
 #container {
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
+  min-width: 720px; /* sotto: scrollbar invece di comprimere toolbar/sidebar */
+  /* FIX #4 (Ismail 2026-07-08): #toolbar sta DENTRO #container, quindi il container deve
+     essere alto ESATTAMENTE una viewport (100dvh): toolbar + canvas riempiono lo schermo e
+     il footer dei crediti finisce SOTTO la piega (lo si vede solo scrollando fino in fondo,
+     non e' piu' fisso). Prima era calc(100vh - toolbar) e restava una striscia in basso dove
+     il footer risultava sempre visibile. 100dvh gestisce anche le barre mobili del browser. */
   height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  flex: 0 0 auto;
 }
 
 #help-btn {
-  float: right;
-  margin-left: auto;
+  float: none;
+  margin-left: 0;
   margin-right: 0;
-  background-color: #6200ea;
+  background-color: var(--primary);
   color: #fff;
   border: none;
   padding: 0.5rem 1.3rem;
@@ -47,57 +77,66 @@ canvas {
 }
 
 #help-btn:hover {
-  background-color: #3700b3;
+  background-color: var(--primary-dark);
 }
 
 #toolbar {
-  background-color: #6200ea;
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
   color: white;
-  padding: 0.8vw; 
-  text-align: center;
-  font-size: 1.5vw; 
+  padding: 0.5rem 1rem;
+  /* REFACTOR (Ismail 2026-07-07): da text-align:center + float per l'Help a un layout
+     flex esplicito -- pulsanti allineati verticalmente al centro, spaziatura uniforme
+     (gap), a-capo ordinato su schermi stretti; il gruppo destro (tema + Help) spinto a
+     destra con margin-left:auto sul selettore tema, senza float fragili. */
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: clamp(0.9rem, 0.6rem + 0.5vw, 1.15rem);
   font-weight: bold;
-  box-shadow: 0 0.15vw 0.4vw rgba(0, 0, 0, 0.2);
-  border-bottom: 0.15vw solid #3700b3;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  border-bottom: 2px solid var(--primary-dark);
 }
+#toolbar #logo { height: 2.3rem; width: auto; margin-right: 1.7rem; vertical-align: middle; } /* rilievo 25: logo piu' grande + piu' distante dai pulsanti */
+/* (rimosso #toolbar #theme-select: il tema ora vive nel popup Impostazioni, non in toolbar) */
 
 #toolbar button {
-  background-color: white;
-  color: #6200ea;
+  background-color: #fff;
+  color: var(--primary);
   border: none;
-
-  padding: 0.5rem 1rem; 
-  margin: 0 0.25rem;  
-  border-radius: 0.25rem; 
+  padding: 0.42rem 0.85rem;
+  margin: 0;
+  border-radius: 0.45rem;
   cursor: pointer;
-  font-weight: bold;
- 
-  font-size: 0.9rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.14);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease;
 }
 
 #toolbar button:hover {
-  background-color: #ddd;
+  background-color: #f1ecff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
+#toolbar button:active { transform: translateY(1px); box-shadow: 0 1px 1px rgba(0,0,0,0.12); }
+
+#toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#toolbar button:disabled:hover { background-color: white; }
 
 #main {
   display: grid;
   grid-template-columns: auto 1fr;
-  flex: 1;
-  overflow: hidden;
+  flex: 1 0 auto;
+  overflow: visible;
   min-width: 0;
   height: 100%;
 }
 
-#sidebar {
-  width: 20vw;
-  min-width: 280px; 
-  background-color: #eeeeff;
-  border-right: 1px solid #000000;
-  padding: 0.8rem; 
-  box-shadow: inset -1px 0 2px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-}
 
 #overlay {
   position: fixed;
@@ -119,7 +158,7 @@ canvas {
   max-width: 98vw;
   width: 600px;
   background: #23213a;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.6rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.18), 0 1px 4px rgba(0,0,0,0.13);
   padding: 1.5rem 2rem 1.2rem 2rem;
@@ -135,13 +174,14 @@ canvas {
 
 #console-buttons {
   display: flex;
-  gap: 0.7rem;
+  flex-wrap: wrap;
+  gap: 0.55rem;
   margin-bottom: 0.8rem;
 }
 
 #console-buttons button {
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   border: 1.5px solid #b39ddb;
   border-radius: 0.3rem;
   padding: 0.45rem 1.2rem;
@@ -154,7 +194,7 @@ canvas {
 
 #console-buttons button:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 
 #console-output {
@@ -197,6 +237,7 @@ canvas {
 
 #console-input {
   flex: 1 1 0;
+  min-width: 0; /* FIX #25: puo' rimpicciolirsi cosi' il pulsante Invia resta sempre visibile */
   padding: 0.5rem 1rem;
   border: 1.5px solid #b39ddb;
   border-radius: 0.3rem;
@@ -229,16 +270,18 @@ canvas {
   pointer-events: auto;
   background-color: #f7f5ff;
   color: #23213a;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
 }
 
 #console-input:focus {
-  border-color: #6200ea;
+  border-color: var(--primary);
   outline: none;
 }
 
 #console-send {
-  background: #6200ea;
+  flex: 0 0 auto; /* FIX #25: dimensione fissa, mai compresso/tagliato fuori */
+  white-space: nowrap;
+  background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 0.3rem;
@@ -251,13 +294,24 @@ canvas {
 }
 
 #console-send:hover {
-  background: #3700b3;
+  background: var(--primary-dark);
 }
 
 #overlay.active {
   display: block;
 }
-#python-popup {
+
+/* Con un popup aperto (overlay attivo) lo sfondo non deve scorrere:
+   congela sia la pagina sia il contenitore scrollabile del canvas. */
+body.no-scroll {
+  overflow: hidden;
+}
+body.no-scroll #canvas-container {
+  overflow: hidden;
+}
+/* Popup di export unificato: un solo popup per tutti i formati
+   (Python, JavaScript, C, C++, Java, PNG, JPG, PDF). */
+#export-popup {
   position: fixed;
   top: 50%;
   left: 50%;
@@ -265,7 +319,7 @@ canvas {
   min-width: 420px;
   max-width: 95vw;
   background: #fff;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 2rem 2.5rem 1.5rem 2.5rem;
@@ -276,20 +330,30 @@ canvas {
   gap: 1.2rem;
 }
 
-#python-popup.active {
+#export-popup.active {
   display: flex;
 }
 
-#python-popup h3 {
-  margin: 0 0 1rem 0;
-  color: #6200ea;
+#export-popup h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--primary);
   font-size: 1.3rem;
   font-weight: bold;
   letter-spacing: 0.02em;
   text-align: center;
 }
 
-#python-code {
+#export-format {
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.3rem;
+  border: 1.5px solid #b39ddb;
+  font-size: 0.95rem;
+  background: #fff;
+  color: #23213a;
+}
+
+#export-code {
   width: 100%;
   min-width: 320px;
   max-width: 600px;
@@ -307,14 +371,25 @@ canvas {
   box-sizing: border-box;
 }
 
-#python-popup div {
+#export-preview {
+  width: 100%;
+  max-width: 600px;
+  max-height: 400px;
+  object-fit: contain;
+  border: 1.5px solid #b39ddb;
+  border-radius: 0.3rem;
+  background: #fff;
+  margin-bottom: 1rem;
+}
+
+#export-popup div {
   display: flex;
   gap: 0.7rem;
   justify-content: center;
 }
 
-#python-popup button {
-  background: #6200ea;
+#export-popup button {
+  background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 0.3rem;
@@ -326,33 +401,40 @@ canvas {
   box-shadow: 0 1px 2px rgba(98,0,234,0.06);
 }
 
-#python-popup button:hover {
-  background: #3700b3;
+#export-popup button:hover {
+  background: var(--primary-dark);
   color: #fff;
 }
 
-#python-popup #close-python-btn {
+#export-popup button:disabled {
+  background: #cfcfcf;
+  color: #777;
+  cursor: default;
+  box-shadow: none;
+}
+
+#export-popup #close-export-btn {
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   border: 1px solid #b39ddb;
   margin-left: 0.5rem;
   transition: background 0.2s, color 0.2s;
 }
 
-#python-popup #close-python-btn:hover {
+#export-popup #close-export-btn:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 
 #new-popup {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   min-width: 320px;
   max-width: 90vw;
   background: #fff;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 2rem 2.5rem 1.5rem 2.5rem;
@@ -369,7 +451,7 @@ canvas {
 
 #new-popup p {
   margin: 0 0 1.2rem 0;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1.1rem;
   font-weight: 500;
   text-align: center;
@@ -381,7 +463,7 @@ canvas {
   border: none;
   border-radius: 0.3rem;
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -392,11 +474,11 @@ canvas {
 
 #new-popup button:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 
 #new-popup #save-btn {
-  background: #6200ea;
+  background: var(--primary);
   color: #fff;
   border: none;
   margin-left: 0.5rem;
@@ -404,18 +486,18 @@ canvas {
 }
 
 #new-popup #save-btn:hover {
-  background: #3700b3;
+  background: var(--primary-dark);
 }
 
 #save-popup {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   min-width: 320px;
   max-width: 90vw;
   background: #fff;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 2rem 2.5rem 1.5rem 2.5rem;
@@ -432,7 +514,7 @@ canvas {
 
 #save-popup h3 {
   margin: 0 0 1rem 0;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1.3rem;
   font-weight: bold;
   letter-spacing: 0.02em;
@@ -461,7 +543,7 @@ canvas {
 }
 
 #filename-input:focus {
-  border-color: #6200ea;
+  border-color: var(--primary);
   outline: none;
 }
 
@@ -471,7 +553,7 @@ canvas {
   border: none;
   border-radius: 0.3rem;
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -482,11 +564,11 @@ canvas {
 
 #save-popup button:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 
 #save-popup #save-cancel-btn {
-  background: #6200ea;
+  background: var(--primary);
   color: #fff;
   border: none;
   margin-left: 0.5rem;
@@ -494,18 +576,18 @@ canvas {
 }
 
 #save-popup #save-cancel-btn:hover {
-  background: #3700b3;
+  background: var(--primary-dark);
 }
 
 #edit-node-popup {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   min-width: 340px;
   max-width: 90vw;
   background: #fff;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 2rem 2.5rem 1.5rem 2.5rem;
@@ -522,7 +604,7 @@ canvas {
 
 #edit-node-popup h3 {
   margin: 0 0 1rem 0;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1.3rem;
   font-weight: bold;
   letter-spacing: 0.02em;
@@ -544,7 +626,7 @@ canvas {
 }
 
 #edit-node-input:focus {
-  border-color: #6200ea;
+  border-color: var(--primary);
   outline: none;
 }
 
@@ -555,7 +637,7 @@ canvas {
   border: none;
   border-radius: 0.3rem;
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -571,11 +653,11 @@ canvas {
 
 #edit-node-popup button:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 
 #edit-node-popup #close-edit-popup {
-  background: #6200ea;
+  background: var(--primary);
   color: #fff;
   border: none;
   margin-left: 0.5rem;
@@ -583,18 +665,18 @@ canvas {
 }
 
 #edit-node-popup #close-edit-popup:hover {
-  background: #3700b3;
+  background: var(--primary-dark);
 }
 
 #popup-window {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   min-width: 600px;
   max-width: 98vw;
   background: #fff;
-  border: 2px solid #6200ea;
+  border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 1.2rem 2.5rem 1.2rem 2.5rem;
@@ -639,9 +721,6 @@ canvas {
   }
 }
 
-#popup-window.active {
-  display: flex;
-}
 
 /* Container for the two rows of sections */
 #popup-window .sections-row {
@@ -660,7 +739,7 @@ canvas {
   position: absolute;
   top: 0.7rem;
   right: 0.7rem;
-  background: #6200ea;
+  background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 0.25rem;
@@ -672,7 +751,7 @@ canvas {
 }
 
 #popup-window #close-popup:hover {
-  background: #3700b3;
+  background: var(--primary-dark);
 }
 
 /* Popup Sections Style */
@@ -703,7 +782,7 @@ canvas {
 #popup-window .section h3 {
   margin-top: 0;
   margin-bottom: 0.8rem;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1.2rem;
   font-weight: bold;
   letter-spacing: 0.02em;
@@ -717,7 +796,7 @@ canvas {
   border-radius: 0.3rem;
   background: #ede7f6;
   border: 1px solid black;
-  color: #6200ea;
+  color: var(--primary);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -727,7 +806,7 @@ canvas {
 
 #popup-window .section button:hover {
   background: #d1c4e9;
-  color: #3700b3;
+  color: var(--primary-dark);
 }
 .error-message {
   background-color: #ffebee;
@@ -741,8 +820,8 @@ canvas {
   font-weight: bold;
 }
 #variabiliLabel {
-  border: 1px solid #6200ea; 
-  color: #6200ea;
+  border: 1px solid var(--primary); 
+  color: var(--primary);
   border-radius: 0.3rem;
   padding: .4rem; 
   margin-bottom: 0.8rem;
@@ -750,7 +829,7 @@ canvas {
   cursor: grab;
   font-weight: bold;
   background-color: white;
-  font-size: clamp(1rem, 0.5rem + 1.2vw, 1.5rem);
+  font-size: clamp(0.8rem, 0.6rem + 0.3vw, 1rem);
   width: 100%;
   display: block;
 }
@@ -776,44 +855,36 @@ th, td {
 
 th {
   background-color: #fff;
-  border-color: #6200ea; 
-  color: #6200ea;
+  border-color: var(--primary); 
+  color: var(--primary);
   font-weight: bold;
-  font-size: clamp(0.85rem, 0.4rem + 0.8vw, 1.1rem); 
-  padding: 0.4rem 0;
+  font-size: 0.82rem; 
+  padding: 0.15rem 0;
 }
 
 
 .inputVariable {
   background-color: transparent;
   border: none;
-  font-size: clamp(0.8rem, 0.3rem + 0.7vw, 1rem);
+  font-size: 0.85rem;
   width: 100%;
   height: 100%; 
   box-sizing: border-box;
-  padding: 0.5rem; 
+  padding: 0.2rem 0.35rem; 
   display: block;
   text-align: left;
-  min-height: 2.4rem;
+  min-height: 1.5rem;
 }
 /* Assicura che #credits-section sia sempre in fondo alla pagina, sotto #container */
-#container {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
 
-#main {
-  flex: 1 0 auto;
-}
 
 #credits-section {
   flex-shrink: 0;
   width: 100%;
-  margin-top: auto;
-  background: #6200ea;
+  margin-top: 0;
+  background: var(--primary);
   color: #fff;
-  border-top: 2px solid #6200ea;
+  border-top: 2px solid var(--primary);
   padding: 1.2rem 0;
   text-align: center;
   font-size: 1rem;
@@ -848,13 +919,7 @@ th {
 /* Permetti lo scroll verticale globale per vedere il #credits-section */
 
 
-#container{
-  flex: 1;
-}
 /* Il main non deve bloccare lo scroll globale */
-#main {
-  overflow: visible;
-}
 #github-logo {
   display: inline-block;
   vertical-align: middle;
@@ -875,7 +940,7 @@ th {
 
 #github-logo:hover img {
   box-shadow: 0 2px 8px rgba(98,0,234,0.13);
-  border: 1.5px solid #6200ea;
+  border: 1.5px solid var(--primary);
   background: #fff;
 }
 
@@ -898,7 +963,7 @@ th {
 
 #github-links img:hover {
   box-shadow: 0 2px 8px rgba(98,0,234,0.13);
-  border: 1.5px solid #6200ea;
+  border: 1.5px solid var(--primary);
   background: #fff;
 }
 
@@ -918,16 +983,16 @@ th {
 
 #tabVariabili th, #tabVariabili td {
   border: 1px solid #b39ddb;
-  padding: 0.3rem 0.5rem;
+  padding: 0.15rem 0.3rem;
   background: #fff;
-  font-size: clamp(0.9rem, 0.4rem + 0.8vw, 1.1rem);
+  font-size: 0.82rem;
 }
 
 #tabVariabili th {
   background: #ede7f6;
-  color: #6200ea;
+  color: var(--primary);
   font-weight: bold;
-  border-bottom: 2px solid #6200ea;
+  border-bottom: 2px solid var(--primary);
   letter-spacing: 0.01em;
 }
 
@@ -936,19 +1001,26 @@ th {
   transition: background 0.18s;
 }
 
+/* Visual debugger: flash della riga variabile appena aggiornata da Step/Run */
+#tabVariabili tr.var-updated {
+  background-color: #fff3cd;
+  transition: background-color 0.45s ease;
+}
+
+
 #tabVariabili input.inputVariable,
 #tabVariabili select.inputVariable {
   background: #f7f5ff;
   border: 1px solid #b39ddb;
   border-radius: 0.25rem;
-  padding: 0.3rem 0.5rem;
-  font-size: 1rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.82rem;
   transition: border 0.18s, background 0.18s;
 }
 
 #tabVariabili input.inputVariable:focus,
 #tabVariabili select.inputVariable:focus {
-  border-color: #6200ea;
+  border-color: var(--primary);
   background: #fff;
   outline: none;
 }
@@ -968,10 +1040,10 @@ th {
   background: linear-gradient(135deg, #ede7f6 0%, #eeeeff 100%);
   border-right: 2px solid #b39ddb;
   box-shadow: 2px 0 12px rgba(98,0,234,0.07);
-  padding: 1.2rem 1rem 0.8rem 1.2rem;
-  min-width: 220px;
-  max-width: 520px;
-  width: 22vw;
+  padding: 1.2rem 0.8rem 0.8rem 1rem;
+  min-width: 150px;
+  max-width: 280px;
+  width: 15vw;
   display: flex;
   flex-direction: column;
   gap: 1.2rem;
@@ -981,7 +1053,7 @@ th {
 }
 
 #sidebar h2, #sidebar h3 {
-  color: #6200ea;
+  color: var(--primary);
   margin-top: 0;
   margin-bottom: 0.7em;
   font-weight: bold;
@@ -990,23 +1062,30 @@ th {
 
 #sidebar label,
 #sidebar .section-title {
-  color: #3700b3;
+  color: var(--primary-dark);
   font-weight: 600;
   margin-bottom: 0.4em;
   font-size: 1.05em;
 }
 
+/* FIX TEMA (Ismail 2026-07-09d): la scrollbar della barra variabili era a colori fissi
+   (#ede7f6 / #b39ddb) e non seguiva il tema. Ora usa le variabili del tema attivo. */
+#sidebar { scrollbar-color: var(--primary, #6200ea) color-mix(in srgb, var(--primary) 10%, transparent); scrollbar-width: thin; }
 #sidebar::-webkit-scrollbar {
   width: 8px;
-  background: #ede7f6;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 #sidebar::-webkit-scrollbar-thumb {
-  background: #b39ddb;
+  background: var(--primary, #6200ea);
   border-radius: 4px;
 }
+#sidebar::-webkit-scrollbar-thumb:hover { background: var(--primary-dark, #3700b3); }
+body.dark-mode #sidebar { scrollbar-color: #7c3aed rgba(255,255,255,0.08); }
+body.dark-mode #sidebar::-webkit-scrollbar { background: rgba(255,255,255,0.06); }
+body.dark-mode #sidebar::-webkit-scrollbar-thumb { background: #7c3aed; }
 #logo {
   height: 100%;
-  max-height: 3.2vw;
+  max-height: clamp(30px, 2.6vw, 44px);
   min-height: 40px;
   width: auto;
   vertical-align: middle;
@@ -1018,13 +1097,1753 @@ th {
 }
 
 #logo:hover {
-  filter: drop-shadow(0 4px 16px rgba(98,0,234,0.18)) brightness(1.08);
-  transform: scale(1.04) rotate(-2deg);
+  filter: drop-shadow(0 3px 12px rgba(98,0,234,0.15)) brightness(1.05);
+  transform: scale(1.05);   /* zoom leggero ed elegante, niente rotazione */
   cursor: pointer;
 }
 
 #toolbar button:hover {
-  filter: drop-shadow(0 4px 16px rgba(98,0,234,0.18)) brightness(1.08);
-  transform: scale(1.04) rotate(-2deg);
+  filter: drop-shadow(0 3px 10px rgba(98,0,234,0.16)) brightness(1.06);
+  transform: translateY(-1px);
   cursor: pointer;
 }
+
+/* ---- Item 4: pannello Variabili collassabile ---- */
+#variabiliLabel { cursor: pointer; user-select: none; }
+#variabili-caret { display: inline-block; font-size: 0.8em; }
+#sidebar.collapsed { min-width: 0; width: auto; max-width: none; resize: none; }
+#sidebar.collapsed #tableContainer { display: none; }
+
+/* ---- Item 2: controlli zoom del canvas ---- */
+#zoom-controls {
+  position: fixed;
+  right: var(--zoom-right, 18px);
+  transition: right 0.2s ease, left 0.2s ease;
+  bottom: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 800;
+}
+#zoom-controls button {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(98,0,234,0.30);
+  transition: background 0.18s, transform 0.12s;
+}
+#zoom-controls button:hover { background: var(--primary-dark); transform: scale(1.06); }
+#zoom-reset-btn { font-size: 1.1rem; }
+
+/* ---- Sidebar: chiusura completa + pulsante laterale per riaprire ---- */
+#main { transition: grid-template-columns 0.22s ease; }
+#sidebar { transition: opacity 0.2s ease; }
+#main.sidebar-collapsed { grid-template-columns: 0 1fr; }   /* animazione apri/chiudi */
+#main.sidebar-collapsed #sidebar {
+  opacity: 0;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  resize: none;
+}
+#sidebar-reopen { display: none; }
+#main.sidebar-collapsed #sidebar-reopen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#sidebar-reopen {
+  position: fixed;
+  left: 0;
+  top: 150px;
+  z-index: 850;
+  width: 26px;
+  height: 66px;
+  border: none;
+  border-radius: 0 10px 10px 0;
+  background: var(--primary);
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  box-shadow: 2px 2px 6px rgba(98,0,234,0.30);
+  transition: background 0.18s;
+}
+#sidebar-reopen:hover { background: var(--primary-dark); }
+
+/* Selettore velocità Run nella console */
+#run-speed {
+  background: #ede7f6;
+  color: var(--primary);
+  border: 1.5px solid #b39ddb;
+  border-radius: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ---- Console agganciata come pannello laterale destro ---- */
+#console-popup.docked {
+  /* FIX (Ismail 2026-07-07): la console agganciata partiva da top:0 con height:100vh e
+     z-index alto, quindi copriva la barra header (#toolbar, nel flusso normale in cima)
+     nascondendone i pulsanti. Ora parte SOTTO l'header (--toolbar-height, calcolata in JS
+     da init.js su load/resize) e ne sottrae l'altezza, cosi' non lo copre mai. */
+  top: var(--toolbar-height, 52px);
+  left: auto;
+  right: 0;
+  transform: none;
+  height: calc(100vh - var(--toolbar-height, 52px));
+  width: min(300px, 94vw);   /* piu' magra di default */
+  min-width: 210px;
+  /* FIX (Ismail 2026-07-07): la console agganciata e' allargabile (resize orizzontale);
+     con max-width 92vw poteva estendersi a sinistra fino a coprire la tabella VARIABLES
+     (#sidebar, a sinistra). Ora il tetto lascia sempre spazio alla sidebar (--sidebar-width,
+     calcolata in JS in init.js) piu' un margine, cosi' non la copre mai. */
+  /* FIX (Ismail 2026-07-07): oltre alla sidebar, riserva ~320px per il grafo cosi' che,
+     con terminale + tabella variabili aperti, restino visibili almeno Start/End e un
+     margine laterale. Il floor min-width (sopra) evita che la console sparisca su schermi
+     stretti. */
+  max-width: calc(100vw - var(--sidebar-width, 240px) - 320px);
+  border-radius: 0;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  resize: horizontal;        /* ridimensionabile in larghezza come la sidebar */
+  overflow: auto;
+  background: linear-gradient(135deg, #ede7f6 0%, #eeeeff 100%); /* tema chiaro coerente */
+  color: #333;
+  padding: 0.8rem;
+  gap: 0.7rem;
+}
+#console-output { transition: font-size 0.12s ease; }
+#console-popup.docked #console-output {
+  max-height: none;
+  flex: 1 1 auto;
+  background: #fff;
+  color: #333;
+  border-color: #b39ddb;
+}
+#console-popup.docked #console-output p.error {
+  background: #ffebee;
+  color: #c62828;
+  border-left-color: #c62828;
+}
+#console-popup.docked #console-input,
+#console-popup.docked #console-input.active {
+  background: #fff;
+  color: #333;
+}
+#console-buttons { flex-wrap: wrap; align-items: center; }
+#console-dock {
+  background: #ede7f6;
+  color: var(--primary);
+  border: 1.5px solid #b39ddb;
+  border-radius: 0.3rem;
+  padding: 0.45rem 0.9rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+#console-dock:hover { background: #d1c4e9; color: var(--primary-dark); }
+
+/* ---- Console laterale: tasti ordinati e riga input ben visibile ---- */
+#console-popup.docked {
+  padding: 0.7rem 0.8rem 1.3rem 0.8rem;   /* piu' spazio in basso: input non coperto */
+  box-sizing: border-box;
+}
+#console-popup.docked #console-buttons {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+  margin-top: 0.2rem;
+  padding-right: 2.1rem; /* FIX #24: lascia spazio alla X in alto a destra, non copre Reset */
+  align-items: stretch;
+}
+#console-popup.docked #console-buttons button,
+#console-popup.docked #console-buttons select {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+  border-radius: 0.35rem;
+  flex: 1 1 auto;
+  min-width: 62px;
+  box-shadow: none;
+}
+#console-popup.docked #run-speed { flex: 1 1 100%; }   /* selettore velocita' su riga propria */
+
+/* ---- Maniglia di resize del pannello console (piu' affidabile del "resize"
+   CSS nativo su un pannello full-height ancorato a destra: qui trasciniamo il
+   bordo sinistro e il grafo si ricentra in tempo reale, vedi execute.js) ---- */
+#console-resize-handle {
+  display: none;
+  position: absolute;
+  left: -4px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 10;
+  transition: background 0.15s;
+}
+#console-popup.docked #console-resize-handle {
+  display: block;
+}
+#console-resize-handle:hover,
+#console-resize-handle.active-resize {
+  background: rgba(98, 0, 234, 0.35);
+}
+body.dark-mode #console-resize-handle:hover,
+body.dark-mode #console-resize-handle.active-resize {
+  background: rgba(179, 157, 219, 0.35);
+}
+#console-popup.docked #console-input-section {
+  margin-top: 0.3rem;
+  margin-bottom: 0.2rem;
+  gap: 0.4rem;
+}
+#console-popup.docked #console-send {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* ============================================================
+   Dark mode e temi custom
+   Attivato con la classe 'dark-mode' su <body> (vedi js/core/theme.js).
+   I colori dei nodi/linee sul canvas si adattano via themeCanvasLineColor()
+   in rendering.js; qui copriamo le superfici HTML.
+
+   Palette dark coerente (stessa tinta viola del tema, solo piu' scura):
+   - sfondo pagina/superfici:        #121212 (piu' scuro) / #1a1a1a / #1e1a2e (pannelli)
+   - superfici "card" (popup/celle):  #241f38
+   - bordi:                          #4a4066 (variante scura di --border)
+   - testo principale:               #e8e6f0
+   - "secondario" (bottoni chiari):  sfondo #2a2444, testo #c9a9fa (variante scura di --surface/--primary)
+   ============================================================ */
+body.dark-mode {
+  background-color: #121212;
+  color: #e8e6f0;
+}
+
+body.dark-mode #canvas-container {
+  background-color: #1a1a1a;
+}
+
+/* ---- Toolbar: pulsanti bianchi -> superficie scura coerente ---- */
+body.dark-mode #toolbar button {
+  background-color: #2a2444;
+  color: #c9a9fa;
+}
+body.dark-mode #toolbar button:hover {
+  background-color: #3a3260;
+  color: #e8e6f0;
+}
+body.dark-mode #toolbar button:disabled:hover {
+  background-color: #2a2444;
+}
+body.dark-mode #dark-mode-btn {
+  background-color: #2a2444;
+  color: #ffd54f;
+}
+body.dark-mode #dark-mode-btn:hover {
+  background-color: #3a3260;
+}
+
+/* ---- Sidebar Variabili (pannello + tabella + colonne) ---- */
+body.dark-mode #sidebar {
+  background: #1a1a1a;
+  border-right-color: #4a4066;
+}
+
+body.dark-mode #sidebar h2, body.dark-mode #sidebar h3,
+body.dark-mode #sidebar label, body.dark-mode #sidebar .section-title {
+  color: #c9a9fa;
+}
+
+body.dark-mode #variabiliLabel {
+  background-color: #241f38;
+  color: #c9a9fa;
+  border-color: #6a4fb3;
+}
+
+body.dark-mode #sidebar-reopen {
+  background-color: #6200ea;
+  color: #fff;
+}
+body.dark-mode #sidebar-reopen:hover { background-color: #7c3aed; }
+
+body.dark-mode #tabVariabili {
+  background: #1e1a2e;
+}
+
+body.dark-mode #tabVariabili th, body.dark-mode #tabVariabili td {
+  background: #241f38;
+  border-color: #4a4066;
+  color: #e8e6f0;
+}
+
+body.dark-mode #tabVariabili th {
+  background: #2a2444;
+  color: #c9a9fa;
+  border-bottom-color: #8a6fd1;
+}
+
+body.dark-mode #tabVariabili tr:not(:last-child):hover {
+  background: #2f2850;
+}
+
+body.dark-mode #tabVariabili tr.var-updated {
+  background-color: #4a3d00;
+}
+
+body.dark-mode #tabVariabili input.inputVariable,
+body.dark-mode #tabVariabili select.inputVariable {
+  background: #241f38;
+  color: #e8e6f0;
+  border-color: #6a4fb3;
+}
+body.dark-mode #tabVariabili input.inputVariable:focus,
+body.dark-mode #tabVariabili select.inputVariable:focus {
+  background: #2f2850;
+  border-color: #b39ddb;
+}
+body.dark-mode #tabVariabili .error-message,
+body.dark-mode .error-message {
+  background: #3a1f1f;
+  color: #ff8a80;
+  border-color: #c62828;
+}
+
+/* ---- Popup generici (edit-node, save, new, export, popup-window) ---- */
+body.dark-mode #edit-node-popup,
+body.dark-mode #save-popup,
+body.dark-mode #new-popup,
+body.dark-mode #export-popup,
+body.dark-mode #popup-window {
+  background: #1e1a2e;
+  color: #e8e6f0;
+  border-color: #6a4fb3;
+}
+
+body.dark-mode #edit-node-popup h3,
+body.dark-mode #save-popup h3,
+body.dark-mode #export-popup h3,
+body.dark-mode #popup-window .section h3,
+body.dark-mode #new-popup p,
+body.dark-mode #save-popup label {
+  color: #c9a9fa;
+}
+
+/* Campi di input/select/textarea dentro ai popup: stessa superficie scura ovunque */
+body.dark-mode #edit-node-input,
+body.dark-mode #filename-input,
+body.dark-mode #export-code,
+body.dark-mode #export-format,
+body.dark-mode #console-input {
+  background: #121212;
+  color: #e8e6f0;
+  border-color: #6a4fb3;
+}
+body.dark-mode #export-preview {
+  background: #1a1a1a;
+  border-color: #6a4fb3;
+}
+body.dark-mode #edit-node-input:focus,
+body.dark-mode #filename-input:focus,
+body.dark-mode #console-input:focus {
+  border-color: #b39ddb;
+}
+
+/* Pulsanti "secondari" (sfondo chiaro lavanda + testo viola nel tema chiaro):
+   in dark mode diventano sfondo viola scuro + testo lavanda, stesso contrasto. */
+body.dark-mode #new-popup button,
+body.dark-mode #save-popup button,
+body.dark-mode #edit-node-popup button,
+body.dark-mode #popup-window .section button,
+body.dark-mode #export-popup #close-export-btn,
+body.dark-mode #console-buttons button,
+body.dark-mode #console-dock,
+body.dark-mode #run-speed {
+  background: #2a2444;
+  color: #c9a9fa;
+  border-color: #6a4fb3;
+}
+body.dark-mode #new-popup button:hover,
+body.dark-mode #save-popup button:hover,
+body.dark-mode #edit-node-popup button:hover,
+body.dark-mode #popup-window .section button:hover,
+body.dark-mode #export-popup #close-export-btn:hover,
+body.dark-mode #console-buttons button:hover,
+body.dark-mode #console-dock:hover {
+  background: #3a3260;
+  color: #e8e6f0;
+}
+body.dark-mode #export-popup button:disabled {
+  background: #333;
+  color: #888;
+}
+
+/* I pulsanti "pieni" (sfondo viola pieno + testo bianco: Save/Close/Delete/zoom)
+   restano identici: gia' hanno buon contrasto su qualunque sfondo di pagina. */
+
+body.dark-mode #popup-window .section {
+  background: #241f38;
+  border-color: #4a4066;
+}
+
+/* ---- Console (popup centrale E agganciata a destra) ---- */
+body.dark-mode #console-popup {
+  background: #1a1730;
+  border-color: #6a4fb3;
+}
+body.dark-mode #console-popup.docked {
+  background: #1a1a1a;
+  color: #e8e6f0;
+}
+body.dark-mode #console-output,
+body.dark-mode #console-popup.docked #console-output {
+  background: #0f0f0f;
+  color: #e8e6f0;
+  border-color: #4a4066;
+}
+body.dark-mode #console-popup.docked #console-input,
+body.dark-mode #console-popup.docked #console-input.active {
+  background: #121212;
+  color: #e8e6f0;
+}
+body.dark-mode #console-input.active {
+  background: #1e1a2e;
+  color: #e8e6f0;
+}
+
+/* ---- Footer ---- */
+body.dark-mode #credits-section {
+  background: #181818;
+  color: #bbb;
+}
+
+/* ---- Canvas zoom "+/-/reset" (sfondo pieno, gia' a buon contrasto: nessun cambio) ---- */
+
+
+/* ============================================================
+   Temi aggiuntivi (Ismail 2026-07-07): 'retro' (sepia caldo) e 'bw' (monocromo).
+   Rimappano le variabili di tema (--primary ecc.) gia' usate da toolbar/pulsanti/bordi,
+   piu' lo sfondo pagina e un filtro CSS sul canvas per tingere/desaturare il grafo senza
+   toccare i colori dei nodi in state.js (reversibile, zero rischio sul rendering).
+   ============================================================ */
+body.theme-retro {
+  --primary: #a85b1b;
+  --primary-dark: #6d3a0f;
+  --surface: #f3e2c2;
+  --accent: #cf9b53;
+  --border: #d8c19a;
+  background-color: #f5ecd6;
+  color: #3a2a17;
+}
+body.theme-retro #canvas-container { background-color: #f5ecd6; }
+body.theme-retro #canvas { filter: sepia(0.4) saturate(1.15) hue-rotate(-8deg); }
+body.theme-retro #console-popup.docked {
+  background: linear-gradient(135deg, #f3e2c2 0%, #efe0bf 100%);
+  color: #3a2a17;
+}
+
+body.theme-bw {
+  --primary: #2b2b2b;
+  --primary-dark: #000000;
+  --surface: #e9e9e9;
+  --accent: #8a8a8a;
+  --border: #c2c2c2;
+  background-color: #ffffff;
+  color: #1a1a1a;
+}
+body.theme-bw #canvas-container { background-color: #fafafa; }
+/* B/N: i nodi sono resi bianchi direttamente in rendering.js (fill white); niente filtro
+   grayscale sul canvas, cosi' linee/testo restano neri e nitidi. */
+body.theme-bw #console-popup.docked {
+  background: linear-gradient(135deg, #ececec 0%, #f6f6f6 100%);
+  color: #1a1a1a;
+}
+body.theme-bw #toolbar button { color: #2b2b2b; }
+
+/* Il selettore tema nella toolbar: stile coerente coi pulsanti */
+#theme-select, #lang-select {
+  background-color: #fff;
+  color: var(--primary);
+  border: none;
+  padding: 0.42rem 0.6rem;
+  border-radius: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.14);
+}
+body.dark-mode #theme-select { background-color: #2a2444; color: #c9a9fa; }
+
+
+/* ============================================================
+   Redesign pulsanti terminale (Ismail 2026-07-07): chip puliti e coerenti con la header,
+   azione primaria (Execute) evidenziata, Stop in rosso, hover/active fluidi.
+   ============================================================ */
+#console-buttons button {
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease, color 0.15s ease;
+}
+#console-buttons button:hover { background: #f3efff; box-shadow: 0 2px 6px rgba(0,0,0,0.16); }
+#console-buttons button:active { transform: translateY(1px); box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+#console-exe { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; }
+#console-exe:hover { background: var(--primary-dark) !important; }
+#console-stop { color: #c62828 !important; border-color: #e6a3a3 !important; }
+#console-stop:hover { background: #fdeaea !important; color: #a51919 !important; }
+#run-speed {
+  border-radius: 0.45rem; border: 1px solid var(--border);
+  font-weight: 600; color: var(--primary); background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+/* pulsanti piccoli (zoom carattere / save log): stessa famiglia, un filo piu' compatti */
+#console-font-dec, #console-font-inc { font-weight: 700; min-width: 40px; }
+#console-download { min-width: 78px; }
+body.dark-mode #console-buttons button { background: #241f38; color: #c9a9fa; border-color: #4a4066; }
+body.dark-mode #console-buttons button:hover { background: #322a52; }
+body.dark-mode #run-speed { background: #241f38; color: #c9a9fa; border-color: #4a4066; }
+
+
+/* Cella VALORE variabile: input a piena larghezza + pulsante lucchetto piccolo inline
+   (Ismail 2026-07-07). Il valore e' readonly finche' non si sblocca col lucchetto. */
+.value-cell { display: flex; align-items: center; gap: 3px; width: 100%; }
+.value-cell .value-input { flex: 1 1 auto; min-width: 0; }
+.value-cell .value-input[readonly] { cursor: default; color: #555; }
+.value-lock {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer;
+  font-size: 0.8rem; line-height: 1; padding: 1px 2px; border-radius: 4px;
+  opacity: 0.65; transition: opacity 0.15s, background 0.15s;
+}
+.value-lock:hover { opacity: 1; background: rgba(98,0,234,0.1); }
+body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
+
+
+/* ============================================================
+   Responsive (Ismail 2026-07-07): pass CONSERVATIVA -- non ristruttura il grid #main
+   (sidebar auto + canvas 1fr), rilassa solo i vincoli che rompevano su schermi stretti
+   (il min-width fisso del container forzava lo scroll orizzontale) e riduce le spaziature.
+   La sidebar variabili resta comprimibile/collassabile col suo toggle anche su mobile.
+   ============================================================ */
+@media (max-width: 760px) {
+  #container { min-width: 0; }
+  #toolbar { padding: 0.35rem 0.5rem; gap: 0.28rem; }
+  #toolbar button, #theme-select { padding: 0.34rem 0.55rem; font-size: 0.76rem; }
+  #toolbar #logo { height: 1.55rem; margin-right: 0.2rem; }
+  /* console agganciata: su schermi stretti usa piu' larghezza ma lascia un margine
+     (il tetto desktop 100vw - sidebar - 320 diventerebbe troppo piccolo qui). */
+  #console-popup.docked { width: min(86vw, 360px); max-width: 92vw; }
+  #console-buttons button { padding: 0.32rem 0.5rem; font-size: 0.78rem; }
+}
+@media (max-width: 520px) {
+  #toolbar button, #theme-select { font-size: 0.7rem; padding: 0.3rem 0.44rem; }
+  #toolbar #logo { height: 1.3rem; }
+  #console-popup.docked { width: 90vw; max-width: 94vw; }
+  #console-buttons { gap: 0.28rem; }
+  /* tabella variabili: font e padding piu' compatti per stare in colonne strette */
+  #tabVariabili th, #tabVariabili td { font-size: 0.76rem; padding: 0.12rem 0.2rem; }
+}
+/* Puntatori "coarse" (touch): target un filo piu' grandi per il tocco */
+@media (pointer: coarse) {
+  #toolbar button, #console-buttons button, #theme-select { min-height: 34px; }
+  .value-lock { padding: 4px 6px; }
+}
+
+
+/* ============================================================
+   Palette d'inserimento riorganizzata (Ismail 2026-07-07) -- categorie Interaction / Math
+   / Selection / Loops / Tools, con pulsanti a FORMA colorata coerenti coi nodi sul canvas.
+   ============================================================ */
+#popup-window .palette-grid {
+  display: flex; flex-wrap: wrap; gap: 1.1rem; width: 100%; align-items: flex-start;
+}
+#popup-window .palette-grid .section {
+  background: transparent; box-shadow: none; border: none; padding: 0.2rem 0.4rem;
+  min-width: 120px; margin: 0; align-items: center;
+}
+#popup-window .palette-grid .section h3 {
+  font-size: 1rem; color: #555; font-weight: 600; letter-spacing: 0.02em;
+  margin: 0 0 0.6rem 0; text-align: center; width: 100%;
+}
+.blk {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 108px; min-height: 48px; margin: 0.34rem 0; padding: 0.5rem 1.1rem;
+  color: #14202e; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  border: none; background: transparent; box-shadow: none; z-index: 0;
+  --blk-c: #e0e0e0;
+  transition: transform 0.09s ease, filter 0.15s ease;
+}
+/* La FORMA (colore + contorno) sta sul ::before: il testo del pulsante resta sopra e non
+   viene mai tagliato dal clip-path. Il contorno e' reso con un drop-shadow sottile. */
+.blk::before {
+  content: ''; position: absolute; inset: 0; background: var(--blk-c); z-index: -1;
+  filter: drop-shadow(0 0 0.6px #2a2a2a) drop-shadow(0 1px 1px rgba(0,0,0,0.18));
+}
+.blk:hover { transform: translateY(-1px); filter: brightness(0.96); }
+.blk:active { transform: translateY(1px); }
+.blk-parallelogram { padding: 0.5rem 1.7rem; }
+.blk-parallelogram::before { clip-path: polygon(15% 0, 100% 0, 85% 100%, 0 100%); }
+.blk-rect::before { border-radius: 4px; }
+.blk-diamond { min-width: 116px; min-height: 72px; padding: 0.5rem 1.3rem; }
+.blk-diamond::before { clip-path: polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%); }
+.blk-hex { padding: 0.5rem 1.5rem; }
+.blk-hex::before { clip-path: polygon(13% 0, 87% 0, 100% 50%, 87% 100%, 13% 100%, 0 50%); }
+.blk-dashed { color: #444; }
+.blk-dashed::before { border: none; filter: none; } /* tratteggio unico: lo fa gia' l'SVG di sfondo del commento */
+/* colori coerenti con NODE_COLORS (state.js) */
+.blk-input  { --blk-c: #b0bec5; }
+.blk-output { --blk-c: #90caf9; }
+.blk-assign { --blk-c: #fff59d; }
+.blk-if     { --blk-c: #ce93d8; }
+.blk-do     { --blk-c: #9fa8da; }
+.blk-while  { --blk-c: #80cbc4; }
+.blk-for    { --blk-c: #ffcc80; }
+.blk-comment{ --blk-c: #fafafa; }
+.blk-pause  { --blk-c: #f48fb1; }
+.blk-forward { --blk-c: #a5d6a7; padding: 0.5rem 1.5rem 0.5rem 1.1rem; }
+.blk-forward::before { clip-path: polygon(0 0, 78% 0, 100% 50%, 78% 100%, 0 100%); }
+.blk-turn { --blk-c: #ffe082; padding: 0.5rem 1.6rem; }
+.blk-turn::before { clip-path: polygon(0 50%, 16% 0, 84% 0, 100% 50%, 84% 100%, 16% 100%); }
+.blk-home { --blk-c: #ffd54f; padding: 0.6rem 1.2rem 0.5rem; }
+.blk-home::before { clip-path: polygon(50% 0, 100% 42%, 100% 100%, 0 100%, 0 42%); }
+.blk-pen { --blk-c: #80deea; }
+.blk-gclear { --blk-c: #cfd8dc; }
+
+@media (max-width: 640px) {
+  #popup-window .palette-grid { gap: 0.5rem; }
+  #popup-window .palette-grid .section { min-width: 96px; }
+  .blk { min-width: 84px; min-height: 40px; font-size: 0.8rem; padding: 0.4rem 0.7rem; }
+}
+
+
+/* ============================================================
+   Temi aggiuntivi ispirati a Flowgorithm (Ismail 2026-07-07):
+   Ocean e High-Contrast (chiari), Chalkboard e Neon (scuri, su base .dark-mode).
+   ============================================================ */
+/* --- Ocean (chiaro, blu) --- */
+body.theme-ocean {
+  --primary: #0277bd; --primary-dark: #01579b; --surface: #e1f5fe; --accent: #4fc3f7; --border: #b3e5fc;
+  background-color: #e9f5fc; color: #0d3550;
+}
+body.theme-ocean #canvas-container { background-color: #ecf7fd; }
+body.theme-ocean #canvas { filter: saturate(1.05) hue-rotate(-6deg); }
+
+/* --- High-Contrast (chiaro, nero/bianco, bordi forti) --- */
+body.theme-contrast {
+  --primary: #000000; --primary-dark: #000000; --surface: #ffffff; --accent: #ffd400; --border: #000000;
+  background-color: #ffffff; color: #000000;
+}
+body.theme-contrast #toolbar button, body.theme-contrast #theme-select { border: 2px solid #000; }
+body.theme-contrast #tabVariabili th, body.theme-contrast #tabVariabili td { border-color: #000; }
+body.theme-contrast .blk { border: 2px solid #000; }
+
+/* --- Chalkboard (scuro verde lavagna; eredita .dark-mode) --- */
+body.theme-chalk { --primary: #a5d6a7; --primary-dark: #81c784; --accent: #80cbc4; background-color: #22302a; }
+body.theme-chalk #canvas-container { background-color: #26352e; }
+body.theme-chalk #toolbar { background: linear-gradient(180deg, #33463c 0%, #223029 100%); }
+body.theme-chalk #toolbar button, body.theme-chalk #theme-select { background: #2f4038; color: #cdeccd; }
+body.theme-chalk #toolbar button:hover { background: #3c5248; }
+body.theme-chalk #canvas { filter: none; }
+
+/* --- Neon (scuro, accenti vivaci; eredita .dark-mode) --- */
+body.theme-neon { --primary: #ff2e97; --primary-dark: #c81e78; --accent: #00e5ff; background-color: #0d0221; }
+body.theme-neon #canvas-container { background-color: #120430; }
+body.theme-neon #toolbar { background: linear-gradient(180deg, #23104a 0%, #0d0221 100%); box-shadow: 0 2px 14px rgba(255,46,151,0.35); }
+body.theme-neon #toolbar button, body.theme-neon #theme-select { background: #1e0f3d; color: #4dffe4; box-shadow: 0 0 6px rgba(0,229,255,0.25); }
+body.theme-neon #toolbar button:hover { background: #2a1553; color: #ff7ac1; }
+body.theme-neon #canvas { filter: saturate(1.15) brightness(1.03); }
+
+
+/* ============================================================
+   Terminale FLOTTANTE (popup, non agganciato) responsive + pulsanti ordinati
+   (Ismail 2026-07-07). Su schermi stretti diventa quasi a tutta larghezza, scrollabile,
+   con i pulsanti che vanno a capo puliti.
+   ============================================================ */
+#console-popup:not(.docked) {
+  width: min(600px, 94vw);
+  max-width: 94vw;
+  max-height: 88vh;
+  overflow: auto;
+}
+#console-popup:not(.docked) #console-output {
+  max-height: 46vh;
+}
+@media (max-width: 640px) {
+  #console-popup:not(.docked) {
+    width: 94vw; min-width: 0; padding: 1rem 1.1rem; gap: 0.7rem;
+  }
+  #console-popup:not(.docked) #console-buttons { gap: 0.35rem; }
+  #console-popup:not(.docked) #console-buttons button,
+  #console-popup:not(.docked) #console-buttons select { flex: 1 1 auto; min-width: 64px; font-size: 0.8rem; padding: 0.34rem 0.5rem; }
+  #console-popup:not(.docked) #console-output { max-height: 40vh; }
+  #console-popup:not(.docked) #console-input-section { flex-wrap: wrap; gap: 0.4rem; }
+  #console-popup:not(.docked) #console-input { flex: 1 1 100%; }
+}
+/* Touch: bottoni del terminale un filo piu' alti */
+@media (pointer: coarse) {
+  #console-buttons button, #console-send { min-height: 34px; }
+}
+
+#lang-select { margin-left: 0.1rem; }
+body.dark-mode #lang-select { background-color: #2a2444; color: #c9a9fa; }
+
+
+/* Colori disegnati sul canvas che seguono il tema (Ismail 2026-07-07): etichette
+   True/False degli IF/While e colore di evidenziazione al passaggio/selezione. Letti da
+   rendering.js via getComputedStyle (cssVar). --canvas-line-color non serve impostarlo se
+   va bene il default (nero su temi chiari, chiaro sui temi scuri, gia' gestito nel fallback). */
+:root {
+  --if-true-color: #2e7d32;
+  --exec-node-color: #ff9800; /* bordo del nodo in esecuzione (#12) */
+  --exec-edge-color: #ff9800; /* arco percorso durante l'esecuzione (#12) */
+  --if-false-color: #c62828;
+  --arc-hover-color: #e53935;
+  --arc-drag-color: #1e88e5;
+  --exec-error-color: #e53935; /* riempimento blocco con contenuto invalido */
+  /* MIGLIORIA #43: colori dei NODI centralizzati (l'editor di tema li puo' ridefinire). */
+  --node-start: #66bb6a; --node-end: #ef5350;
+  --node-input: #b0bec5; --node-read: #b0bec5;
+  --node-output: #90caf9; --node-print: #90caf9; --node-write: #90caf9;
+  --node-assign: #fff59d; --node-assignment: #fff59d;
+  --node-if: #ce93d8; --node-while: #80cbc4; --node-for: #ffcc80; --node-do: #9fa8da;
+  --node-comment: #fafafa; --node-pause: #f48fb1;
+  --node-forward: #a5d6a7; --node-turn: #ffe082; --node-home: #ffd54f; --node-pen: #80deea; --node-gclear: #cfd8dc;
+}
+body.dark-mode  { --arc-hover-color: #ff5252; --canvas-line-color: #e6e6e6; }
+body.theme-ocean { --arc-hover-color: #0277bd; --if-true-color: #00695c; --if-false-color: #c62828; --arc-drag-color: #01579b; }
+body.theme-contrast { --if-true-color: #006400; --if-false-color: #b30000; --arc-hover-color: #000000; --arc-drag-color: #000000; --canvas-line-color: #000000; }
+body.theme-chalk { --if-true-color: #b9f6ca; --if-false-color: #ff8a80; --arc-hover-color: #ffd54f; --arc-drag-color: #80cbc4; --exec-node-color: #ffd54f; --exec-edge-color: #ffd54f; --canvas-line-color: #e8f0ea; }
+body.theme-neon  { --if-true-color: #5dffa0; --if-false-color: #ff6b9d; --arc-hover-color: #ff2e97; --arc-drag-color: #00e5ff; --exec-node-color: #ffe14d; --exec-edge-color: #ffe14d; --canvas-line-color: #b9a8ff; }
+body.theme-retro { --if-true-color: #5b7a2e; --if-false-color: #a8431b; --arc-hover-color: #c0622a; }
+
+
+/* Pulsanti di chiusura a "X" (Ismail 2026-07-07) + indicatore modifiche non salvate. */
+.x-close {
+  background: rgba(0,0,0,0.08); color: inherit; border: none; border-radius: 50%;
+  width: 30px; height: 30px; font-size: 1.35rem; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  transition: background 0.15s, transform 0.08s;
+}
+.x-close:hover { background: rgba(0,0,0,0.18); }
+.x-close:active { transform: scale(0.92); }
+.console-x {
+  position: absolute; top: 0.5rem; right: 0.6rem; z-index: 14;
+  background: rgba(0,0,0,0.1); color: var(--primary);
+}
+#console-popup.docked .console-x { color: var(--primary); }
+#console-popup:not(.docked) .console-x { color: #f0eefc; background: rgba(255,255,255,0.14); }
+#console-popup:not(.docked) .console-x:hover { background: rgba(255,255,255,0.3); }
+body.dark-mode #console-popup.docked .console-x { color: #c9a9fa; background: rgba(255,255,255,0.1); }
+/* la X della palette riusa la posizione top-right gia' definita su #close-popup */
+#popup-window #close-popup { width: 32px; height: 32px; border-radius: 50%; font-size: 1.4rem; line-height: 1; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+#unsaved-indicator {
+  color: #fff; font-size: 0.72rem; margin-right: 0.15rem; vertical-align: middle; cursor: default;
+  text-shadow: 0 0 5px rgba(255,255,255,0.7);
+}
+/* Su temi chiari (toolbar comunque colorata) il bianco va bene; su alto contrasto meglio scuro. */
+body.theme-contrast #unsaved-indicator { color: #ffd400; text-shadow: none; }
+
+
+/* Scrollbar del canvas: quella NATIVA del browser (overflow:auto su
+   #canvas-container, gia' impostato sopra) -- niente stile personalizzato, per una barra
+   orizzontale/verticale standard e chiara, senza colori vistosi. */
+
+/* Toggle "VARIABLES": contenuto centrato (Ismail 2026-07-07). */
+#variabiliLabel { display: flex; align-items: center; justify-content: center; gap: 0.35rem; }
+
+/* Gruppi di pulsanti del terminale ordinati per funzione (run / velocita' / utilita'). */
+#console-buttons { align-items: center; }
+.cbtn-group { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.cbtn-group + .cbtn-group { border-left: 1px solid var(--border); padding-left: 0.5rem; margin-left: 0.1rem; }
+#console-popup.docked .cbtn-group { flex: 1 1 100%; }
+#console-popup.docked .cbtn-group + .cbtn-group { border-left: none; padding-left: 0; margin-left: 0; border-top: 1px solid var(--border); padding-top: 0.4rem; }
+
+
+/* Palette: il contorno nero NON deve essere un rettangolo attorno al pulsante (vecchia
+   regola #popup-window .section button { border:1px solid black }) ma seguire la FORMA.
+   Si azzera il bordo del pulsante e si disegna il contorno sul ::before (che porta il
+   clip-path) con quattro drop-shadow da 1px = outline uniforme lungo il profilo. */
+#popup-window .palette-grid .section button.blk { border: none !important; background: transparent !important;
+  box-shadow: none !important; outline: none !important; } /* FIX #2 (Ismail): niente ombra/contorno rettangolare grigio attorno alla forma */
+#popup-window .palette-grid .section button.blk:focus, #popup-window .palette-grid .section button.blk:focus-visible { outline: none !important; box-shadow: none !important; }
+.blk::before {
+  filter:
+    drop-shadow(1px 0 0 #2a2a2a) drop-shadow(-1px 0 0 #2a2a2a)
+    drop-shadow(0 1px 0 #2a2a2a) drop-shadow(0 -1px 0 #2a2a2a)
+    drop-shadow(0 1px 1px rgba(0,0,0,0.15));
+}
+/* Commento: SOLO linea tratteggiata, nessun contorno pieno che segue la forma. */
+.blk-dashed::before {
+  /* FIX #2b (Ismail 2026-07-08): il tratteggio del Commento lo disegna GIA' l'SVG di sfondo
+     (.blk-comment::before). Qui NON aggiungiamo un secondo bordo tratteggiato, altrimenti si
+     vede un DOPPIO contorno. Solo neutralizzazione. */
+  filter: none;
+  border: none;
+  background: transparent;
+}
+
+/* ============================================================
+   FIX (Ismail 2026-07-07): forme della palette con BORDO NERO NETTO che segue la forma,
+   rese come SVG di sfondo (bordo uniforme via vector-effect:non-scaling-stroke) invece di
+   clip-path + ombra. Il testo del pulsante resta sopra e centrato.
+   ============================================================ */
+.blk::before { clip-path: none !important; filter: none !important; background: transparent !important; }
+.blk { background: transparent !important; border: none !important; }
+.blk-input::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='%23b0bec5' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-output::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='%2390caf9' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-assign::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23fff59d' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-if::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,24 50,45.5 2.5,24' fill='%23ce93d8' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-do::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%239fa8da' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-while::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%2380cbc4' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-for::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%23ffcc80' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-pause::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%23f48fb1' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+.blk-comment::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23fafafa' stroke='%238a8a8a' stroke-width='2.5' vector-effect='non-scaling-stroke' stroke-dasharray='6 4'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+
+/* Checkbox "Assign" nella cella valore (Ismail 2026-07-07): se OFF la variabile si dichiara
+   senza valore. Piccola, accanto all'input; l'input si disabilita quando OFF. */
+/* FIX #5 (Ismail 2026-07-08): checkbox "Assegna" custom, pulito e proporzionato. */
+.value-cell .assign-check {
+  flex: 0 0 auto; -webkit-appearance: none; appearance: none; margin: 0;
+  width: 16px; height: 16px; border: 1.5px solid var(--border, #b9a9e0); border-radius: 5px;
+  background: #fff; cursor: pointer; position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.value-cell .assign-check:hover { border-color: var(--primary); }
+.value-cell .assign-check:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(98,0,234,0.18); }
+.value-cell .assign-check:checked { background: var(--primary); border-color: var(--primary); }
+.value-cell .assign-check:checked::after {
+  content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+body.dark-mode .value-cell .assign-check { background: #1a1a1a; border-color: #4a4066; }
+body.dark-mode .value-cell .assign-check:checked { background: var(--primary); border-color: var(--primary); }
+.value-cell .value-input:disabled { background: rgba(0,0,0,0.05); color: #999; cursor: not-allowed; }
+body.dark-mode .value-cell .value-input:disabled { background: rgba(255,255,255,0.06); color: #777; }
+
+/* Dialog dedicato del ciclo For (Ismail 2026-07-07) */
+#for-popup {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: #fff; border: 2px solid var(--primary); border-radius: 0.6rem;
+  box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.18); padding: 1.5rem 1.8rem; z-index: 1500;
+  display: none; flex-direction: column; gap: 0.7rem; min-width: 360px; max-width: 94vw;
+}
+#for-popup.active { display: flex; }
+#for-popup h3 { margin: 0 0 0.2rem; color: var(--primary); }
+#for-popup > label, #for-popup .for-grid label { font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.2rem; }
+.for-input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 0.35rem; box-sizing: border-box; font-size: 0.9rem; }
+.for-grid { display: flex; gap: 1rem; }
+.for-grid > div { flex: 1; min-width: 0; }
+.for-radios { display: flex; flex-direction: column; gap: 0.25rem; }
+.for-radios label { font-weight: 500 !important; display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
+.for-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.5rem; }
+.for-actions button { padding: 0.45rem 1.3rem; border-radius: 0.4rem; border: none; cursor: pointer; font-weight: 600; }
+#for-ok { background: var(--primary); color: #fff; }
+#for-ok:hover { background: var(--primary-dark); }
+#for-cancel { background: #eee; color: #333; }
+#for-popup .x-close { position: absolute; top: 0.5rem; right: 0.6rem; }
+body.dark-mode #for-popup { background: #241f38; color: #e8e6f0; }
+body.dark-mode #for-popup .for-input { background: #1a1a1a; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #for-cancel { background: #3a3260; color: #e8e6f0; }
+@media (max-width: 520px) { #for-popup { min-width: 0; width: 92vw; } .for-grid { flex-direction: column; gap: 0.5rem; } }
+
+/* FIX #27 (Ismail 2026-07-08): in modalita' RTL (arabo) la console agganciata si apre a
+   SINISTRA invece che a destra, coerente con l'inversione del layout. */
+html[dir="rtl"] #console-popup.docked { right: auto; left: 0; border-left: none; border-right: 1px solid var(--border, #b39ddb); }
+html[dir="rtl"] #console-popup.docked #console-resize-handle { left: auto; right: -4px; }
+html[dir="rtl"] .console-x { right: auto; left: 0.6rem; }
+html[dir="rtl"] #console-popup.docked #console-buttons { padding-right: 0.35rem; padding-left: 2.1rem; }
+html[dir="rtl"] #canvas-container { padding-right: 14px; padding-left: var(--console-cover-width, 0px); }
+/* FIX RTL (Ismail 2026-07-08): in arabo (RTL) il terminale e' agganciato a SINISTRA, quindi
+   i controlli zoom vanno specchiati sul lato SINISTRO. --zoom-right (larghezza console + 18,
+   aggiornata da updateZoomOffset) diventa l'offset da SINISTRA: cosi' i pulsanti si spostano
+   verso il CENTRO man mano che il terminale si allarga, coerentemente col grafo. */
+html[dir="rtl"] #zoom-controls { right: auto; left: var(--zoom-right, 18px); }
+
+/* #13 (Ismail 2026-07-08): pannello impostazioni del terminale (filtri output). */
+#console-settings-panel {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  margin: 0.3rem 0; padding: 0.6rem 0.8rem;
+  background: rgba(98,0,234,0.06); border: 1px solid var(--border, #b39ddb);
+  border-radius: 0.5rem; font-size: 0.85rem;
+}
+#console-settings-panel[hidden] { display: none; }
+#console-settings-panel label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; }
+#console-settings-panel input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+body.dark-mode #console-settings-panel { background: rgba(255,255,255,0.05); border-color: #4a4066; color: #e8e6f0; }
+
+/* #36 (Ismail 2026-07-08): messaggio d'errore nel dialog del For. */
+.for-error { color: #c62828; background: #ffebee; border: 1px solid #ef9a9a; border-radius: 0.35rem; padding: 0.4rem 0.6rem; font-size: 0.82rem; }
+.for-error[hidden] { display: none; }
+body.dark-mode .for-error { background: #3a1f1f; border-color: #7a3a3a; color: #ff9a9a; }
+
+/* #28 (Ismail 2026-07-08): console POPUP (sganciata) trascinabile. */
+#console-popup:not(.docked) { cursor: move; }
+#console-popup:not(.docked) button,
+#console-popup:not(.docked) input,
+#console-popup:not(.docked) select,
+#console-popup:not(.docked) #console-output { cursor: auto; }
+#console-popup.dragging { user-select: none; box-shadow: 0 12px 40px rgba(0,0,0,0.35); }
+
+/* #41 (Ismail 2026-07-08): pannello watch variabili live durante l'esecuzione. */
+#console-watch { margin: 0.3rem 0; padding: 0.5rem 0.7rem; background: rgba(98,0,234,0.06); border: 1px solid var(--border, #b39ddb); border-radius: 0.5rem; font-size: 0.82rem; max-height: 30vh; overflow: auto; }
+#console-watch[hidden] { display: none; }
+#console-watch .watch-title { font-weight: 700; color: var(--primary); margin-bottom: 0.25rem; }
+#console-watch .watch-row { display: flex; gap: 0.35rem; padding: 0.1rem 0; font-family: monospace; }
+#console-watch .watch-name { color: var(--primary-dark, #4a00b0); font-weight: 600; }
+#console-watch .watch-val { color: #1b5e20; }
+body.dark-mode #console-watch { background: rgba(255,255,255,0.05); border-color: #4a4066; }
+body.dark-mode #console-watch .watch-val { color: #a5d6a7; }
+
+/* #43 (Ismail 2026-07-08): editor di tema (color picker). */
+/* Riga "Nome del tema" nell'editor Crea nuovo tema (Ismail 2026-07-08) */
+.te-name-row { display:flex; flex-direction:column; gap:0.25rem; margin:0.2rem 0 0.6rem; font-size:0.85rem; font-weight:600; }
+.te-name-row input { padding:0.4rem 0.55rem; border:1.5px solid var(--border, #b39ddb); border-radius:0.45rem; font-size:0.9rem; }
+#theme-editor { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 1600; background: #fff; border: 2px solid var(--primary); border-radius: 0.7rem; box-shadow: 0 0.6rem 2.4rem rgba(0,0,0,0.28); padding: 1rem 1.2rem; width: min(420px, 94vw); max-height: 86vh; overflow: auto; }
+#theme-editor[hidden] { display: none; }
+#theme-editor .te-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: var(--primary); font-size: 1.05rem; margin-bottom: 0.6rem; }
+#theme-editor .te-group { font-weight: 700; margin: 0.6rem 0 0.3rem; color: var(--primary-dark, #4a00b0); border-bottom: 1px solid var(--border, #e0d6f5); padding-bottom: 0.2rem; }
+#theme-editor .te-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.22rem 0; font-size: 0.9rem; }
+#theme-editor .te-row input[type="color"] { width: 44px; height: 26px; border: 1px solid var(--border,#ccc); border-radius: 0.3rem; background: none; cursor: pointer; padding: 0; }
+#theme-editor .te-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.8rem; }
+#theme-editor .te-actions button { padding: 0.4rem 1.1rem; border-radius: 0.4rem; border: none; cursor: pointer; font-weight: 600; }
+#theme-editor #te-reset { background: #eee; color: #333; }
+#theme-editor #te-close { background: #eee; color: #333; }
+#theme-editor #te-save { background: var(--primary); color: #fff; }
+body.dark-mode #theme-editor { background: #241f38; color: #e8e6f0; }
+body.dark-mode #theme-editor #te-reset { background: #3a3260; color: #e8e6f0; }
+
+/* ============================================================================
+   Scrollbar orizzontale del canvas CHIARA e sempre visibile (Ismail 2026-07-08):
+   quando il grafo si allarga oltre la viewport, la barra in fondo deve essere ben
+   visibile e facile da afferrare (prima era quella nativa, sottile e sbiadita). */
+#canvas-container::-webkit-scrollbar { height: 10px; width: 10px; }
+#canvas-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 8px; }
+#canvas-container::-webkit-scrollbar-thumb {
+  background: #9aa0b5; border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+}
+#canvas-container::-webkit-scrollbar-thumb:hover { background: var(--primary, #6200ea); background-clip: content-box; }
+#canvas-container::-webkit-scrollbar-corner { background: transparent; }
+body.dark-mode #canvas-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); }
+body.dark-mode #canvas-container::-webkit-scrollbar-thumb { background: #55607a; background-clip: content-box; }
+
+/* ============================================================================
+   Menu contestuale (click destro su un blocco): Modifica / Taglia / Copia / Elimina */
+.ctx-menu {
+  position: fixed; z-index: 2200; min-width: 150px; padding: 5px;
+  background: #fff; border: 1px solid var(--border, #d6c9f0); border-radius: 0.6rem;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.24); display: flex; flex-direction: column; gap: 1px;
+  font-family: inherit;
+}
+.ctx-menu[hidden] { display: none; }
+.ctx-item {
+  display: flex; align-items: center; gap: 0.55rem; width: 100%;
+  background: none; border: none; text-align: left; padding: 0.5rem 0.7rem;
+  border-radius: 0.4rem; cursor: pointer; font-size: 0.9rem; color: #222; white-space: nowrap;
+}
+/* FIX (Ismail 2026-07-08 round 2): la regola .ctx-item era rimasta APERTA (mancava la }),
+   troncatura pre-esistente: corrompeva il parsing di TUTTO il CSS aggiunto dopo (forme dei
+   blocchi Grafica, fix scrollbar). Chiusa qui + ripristinate le regole del menu contestuale. */
+.ctx-item:hover { background: var(--surface, #ede7f6); color: var(--primary); }
+.ctx-item .ctx-ico { width: 1.1rem; text-align: center; opacity: 0.85; }
+.ctx-item.ctx-danger { color: #c62828; }
+.ctx-item.ctx-danger:hover { background: #ffebee; color: #b71c1c; }
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--border, #e0d7f5); }
+body.dark-mode .ctx-menu { background: #241f38; border-color: #4a4066; }
+body.dark-mode .ctx-item { color: #e8e6f0; }
+body.dark-mode .ctx-item:hover { background: #3a3260; color: #fff; }
+body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: #ff8a80; }
+/* ============================================================================
+   RESTYLE 2026-07-08 (Ismail): modale stilizzata, barra variabili, pulsanti-icona,
+   terminale mobile, gerarchia z-index dei popup, scrollbar orizzontale.
+   Blocco in fondo al file cosi' vince (a parita' di specificita') sulle regole sopra.
+   Tutto guidato dalle variabili di tema (--primary/--surface/--border/--accent) per
+   restare coerente su tutti gli 8 temi, i temi personalizzati e la dark mode.
+   ============================================================================ */
+
+/* ---- Modale stilizzata (conferma/avviso): sostituisce confirm()/alert() ---- */
+.bf-modal {
+  position: fixed; inset: 0; z-index: 2300;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(28, 14, 52, 0.48); backdrop-filter: blur(3px);
+  padding: 1rem;
+}
+.bf-modal[hidden] { display: none; }
+.bf-modal-box {
+  background: var(--surface, #fff); color: #2c2338;
+  border: 1.5px solid var(--border, #d1c4e9); border-radius: 16px;
+  box-shadow: 0 18px 54px rgba(0,0,0,0.34); max-width: 400px; width: 100%;
+  padding: 1.5rem 1.6rem 1.25rem; text-align: center; animation: bfModalPop 0.16s ease-out;
+}
+@keyframes bfModalPop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.bf-modal-icon {
+  width: 54px; height: 54px; margin: 0 auto 0.85rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 1.7rem; font-weight: 700;
+  color: var(--primary); border: 2px solid var(--primary); background: rgba(98,0,234,0.06);
+}
+.bf-modal-icon svg { width: 30px; height: 30px; display: block; }
+.bf-modal-icon.danger { color: #e53935; border-color: #e53935; background: rgba(229,57,53,0.09); }
+.bf-modal-msg { font-size: 0.98rem; line-height: 1.5; margin-bottom: 1.25rem; }
+.bf-modal-actions { display: flex; gap: 0.6rem; justify-content: center; }
+.bf-modal-btn {
+  flex: 1 1 auto; min-width: 100px; padding: 0.62rem 1rem; border-radius: 10px; border: none;
+  font-size: 0.92rem; font-weight: 600; cursor: pointer;
+  transition: transform 0.12s ease, filter 0.15s ease, background 0.15s ease;
+}
+.bf-modal-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.bf-modal-btn:active { transform: translateY(0); }
+.bf-modal-cancel { background: var(--border, #e0e0e0); color: var(--primary-dark, #333); }
+.bf-modal-ok { background: var(--primary); color: #fff; }
+.bf-modal-danger { background: #e53935; color: #fff; }
+body.dark-mode .bf-modal-box { background: #241f38; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode .bf-modal-cancel { background: #3a3260; color: #e8e6f0; }
+body.dark-mode .bf-modal-icon { background: rgba(179,157,219,0.12); }
+
+/* ---- TASK 8: i popup del canvas devono stare SOPRA il terminale (mobile e agganciato) ---- */
+#overlay { z-index: 1450 !important; }
+#popup-window { z-index: 1462; }  /* finestra non-modale; il focus lo alza (ux.js) */
+#edit-node-popup, #save-popup, #new-popup, #export-popup, #for-popup { z-index: 1480 !important; }
+#theme-editor { z-index: 1600 !important; }
+.ctx-menu { z-index: 2200 !important; }
+/* Il terminale (mobile/floating) resta sotto i popup ma sopra il canvas. */
+#console-popup { z-index: 1460; }  /* finestra; il focus lo alza (ux.js) */
+
+/* ---- TASK 4: barra delle variabili, moderna e coerente col tema ---- */
+#sidebar {
+  background: var(--surface, #ede7f6);
+  border-right: 1px solid var(--border, #d1c4e9);
+  box-shadow: 2px 0 18px rgba(0,0,0,0.06);
+  padding: 1rem 0.85rem 0.9rem;
+  gap: 0.7rem;
+}
+#variabiliLabel {
+  display: flex; align-items: center; gap: 0.45rem;
+  font-weight: 700; letter-spacing: 0.06em; font-size: 0.76rem; text-transform: uppercase;
+  color: var(--primary); padding: 0.15rem 0.15rem 0.55rem;
+  border-bottom: 1px solid var(--border, #d1c4e9); margin-bottom: 0.2rem;
+}
+#variabili-caret { font-size: 0.9em; opacity: 0.8; }
+#tabVariabili {
+  background: transparent; box-shadow: none; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border, #d1c4e9); margin-bottom: 0.4rem; border-spacing: 0;
+}
+#tabVariabili th {
+  background: var(--primary); color: #fff; border: none;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.42rem 0.3rem; font-weight: 600;
+}
+#tabVariabili td {
+  background: var(--surface, #fff); border: 1px solid var(--border, #d1c4e9);
+  border-left: none; border-right: none; padding: 0.22rem;
+}
+#tabVariabili tr:not(:last-child):hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+#tabVariabili input.inputVariable,
+#tabVariabili select.inputVariable {
+  background: rgba(255,255,255,0.55); border: 1px solid transparent; border-radius: 8px;
+  padding: 0.36rem 0.5rem; font-size: 0.82rem;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+#tabVariabili input.inputVariable:focus,
+#tabVariabili select.inputVariable:focus {
+  border-color: var(--primary); background: #fff; outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.value-cell { display: flex; align-items: center; gap: 0.35rem; }
+.assign-check { accent-color: var(--primary); cursor: pointer; }
+/* Dark mode: superfici scure coerenti */
+body.dark-mode #sidebar { background: #1e1a2e; border-right-color: #4a4066; }
+body.dark-mode #variabiliLabel { color: #c9a9fa; border-bottom-color: #4a4066; }
+body.dark-mode #tabVariabili { border-color: #4a4066; }
+body.dark-mode #tabVariabili th { background: #3a3260; color: #e8e6f0; }
+body.dark-mode #tabVariabili td { background: #241f38; border-color: #4a4066; }
+body.dark-mode #tabVariabili input.inputVariable,
+body.dark-mode #tabVariabili select.inputVariable { background: rgba(255,255,255,0.06); color: #e8e6f0; }
+body.dark-mode #tabVariabili input.inputVariable:focus,
+body.dark-mode #tabVariabili select.inputVariable:focus { background: #2a2444; }
+
+/* ---- TASK 5: pulsanti composti da SOLA icona, eleganti e coerenti ---- */
+/* Riferimento: i controlli zoom (cerchi pieni col colore primario). Applicato a tutti
+   i pulsanti-icona: zoom, riapri-sidebar, chiudi (×), e i tondi della console. */
+#zoom-controls button {
+  width: 38px; height: 38px; border: none; border-radius: 50%;
+  background: linear-gradient(145deg, var(--primary), var(--primary-dark));
+  color: #fff; font-size: 1.25rem; font-weight: 700; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.18);
+  transition: transform 0.14s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+#zoom-controls button:hover { transform: translateY(-2px) scale(1.05); filter: brightness(1.08);
+  box-shadow: 0 7px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.22); }
+#zoom-controls button:active { transform: translateY(0) scale(0.98); }
+
+.x-close {
+  border: none; cursor: pointer; border-radius: 50%;
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.15rem; line-height: 1; padding: 0;
+  background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary);
+  transition: background 0.15s ease, transform 0.12s ease, color 0.15s ease;
+}
+.x-close:hover { background: var(--primary); color: #fff; }
+body.dark-mode .x-close { background: rgba(201,169,250,0.16); color: #c9a9fa; }
+body.dark-mode .x-close:hover { background: #7c3aed; color: #fff; }
+
+#sidebar-reopen {
+  background: linear-gradient(145deg, var(--primary), var(--primary-dark));
+  box-shadow: 2px 2px 10px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.16);
+  transition: filter 0.15s ease, width 0.15s ease;
+}
+#sidebar-reopen:hover { filter: brightness(1.08); width: 30px; }
+
+/* Tondi icona della console agganciata: settings, dock, A+/A- */
+#console-settings-btn, #console-dock, #console-font-inc, #console-font-dec {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 34px !important; padding: 0.3rem 0.5rem !important; font-weight: 700;
+  border-radius: 9px !important;
+}
+
+/* ---- TASK 7: terminale MOBILE (floating) coerente col terminale laterale ---- */
+#console-popup:not(.docked) {
+  background: linear-gradient(135deg, var(--surface, #ede7f6) 0%, color-mix(in srgb, var(--surface, #eeeeff) 88%, #fff) 100%);
+  color: #2c2338; border: 1.5px solid var(--primary); border-radius: 14px;
+  box-shadow: 0 20px 54px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.12);
+}
+#console-popup:not(.docked) #console-output {
+  background: #fff; color: #2c2338; border: 1px solid var(--border, #b39ddb); border-radius: 10px;
+}
+#console-popup:not(.docked) #console-output p.error { background: #ffebee; color: #c62828; border-left-color: #c62828; }
+#console-popup:not(.docked) #console-input,
+#console-popup:not(.docked) #console-input.active { background: #fff; color: #2c2338; border: 1px solid var(--border, #b39ddb); }
+#console-popup:not(.docked) #console-buttons button,
+#console-popup:not(.docked) #console-send {
+  background: linear-gradient(145deg, var(--primary), var(--primary-dark)); color: #fff;
+  border: none; border-radius: 9px; padding: 0.4rem 0.85rem; font-weight: 600; font-size: 0.85rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.16); transition: transform 0.12s ease, filter 0.15s ease;
+}
+#console-popup:not(.docked) #console-buttons button:hover,
+#console-popup:not(.docked) #console-send:hover { transform: translateY(-1px); filter: brightness(1.08); }
+#console-popup:not(.docked) #console-buttons select,
+#console-popup:not(.docked) #run-speed {
+  background: #fff; color: var(--primary); border: 1.5px solid var(--border, #b39ddb);
+  border-radius: 9px; padding: 0.4rem 0.6rem; font-weight: 600;
+}
+#console-popup:not(.docked) .console-x { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+#console-popup:not(.docked) .console-x:hover { color: #fff; background: var(--primary); }
+#console-popup:not(.docked) #console-settings-panel,
+#console-popup:not(.docked) #console-watch { color: #2c2338; }
+/* Dark mode: il floating torna scuro coerente con la dark-mode del docked */
+body.dark-mode #console-popup:not(.docked) {
+  background: linear-gradient(135deg, #1e1a2e 0%, #241f38 100%); color: #e8e6f0; border-color: #7c3aed;
+}
+body.dark-mode #console-popup:not(.docked) #console-output { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #console-popup:not(.docked) #console-input { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #console-popup:not(.docked) #console-buttons select,
+body.dark-mode #console-popup:not(.docked) #run-speed { background: #2a2444; color: #c9a9fa; border-color: #4a4066; }
+
+/* ---- TASK 9 + FIX (Ismail 2026-07-09d): scrollbar del canvas sempre visibile ma piu'
+   SNELLA (10px) col thumb proporzionalmente piu' piccolo. `scrollbar-width: thin` fa lo
+   stesso su Firefox. La verticale resta comunque disponibile quando serve. ---- */
+#canvas-container { scrollbar-color: var(--primary, #6200ea) rgba(0,0,0,0.06); scrollbar-width: thin; }
+#canvas-container::-webkit-scrollbar { height: 10px; width: 10px; }
+#canvas-container::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--primary) 10%, transparent); border-radius: 6px;
+}
+#canvas-container::-webkit-scrollbar-thumb {
+  background: var(--primary, #6200ea); border-radius: 6px; border: 2px solid transparent;
+  background-clip: content-box; min-width: 26px; min-height: 26px;
+}
+#canvas-container::-webkit-scrollbar-thumb:hover { background: var(--primary-dark, #3700b3); background-clip: content-box; }
+body.dark-mode #canvas-container { scrollbar-color: #7c3aed rgba(255,255,255,0.08); }
+body.dark-mode #canvas-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.08); }
+body.dark-mode #canvas-container::-webkit-scrollbar-thumb { background: #7c3aed; background-clip: content-box; }
+
+/* ============================================================================
+   Blocco DISEGNO / DRAW (Ismail 2026-07-08): popup di configurazione + tela grafica.
+   Stile coerente con #for-popup e con il resto dell'interfaccia, guidato dal tema.
+   ============================================================================ */
+#draw-popup {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--surface, #fff); color: #2c2338;
+  border: 2px solid var(--primary); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.28); padding: 1.3rem 1.5rem;
+  width: min(420px, 94vw); max-height: 88vh; overflow: auto; z-index: 1480;
+  display: none; flex-direction: column; gap: 0.6rem;
+}
+#draw-popup.active { display: flex; }
+#draw-popup h3 { margin: 0 0 0.3rem; color: var(--primary); font-size: 1.05rem; }
+#draw-popup label { font-size: 0.82rem; font-weight: 600; color: var(--primary-dark, #444); display: block; margin-bottom: 0.2rem; }
+#draw-popup select, #draw-popup .draw-input {
+  width: 100%; box-sizing: border-box; padding: 0.45rem 0.55rem;
+  border: 1.5px solid var(--border, #b39ddb); border-radius: 9px; font-size: 0.9rem; background: #fff; color: #2c2338;
+}
+#draw-popup select:focus, #draw-popup .draw-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
+.draw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+.draw-row { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.draw-check { display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; }
+.draw-check input { accent-color: var(--primary); }
+#draw-color { width: 48px; height: 34px; padding: 2px; border: 1.5px solid var(--border, #b39ddb); border-radius: 8px; background: #fff; cursor: pointer; }
+.draw-actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 0.5rem; }
+.draw-actions button { padding: 0.5rem 1.1rem; border: none; border-radius: 9px; font-weight: 600; cursor: pointer; transition: transform 0.12s ease, filter 0.15s ease; }
+.draw-actions button:hover { transform: translateY(-1px); filter: brightness(1.06); }
+#draw-ok { background: var(--primary); color: #fff; }
+#draw-cancel { background: var(--border, #e0e0e0); color: var(--primary-dark, #333); }
+body.dark-mode #draw-popup { background: #241f38; color: #e8e6f0; border-color: #7c3aed; }
+body.dark-mode #draw-popup select, body.dark-mode #draw-popup .draw-input { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #draw-cancel { background: #3a3260; color: #e8e6f0; }
+
+/* Tela grafica del risultato (creata dinamicamente da draw.js) */
+#draw-output-panel {
+  position: fixed; left: 18px; bottom: 24px; z-index: 1390;
+  display: none; flex-direction: column;
+  background: var(--surface, #fff); border: 1.5px solid var(--primary); border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.26); overflow: hidden;
+}
+#draw-output-head {
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.4rem 0.35rem 0.7rem;
+  background: var(--primary); color: #fff; font-weight: 600; font-size: 0.85rem;
+}
+#draw-output-title { flex: 1 1 auto; }
+#draw-output-head .x-close { background: rgba(255,255,255,0.18); color: #fff; }
+#draw-output-head .x-close:hover { background: rgba(255,255,255,0.34); color: #fff; }
+#draw-canvas { display: block; background: #fff; }
+body.dark-mode #draw-output-panel { background: #241f38; border-color: #7c3aed; }
+html[dir="rtl"] #draw-output-panel { left: auto; right: 18px; }
+
+/* ============================================================================
+   FIX scrollbar orizzontale (round 2, Ismail 2026-07-08): la barra in fondo non
+   compariva perche' #main aveva `flex:1 0 auto` (flex-shrink:0) + height:100% ->
+   cresceva con il contenuto invece di restare alto quanto la viewport, quindi
+   #canvas-container diventava altissimo e la sua scrollbar orizzontale finiva molto
+   sotto la piega (mai visibile). La catena di scroll (flex -> grid -> container) ha
+   bisogno di min-height:0 a ogni livello e di una riga di grid VINCOLATA, cosi'
+   #canvas-container resta alto quanto la viewport e `overflow:auto` mostra ENTRAMBE le
+   barre ai bordi del container (l'orizzontale sempre visibile in fondo). */
+#main { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+#canvas-container { min-height: 0; }
+#sidebar { min-height: 0; }
+
+/* ============================================================================
+   Round 2 (Ismail 2026-07-08): tooltip dei pulsanti-icona + terminale coerente col tema
+   ============================================================================ */
+
+/* ---- Tooltip moderni per i pulsanti solo-icona ---- */
+#bf-tip {
+  position: fixed; z-index: 3000; pointer-events: none;
+  background: #2c2338; color: #fff; font-size: 0.76rem; font-weight: 600;
+  padding: 0.3rem 0.55rem; border-radius: 7px;
+  /* FIX (Ismail 2026-07-09d): il testo dei tooltip (es. "Nascondi il pannello variabili")
+     veniva tagliato perche' `nowrap` + `max-width` lo faceva sforare dal riquadro. Ora va
+     a capo e resta sempre leggibile per intero. */
+  white-space: normal; text-align: center; line-height: 1.28; word-break: break-word;
+  transform: translate(-50%, -100%); opacity: 0;
+  transition: opacity 0.12s ease; box-shadow: 0 4px 14px rgba(0,0,0,0.28);
+  max-width: min(280px, 80vw); width: max-content;
+}
+#bf-tip.show { opacity: 1; }
+#bf-tip.below { transform: translate(-50%, 0); }
+#bf-tip::after {
+  content: ''; position: absolute; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #2c2338; top: 100%;
+}
+#bf-tip.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: #2c2338; }
+body.dark-mode #bf-tip { background: #4a4066; }
+body.dark-mode #bf-tip::after { border-top-color: #4a4066; }
+body.dark-mode #bf-tip.below::after { border-bottom-color: #4a4066; }
+/* i pulsanti-icona non mostrano piu' il tooltip nativo (soppresso da ux.js) */
+.bf-icon { position: relative; }
+
+/* ---- Terminale: STESSI colori del tema per docked e floating (identici) ---- */
+#console-popup.docked,
+#console-popup:not(.docked) {
+  background: var(--surface, #ede7f6);
+  color: #2c2338;
+}
+#console-popup.docked #console-output,
+#console-popup:not(.docked) #console-output {
+  background: #ffffff; color: #2c2338; border: 1px solid var(--border, #b39ddb);
+}
+#console-popup.docked #console-output p.error,
+#console-popup:not(.docked) #console-output p.error {
+  background: #ffebee; color: #c62828; border-left-color: #c62828;
+}
+#console-popup.docked #console-input,
+#console-popup:not(.docked) #console-input,
+#console-popup.docked #console-input.active,
+#console-popup:not(.docked) #console-input.active {
+  background: #ffffff; color: #2c2338; border: 1px solid var(--border, #b39ddb);
+}
+/* pulsanti del terminale: identici in entrambe le modalita', gradiente del tema */
+#console-popup #console-buttons button,
+#console-popup #console-send {
+  background: linear-gradient(145deg, var(--primary), var(--primary-dark));
+  color: #fff; border: none; border-radius: 9px; padding: 0.4rem 0.8rem;
+  font-weight: 600; font-size: 0.82rem; box-shadow: 0 2px 6px rgba(0,0,0,0.14);
+  transition: transform 0.12s ease, filter 0.15s ease;
+}
+#console-popup #console-buttons button:hover,
+#console-popup #console-send:hover { transform: translateY(-1px); filter: brightness(1.08); }
+#console-popup #console-buttons select,
+#console-popup #run-speed {
+  background: #ffffff; color: var(--primary); border: 1.5px solid var(--border, #b39ddb);
+  border-radius: 9px; padding: 0.38rem 0.6rem; font-weight: 600;
+}
+#console-popup .console-x { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+#console-popup .console-x:hover { background: var(--primary); color: #fff; }
+#console-popup #console-dock { color: var(--primary); }
+/* Dark mode: superfici scure coerenti (per entrambe le modalita') */
+body.dark-mode #console-popup.docked,
+body.dark-mode #console-popup:not(.docked) { background: #1e1a2e; color: #e8e6f0; }
+body.dark-mode #console-popup #console-output { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #console-popup #console-input { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #console-popup #console-buttons select,
+body.dark-mode #console-popup #run-speed { background: #2a2444; color: #c9a9fa; border-color: #4a4066; }
+body.dark-mode #console-popup .console-x { color: #c9a9fa; background: rgba(201,169,250,0.16); }
+
+/* ---- Turtle graphics: tela a due strati (disegno + marcatore) e radio del dialog ---- */
+#draw-canvas-stack { position: relative; width: 300px; height: 300px; }
+#draw-canvas-stack #draw-canvas,
+#draw-canvas-stack #draw-turtle { position: absolute; left: 0; top: 0; display: block; }
+#draw-canvas-stack #draw-canvas { background: #fff; }
+#draw-canvas-stack #draw-turtle { pointer-events: none; }
+.tg-radios { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.tg-radios label { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 500; }
+#draw-popup .draw-row > div { display: flex; flex-direction: column; gap: 0.2rem; }
+
+/* ============================================================================
+   FORME PALETTE dei blocchi GRAFICA / turtle (Ismail 2026-07-08, round 2 fix): rese come
+   SVG di sfondo con lo STESSO meccanismo degli altri blocchi (il clip-path e' neutralizzato
+   piu' sopra con !important, quindi qui servono gli SVG con !important). Senza queste, i
+   blocchi Grafica apparivano nel pannello come solo testo, senza forma.
+   ============================================================================ */
+.blk-forward::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='3,3 78,3 97.5,24 78,45 3,45' fill='%23a5d6a7' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+.blk-turn::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='18,3 82,3 82,10 97.5,24 82,38 82,45 18,45 18,38 2.5,24 18,10' fill='%23ffe082' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+.blk-home::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,20 97.5,45.5 2.5,45.5 2.5,20' fill='%23ffd54f' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+.blk-pen::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%2380deea' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+.blk-gclear::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23cfd8dc' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+
+/* ---- Dialog di modifica nodo: layout coerente (× in alto a destra + riga azioni) ---- */
+/* (rimosso #edit-node-popup{position:relative}: sovrascriveva il position:fixed che centra il modale -> popup in fondo alla pagina. Il position:fixed base fa gia' da ancora per la .x-close absolute.) */
+#edit-node-popup .x-close { position: absolute !important; top: 0.5rem; right: 0.6rem; width: 30px !important; height: 30px !important; flex: 0 0 auto; align-self: flex-end; }
+#edit-node-popup h3 { margin-right: 1.6rem; }
+.edit-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.edit-actions button { flex: 1 1 auto; }
+
+/* Sicurezza: la × dei popup non deve mai stirarsi a tutta larghezza (flex column). */
+.x-close { flex: 0 0 auto; align-self: flex-end; }
+
+/* ---- Maniglia di resize a tutta altezza della barra VARIABILI (Ismail 2026-07-08) ---- */
+#sidebar { resize: none; }  /* niente piu' angolino nativo: si usa l'handle verticale sotto */
+#sidebar { min-width: 190px; }  /* rilievo 15: floor di sicurezza */
+#sidebar-resize-handle {
+  position: fixed; width: 8px; z-index: 860; cursor: ew-resize; display: none;
+  background: transparent; transition: background 0.15s ease;
+}
+#sidebar-resize-handle::after {
+  content: ''; position: absolute; left: 3px; top: 0; width: 2px; height: 100%;
+  background: var(--border, #d1c4e9); opacity: 0.6; transition: background 0.15s ease, opacity 0.15s ease;
+}
+#sidebar-resize-handle:hover::after,
+#sidebar-resize-handle.dragging::after { background: var(--primary, #6200ea); opacity: 1; width: 3px; left: 2.5px; }
+body.dark-mode #sidebar-resize-handle::after { background: #4a4066; }
+body.dark-mode #sidebar-resize-handle:hover::after,
+body.dark-mode #sidebar-resize-handle.dragging::after { background: #7c3aed; }
+
+/* ---- Titolo della modale (usato dall'errore di runtime) ---- */
+.bf-modal-title { font-size: 1.02rem; font-weight: 700; margin-bottom: 0.5rem; color: #e53935; }
+body.dark-mode .bf-modal-title { color: #ff8a80; }
+
+/* ---- Pannello tartaruga: spostabile + ridimensionabile + salva/nascondi (Ismail 2026-07-08) ---- */
+#draw-output-panel { position: fixed; min-width: 170px; }
+#draw-output-head { cursor: move; user-select: none; }
+#draw-output-head button { cursor: pointer; }
+/* le tele SCALANO per riempire lo stack (risoluzione interna 300x300 invariata) */
+#draw-canvas-stack #draw-canvas,
+#draw-canvas-stack #draw-turtle { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+#draw-output-turtle.off { opacity: 0.4; }
+#draw-output-resize {
+  position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px;
+  cursor: nwse-resize; z-index: 2;
+  background:
+    linear-gradient(135deg, transparent 0 45%, var(--primary, #6200ea) 45% 55%, transparent 55% 70%, var(--primary, #6200ea) 70% 80%, transparent 80%);
+  opacity: 0.7; border-bottom-right-radius: 10px;
+}
+#draw-output-resize:hover { opacity: 1; }
+
+/* ---- Pannello tartaruga: maniglie di resize su TUTTI i lati + icona occhio ---- */
+.tg-rz { position: absolute; z-index: 3; }
+.tg-rz[data-dir="n"]  { top: -3px;    left: 10px; right: 10px; height: 8px;  cursor: ns-resize; }
+.tg-rz[data-dir="s"]  { bottom: -3px; left: 10px; right: 10px; height: 8px;  cursor: ns-resize; }
+.tg-rz[data-dir="e"]  { right: -3px;  top: 10px;  bottom: 10px; width: 8px;  cursor: ew-resize; }
+.tg-rz[data-dir="w"]  { left: -3px;   top: 10px;  bottom: 10px; width: 8px;  cursor: ew-resize; }
+.tg-rz[data-dir="ne"] { top: -3px;    right: -3px; width: 15px; height: 15px; cursor: nesw-resize; }
+.tg-rz[data-dir="nw"] { top: -3px;    left: -3px;  width: 15px; height: 15px; cursor: nwse-resize; }
+.tg-rz[data-dir="se"] { bottom: -3px; right: -3px; width: 15px; height: 15px; cursor: nwse-resize; }
+.tg-rz[data-dir="sw"] { bottom: -3px; left: -3px;  width: 15px; height: 15px; cursor: nesw-resize; }
+.tg-rz[data-dir="se"]::after {
+  content: ''; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px;
+  border-right: 2px solid var(--primary, #6200ea); border-bottom: 2px solid var(--primary, #6200ea); opacity: 0.65;
+}
+#draw-output-head .bf-icon svg { display: block; width: 15px; height: 15px; }
+#draw-output-turtle.off { opacity: 0.5; }
+
+/* ---- Linguetta laterale destra per aprire/chiudere il TERMINALE (RTL: a sinistra) ---- */
+#terminal-reopen {
+  position: fixed; right: 0; top: 150px; z-index: 850;
+  width: 26px; height: 66px; border: none; border-radius: 10px 0 0 10px;
+  background: linear-gradient(145deg, var(--primary), var(--primary-dark)); color: #fff;
+  font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: -2px 2px 10px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.16);
+  transition: filter 0.15s ease, width 0.15s ease; writing-mode: vertical-rl; letter-spacing: 1px;
+}
+#terminal-reopen:hover { filter: brightness(1.08); width: 30px; }
+#terminal-reopen.is-open { filter: brightness(0.85); }
+html[dir="rtl"] #terminal-reopen { right: auto; left: 0; border-radius: 0 10px 10px 0; box-shadow: 2px 2px 10px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.16); }
+/* quando la console e' agganciata a destra, sposta la linguetta a sinistra della console */
+body:has(#console-popup.docked.active) #terminal-reopen { right: var(--console-cover-width, 0px); }
+html[dir="rtl"] body:has(#console-popup.docked.active) #terminal-reopen { right: auto; left: var(--console-cover-width, 0px); }
+
+/* ---- Pulsanti SOLO-icona di toolbar e terminale (Ismail 2026-07-09) ---- */
+#toolbar .tb-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0.42rem; min-width: 40px; min-height: 38px;
+}
+.tb-icon svg { width: 20px; height: 20px; display: block; }
+#toolbar .tb-icon:disabled { opacity: 0.4; }
+/* pulsanti icona nel terminale: compatti, quadrati, non stirati */
+#console-buttons button.bf-icon { flex: 0 0 auto !important; min-width: 40px !important; padding: 0.4rem !important; display: inline-flex; align-items: center; justify-content: center; }
+#console-buttons button.bf-icon svg { width: 18px; height: 18px; display: block; }
+#console-popup.docked #console-buttons button.bf-icon { min-width: 40px !important; }
+
+/* ---- Gruppo controlli esecuzione spostati nella toolbar (Ismail 2026-07-09) ---- */
+.tb-sep { width: 1px; align-self: stretch; margin: 0.25rem 0.4rem; background: rgba(255,255,255,0.28); border-radius: 1px; }
+body.dark-mode .tb-sep { background: rgba(255,255,255,0.16); }
+/* icone toolbar leggermente piu' morbide/eleganti */
+#toolbar .tb-icon svg { stroke-width: 1.9; }
+#toolbar .tb-icon { border-radius: 10px; }
+
+/* ============================================================================
+   Popup IMPOSTAZIONI globale (Ismail 2026-07-09d): modale coerente col tema.
+   ============================================================================ */
+#settings-popup {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--surface, #fff); color: #2c2338;
+  border: 2px solid var(--primary); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.28); padding: 1.4rem 1.6rem 1.2rem;
+  width: min(440px, 94vw); max-height: 88vh; overflow: auto; z-index: 1480;
+  display: none; flex-direction: column; gap: 0.7rem;
+}
+#settings-popup.active { display: flex; }
+#settings-popup h3 { margin: 0 0 0.2rem; color: var(--primary); font-size: 1.15rem; }
+#settings-popup .x-close { position: absolute; top: 0.7rem; right: 0.8rem; }
+.settings-body { display: flex; flex-direction: column; gap: 1rem; }
+.settings-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.settings-group h4 {
+  margin: 0; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--primary); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border, #d1c4e9);
+}
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-weight: 600; font-size: 0.9rem; }
+.settings-row select {
+  flex: 0 1 200px; padding: 0.4rem 0.6rem; border-radius: 9px; font-size: 0.9rem; font-weight: 600;
+  background: #fff; color: var(--primary); border: 1.5px solid var(--border, #b39ddb); cursor: pointer;
+}
+.settings-row select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
+.settings-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer; }
+.settings-check input { accent-color: var(--primary); cursor: pointer; }
+.settings-actions { display: flex; gap: 0.6rem; justify-content: flex-end; align-items: center; margin-top: 0.4rem; flex-wrap: wrap; }
+.settings-linkbtn {
+  background: none; border: none; color: var(--primary); font-weight: 600; font-size: 0.85rem;
+  cursor: pointer; padding: 0.35rem 0; text-decoration: underline;
+}
+.settings-linkbtn:hover { color: var(--primary-dark); }
+#settings-done {
+  background: var(--primary); color: #fff; border: none; border-radius: 9px;
+  padding: 0.5rem 1.3rem; font-weight: 600; cursor: pointer; transition: filter 0.15s ease, transform 0.12s ease;
+}
+#settings-done:hover { filter: brightness(1.08); transform: translateY(-1px); }
+body.dark-mode #settings-popup { background: #241f38; color: #e8e6f0; border-color: #7c3aed; }
+body.dark-mode #settings-popup h4 { color: #c9a9fa; border-bottom-color: #4a4066; }
+body.dark-mode #settings-popup .settings-row select { background: #14111f; color: #c9a9fa; border-color: #4a4066; }
+body.dark-mode .settings-linkbtn { color: #c9a9fa; }
+
+/* ============================================================================
+   Terminale: chrome ridisegnato (Ismail 2026-07-09d)
+   - barra SUPERIORE: guida (?) + scarica log a sinistra, X a destra
+   - barra INFERIORE: toggle "Terminale mobile" a sinistra, zoom carattere a destra
+   - i pulsanti del terminale (piatti/arrotondati) sono DIVERSI dai tondi del canvas;
+     solo il gruppo zoom-carattere riusa lo stile tondo del canvas, ORIZZONTALE e senza box.
+   ============================================================================ */
+#console-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.4rem; flex: 0 0 auto; margin-bottom: 0.15rem; padding-right: 0;
+}
+.console-tl { display: inline-flex; gap: 0.35rem; }
+/* la X vive dentro la barra superiore (flow), non piu' assoluta: mai fuori dal layout */
+#console-topbar .console-x { position: static; top: auto; right: auto; align-self: center; flex: 0 0 auto; }
+/* pulsanti-icona del terminale: piatti, quadrati arrotondati (DIVERSI dai tondi del canvas) */
+.term-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; border-radius: 9px; cursor: pointer;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 26%, transparent);
+  transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease;
+}
+.term-icon svg { width: 17px; height: 17px; display: block; }
+.term-icon:hover { background: var(--primary); color: #fff; }
+.term-icon:active { transform: scale(0.94); }
+body.dark-mode .term-icon { background: rgba(201,169,250,0.14); color: #c9a9fa; border-color: rgba(201,169,250,0.3); }
+body.dark-mode .term-icon:hover { background: #7c3aed; color: #fff; }
+
+#console-bottombar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; flex: 0 0 auto; margin-top: 0.4rem;
+}
+.term-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;
+  padding: 0.34rem 0.7rem; border-radius: 9px; font-size: 0.76rem; font-weight: 600;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 26%, transparent);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.term-btn svg { width: 15px; height: 15px; }
+.term-btn:hover { background: var(--primary); color: #fff; }
+.term-btn.is-mobile { background: var(--primary); color: #fff; }
+body.dark-mode .term-btn { background: rgba(201,169,250,0.14); color: #c9a9fa; border-color: rgba(201,169,250,0.3); }
+body.dark-mode .term-btn:hover, body.dark-mode .term-btn.is-mobile { background: #7c3aed; color: #fff; }
+
+/* Zoom carattere: STESSO stile tondo del canvas, ma ORIZZONTALE e SENZA contenitore colorato */
+#console-zoom { display: inline-flex; flex-direction: row; gap: 6px; background: none; padding: 0; }
+#console-zoom button {
+  width: 34px; height: 34px; border: none; border-radius: 50%;
+  background: var(--primary); color: #fff; font-size: 0.95rem; font-weight: 700; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(98,0,234,0.30); transition: background 0.16s ease, transform 0.12s ease;
+}
+#console-zoom button:hover { background: var(--primary-dark); transform: scale(1.06); }
+#console-zoom button:active { transform: scale(0.96); }
+#console-zoom #console-font-reset { font-size: 0.82rem; }
+
+/* Item 12 (Ismail 2026-07-09e): download+X in alto a DESTRA, mobile come icona, testo piu' in basso */
+.console-tr { display: inline-flex; align-items: center; gap: 0.4rem; }
+.term-icon.is-mobile { background: var(--primary); color: #fff; }
+body.dark-mode .term-icon.is-mobile { background: #7c3aed; color: #fff; }
+/* la scritta "Console ready..." non deve toccare i pulsanti in alto */
+#console-popup #console-output { margin-top: 0.35rem; }
+#console-popup #console-output p:first-child { margin-top: 0.15rem; }
+/* i simboli +/-/reset dello zoom carattere ben centrati */
+#console-zoom #console-font-reset { font-size: 1rem; }
+#console-zoom button { font-size: 1.15rem; }
+
+
+/* ============================================================================
+   Guida per singolo BLOCCO (Ismail 2026-07-09d): popup "?" con descrizione, coerente col tema.
+   ============================================================================ */
+#block-help-popup {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: var(--surface, #fff); color: #2c2338;
+  border: 2px solid var(--primary); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.3); padding: 1.1rem 1.3rem 1.3rem;
+  width: min(420px, 92vw); max-height: 84vh; overflow: auto; z-index: 1500;
+  display: none; flex-direction: column; gap: 0.5rem;
+}
+#block-help-popup.active { display: flex; }
+.bh-head { display: flex; align-items: center; gap: 0.6rem; }
+.bh-head h3 { margin: 0; flex: 1 1 auto; color: var(--primary); font-size: 1.1rem; }
+.bh-head .x-close { position: static; flex: 0 0 auto; }
+.bh-qmark {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--primary); color: #fff; font-weight: 800; font-size: 1.05rem;
+}
+#block-help-desc { margin: 0.2rem 0 0; font-size: 0.94rem; line-height: 1.55; }
+body.dark-mode #block-help-popup { background: #241f38; color: #e8e6f0; border-color: #7c3aed; }
+body.dark-mode .bh-head h3 { color: #c9a9fa; }
+
+/* pulsante "?" in alto a sinistra nelle finestre di modifica dei blocchi */
+.blk-help-btn {
+  position: absolute; top: 0.55rem; left: 0.6rem; z-index: 14;
+  width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; font-weight: 800; line-height: 1; padding: 0;
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.blk-help-btn:hover { background: var(--primary); color: #fff; }
+.blk-help-btn:active { transform: scale(0.92); }
+body.dark-mode .blk-help-btn { background: rgba(201,169,250,0.18); color: #c9a9fa; }
+body.dark-mode .blk-help-btn:hover { background: #7c3aed; color: #fff; }
+/* i titoli delle finestre lasciano spazio al "?" a sinistra e alla X a destra */
+#edit-node-popup h3, #for-popup h3, #draw-popup h3 { margin-left: 2.1rem; }
+
+
+/* ============================================================================
+   Rilievo 14 (Ismail 2026-07-09e): tabella variabili — toggle moderno, pulsante elimina,
+   niente scrollbar.
+   ============================================================================ */
+/* toggle "VARIABILI" come pill moderna e coerente col tema */
+#variabiliLabel {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: 10px; padding: 0.5rem 0.7rem; margin-bottom: 0.5rem;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+#variabiliLabel:hover { background: color-mix(in srgb, var(--primary) 16%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+#variabili-caret { transition: transform 0.2s ease; }
+body.dark-mode #variabiliLabel { background: rgba(201,169,250,0.1); border-color: rgba(201,169,250,0.25); }
+
+/* pulsante elimina variabile: piccolo, elegante, coerente (rosso soft) */
+.var-del {
+  flex: 0 0 auto; width: 22px; height: 22px; border: none; border-radius: 7px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; line-height: 1; padding: 0; margin-left: 0.1rem;
+  background: transparent; color: var(--if-false-color, #c62828); opacity: 0.6;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+.var-del:hover { background: color-mix(in srgb, var(--if-false-color, #c62828) 16%, transparent); opacity: 1; }
+.var-del:active { transform: scale(0.9); }
+/* la riga template vuota (ultima) non mostra il pulsante elimina */
+#tabVariabili tr:last-child .var-del { visibility: hidden; }
+body.dark-mode .var-del { color: #ff8a80; }
+
+/* Rilievo 14: rimuovi la scrollbar della tabella variabili (resta scrollabile a rotellina) */
+#sidebar { scrollbar-width: none; }
+#sidebar::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+#tableContainer { overflow: visible; scrollbar-width: none; }
+#tableContainer::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+
+/* ============================================================================
+   Rilievo 17 (Ismail 2026-07-09e): popup Disegno Tartaruga — estetica coerente coi popup,
+   scrollbar V+H stile canvas principale, controlli Zoom +/-/reset in basso a destra.
+   ============================================================================ */
+#draw-output-panel {
+  width: 340px; height: 400px; min-width: 200px; min-height: 220px;
+  border-radius: 14px; border: 1.5px solid var(--primary);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.3);
+}
+#draw-output-head { border-radius: 12px 12px 0 0; }
+#draw-output-head .x-close { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
+#draw-output-head .x-close svg { display: block; }
+/* area scrollabile della tela: overflow auto -> scrollbar V + H come nel canvas principale */
+#draw-scroll {
+  position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; background: #fff;
+  scrollbar-color: var(--primary, #6200ea) rgba(0,0,0,0.06); scrollbar-width: thin;
+}
+#draw-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+#draw-scroll::-webkit-scrollbar-track { background: color-mix(in srgb, var(--primary) 10%, transparent); border-radius: 6px; }
+#draw-scroll::-webkit-scrollbar-thumb { background: var(--primary, #6200ea); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; min-width: 26px; min-height: 26px; }
+#draw-scroll::-webkit-scrollbar-thumb:hover { background: var(--primary-dark, #3700b3); background-clip: content-box; }
+#draw-canvas-stack { margin: 0; }
+body.dark-mode #draw-scroll { background: #14111f; scrollbar-color: #7c3aed rgba(255,255,255,0.08); }
+body.dark-mode #draw-scroll::-webkit-scrollbar-thumb { background: #7c3aed; background-clip: content-box; }
+/* controlli zoom del disegno: stessi tondi del canvas principale, in basso a destra */
+#draw-zoom { position: absolute; right: 14px; bottom: 40px; display: flex; flex-direction: column; gap: 6px; z-index: 4; }
+#draw-zoom button {
+  width: var(--tg-btn, 34px); height: var(--tg-btn, 34px); border: none; border-radius: 50%;
+  background: var(--primary, #6200ea); color: #fff; font-size: 1.2rem; font-weight: 700; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(98,0,234,0.30); transition: background 0.16s ease, transform 0.12s ease;
+}
+#draw-zoom button:hover { background: var(--primary-dark, #3700b3); transform: scale(1.06); }
+#draw-zoom #draw-zoom-reset { font-size: 0.95rem; }
+
+/* ============================================================================
+   Lotto 3 (Ismail 2026-07-09f): header/logo, select velocità in toolbar, terminale minimale,
+   titlebar Console.
+   ============================================================================ */
+/* --- 25: piu' respiro dal logo + pulsanti toolbar leggermente piu' piccoli del logo --- */
+#logo { margin-right: 1.8rem; }
+#toolbar .tb-icon { min-width: 34px; min-height: 32px; padding: 0.34rem; }
+.tb-icon svg { width: 18px; height: 18px; }
+#toolbar { gap: 0.28rem; }
+/* separatore un filo piu' marcato accanto al logo */
+#toolbar .tb-sep { margin: 0.25rem 0.5rem; }
+
+/* --- 32: selettore velocità nella toolbar, stessa altezza dei pulsanti --- */
+#toolbar .tb-select {
+  height: 32px; align-self: center; border: none; border-radius: 8px; cursor: pointer;
+  background: rgba(255,255,255,0.92); color: var(--primary); font-size: 0.8rem; font-weight: 600;
+  padding: 0 0.5rem; margin: 0 0.1rem;
+}
+body.dark-mode #toolbar .tb-select { background: #2a2444; color: #c9a9fa; }
+
+/* --- 23: pulsanti-icona del terminale MINIMALI, sulla parte bianca, senza contenitore --- */
+.term-icon {
+  background: transparent !important; border: none !important; color: var(--primary);
+  width: 30px; height: 30px; opacity: 0.85;
+}
+.term-icon:hover { background: color-mix(in srgb, var(--primary) 12%, transparent) !important; opacity: 1; }
+.term-icon.is-mobile { background: color-mix(in srgb, var(--primary) 18%, transparent) !important; opacity: 1; }
+body.dark-mode .term-icon { color: #c9a9fa; }
+body.dark-mode .term-icon:hover, body.dark-mode .term-icon.is-mobile { background: rgba(201,169,250,0.18) !important; }
+
+/* --- 29: titlebar "Console" nello stile della testata della tabella variabili --- */
+#console-titlebar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  background: var(--primary); color: #fff; margin: -0.7rem -0.8rem 0.4rem -0.8rem;
+  padding: 0.42rem 0.7rem; border-radius: 8px 8px 0 0; flex: 0 0 auto;
+}
+#console-title { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+#console-titlebar .console-x { position: static; background: rgba(255,255,255,0.18); color: #fff; }
+#console-titlebar .console-x:hover { background: rgba(255,255,255,0.34); color: #fff; }
+#console-popup.docked #console-titlebar { margin: -0.7rem -0.8rem 0.4rem -0.8rem; }
+#console-popup:not(.docked) #console-titlebar { margin: -1.5rem -2rem 0.5rem -2rem; }
+body.dark-mode #console-titlebar { background: #3a3260; }
+/* la topbar dei controlli ora e' solo ? (sx) e download (dx), minimali sul bianco */
+#console-topbar { margin-bottom: 0.1rem; }
+
+/* --- 33: pulsanti Crea/Carica tema, allineati, con icona vettoriale --- */
+.settings-theme-actions { display: flex; gap: 0.5rem; margin-top: 0.2rem; }
+.settings-themebtn {
+  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.45rem 0.6rem; border-radius: 9px; border: 1.5px solid var(--border, #d1c4e9);
+  background: transparent; color: var(--primary); font-weight: 600; font-size: 0.82rem; cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.settings-themebtn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.settings-themebtn:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+body.dark-mode .settings-themebtn { color: #c9a9fa; border-color: #4a4066; }
+
+
+/* --- 24: la X di elimina variabile resta SEMPRE visibile; il campo valore si restringe --- */
+.value-cell { min-width: 0; }
+.value-cell .value-input { min-width: 0; flex: 1 1 auto; }
+.value-cell .var-del { flex: 0 0 auto; }
+#tabVariabili td { min-width: 0; }
+
+
+/* ============================================================================
+   Console stile "scheda" (schizzo Ismail, 2026-07-09g): output come CARD bianca su pannello
+   tinto dal tema; ? e scarica-log come BADGE tondi sugli angoli in alto della card.
+   ============================================================================ */
+#console-outwrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+#console-popup #console-output {
+  flex: 1 1 auto; min-height: 0; border-radius: 12px; padding-top: 2.4rem;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.04);
+}
+/* badge tondi agli angoli superiori della card */
+.term-badge {
+  position: absolute; top: 8px; z-index: 3; width: 28px; height: 28px; border-radius: 50%;
+  border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--primary) 13%, #fff); color: var(--primary);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14); transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.term-badge svg { width: 15px; height: 15px; display: block; }
+.term-badge:hover { background: var(--primary); color: #fff; }
+.term-badge:active { transform: scale(0.92); }
+.term-badge-left { left: 8px; }
+.term-badge-right { right: 8px; }
+body.dark-mode .term-badge { background: #241f38; color: #c9a9fa; }
+body.dark-mode .term-badge:hover { background: #7c3aed; color: #fff; }
+/* pannello leggermente piu' ariato attorno alla card */
+#console-popup.docked { padding: 0.7rem 0.8rem 1.1rem 0.8rem; }
