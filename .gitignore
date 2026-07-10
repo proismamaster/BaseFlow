@@ -1,3 +1,26 @@
 /node_modules/
 .worktrees/
+
+
 server.log
+# Claude
+.claude/
+
+# Graphify
+graphify-out/
+vault-update/
+
+# Temporary files
+.tmp_*
+find_unclosed_tmp.js
+
+# Logs
+*.log
+server.log
+
+# Documentation not to publish
+AGENTS.md
+AI.md
+CLAUDE.md
+AUDIT.md
+JOURNAL_*.md
