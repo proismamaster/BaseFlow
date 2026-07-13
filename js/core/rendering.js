@@ -122,15 +122,21 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType, 
   }
   // FIX #12 (Ismail 2026-07-08): se questo arco e' quello appena PERCORSO durante
   // l'esecuzione (nodo precedente -> nodo corrente) lo evidenzia con --exec-edge-color.
-  var _execHl = (typeof executingNodeIndex !== "undefined" && executingNodeIndex >= 0
-    && typeof execEdgeFrom !== "undefined" && execEdgeFrom >= 0
-    && fromNodeIndex === execEdgeFrom && toNodeIndex === executingNodeIndex);
+  // R12-F (Ismail 2026-07-12): execEdgeFrom+executingNodeIndex sostituiti da executingEdge
+  // (state.js, {from,to}|null) -- stesso identico ruolo, ora nel modello a due fasi separate
+  // (fase-nodo vs fase-arco, mai attive insieme). Questo e' l'UNICO aggancio che evidenzia i
+  // back-edge dei cicli (non in frecce[]: drawLoopBranches/drawDoWhileBranches passano
+  // lastBodyIdx/loopIdx come fromNodeIndex/toNodeIndex proprio per intercettare questo check).
+  var _execHl = (typeof executingEdge !== "undefined" && executingEdge
+    && fromNodeIndex === executingEdge.from && toNodeIndex === executingEdge.to);
   var _execEdgeCol = (typeof cssVar === "function") ? cssVar('--exec-edge-color', '#ff9800') : '#ff9800';
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
   ctx.strokeStyle = _execHl ? _execEdgeCol : themeCanvasLineColor();
-  ctx.lineWidth = _execHl ? 4 : 2;
+  // C1 (round 11): spessore uniformato a 3 con la nuova evidenziazione "arco intero"
+  // (punto 7 di draw(), sotto) -- prima era 4 solo qui (FIX #12), disallineato.
+  ctx.lineWidth = _execHl ? 3 : 2;
   ctx.stroke();
   if (arrow) drawArrowhead(x1, y1, x2, y2, _execHl ? _execEdgeCol : undefined);
 }
@@ -182,6 +188,11 @@ function draw(forme) {
   if (ctx.setTransform && canvas && canvas.width && w) { try { ctx.setTransform(canvas.width / w, 0, 0, canvas.height / h, 0, 0); } catch (e) {} }
   ctx.clearRect(0, 0, w, h); // Pulisce il canvas
   frecce = []; // Resetta l'array delle frecce visuali
+
+  // R12-G/Fase1 (Ismail 2026-07-12): calcolato UNA volta per frame (non per nodo) l'insieme
+  // di tutti gli indici appartenenti a un'unita' multi-selezionata (dedup "outer wins" gia'
+  // applicato da getSelectionUnits/_multiSelectMemberSet in interaction.js).
+  const _multiSelSet = (typeof _multiSelectMemberSet === "function") ? _multiSelectMemberSet() : new Set();
 
    // 3) DISEGNO DI TUTTI I NODI
   for (let i = 0; i < forme.length; i++) {
@@ -257,7 +268,11 @@ function draw(forme) {
         drawForwardShape(x0, y0, node.width, node.height);
         break;
       case "turn":
-        drawTurnShape(x0, y0, node.width, node.height);
+        // R12-D: la forma segue la direzione GIA' scelta dall'utente (turnDirectionOf,
+        // vedi draw.js) -- null finche' il dialog non e' stato salvato con una radio
+        // selezionata, quindi doppia freccia per un turn appena creato (comportamento
+        // storico invariato).
+        drawTurnShape(x0, y0, node.width, node.height, (typeof turnDirectionOf === 'function') ? turnDirectionOf(flow.nodes[i].info) : null);
         break;
       case "home":
         drawHomeShape(x0, y0, node.width, node.height);
@@ -280,7 +295,11 @@ function draw(forme) {
     // contenuto dei rami sbiadisce insieme al rombo, dando la sensazione che si stia
     // trascinando un unico blocco e non solo l'IF).
     const dragEnd = (typeof dragSubtreeEnd !== "undefined" && dragSubtreeEnd !== -1) ? dragSubtreeEnd : (typeof dragNodeIndex !== "undefined" ? dragNodeIndex + 1 : -1);
-    const isBeingDragged = (typeof isDraggingNode !== "undefined" && isDraggingNode && typeof dragNodeIndex !== "undefined" && dragNodeIndex !== -1 && i >= dragNodeIndex && i < dragEnd);
+    const isBeingDragged = (typeof isDraggingNode !== "undefined" && isDraggingNode && typeof dragNodeIndex !== "undefined" && dragNodeIndex !== -1 && (
+      (i >= dragNodeIndex && i < dragEnd) ||
+      // R14: drag SPARSO -- il fade copre TUTTI i membri della selezione, non un range.
+      (typeof dragScattered !== "undefined" && dragScattered && _multiSelSet.has(i))
+    ));
     if (isBeingDragged) { ctx.save(); ctx.globalAlpha = 0.3; }
     ctx.fill(); // Riempie la forma
     if (tipo === "comment") { ctx.save(); ctx.setLineDash([6, 4]); ctx.stroke(); ctx.restore(); }
@@ -296,11 +315,53 @@ function draw(forme) {
       ctx.restore();
     }
 
+    // C4 (round 11): bordo di selezione (click singolo, PRIMA del dialog). Il path della
+    // forma e' ancora quello attivo sul contesto (stesso beginPath/closePath disegnato
+    // sopra), quindi si ri-stroka con colore/spessore diversi -- stesso pattern del bordo
+    // "in esecuzione" qui sopra, nessun bisogno di richiamare le funzioni drawXxx.
+    if (typeof selectedNodeIdx !== "undefined" && i === selectedNodeIdx) {
+      ctx.save();
+      ctx.strokeStyle = (typeof cssVar === "function") ? cssVar('--node-selected-color', '#1e88e5') : '#1e88e5';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // R12-G/Fase1: bordo TRATTEGGIATO per la selezione multipla (Ctrl+click). Stesso path
+    // ancora attivo sul contesto -> ri-stroke, nessuna chiamata a drawXxx necessaria.
+    if (_multiSelSet.has(i)) {
+      ctx.save();
+      ctx.setLineDash([5, 3]);
+      ctx.strokeStyle = (typeof cssVar === "function") ? cssVar('--node-selected-color', '#1e88e5') : '#1e88e5';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // R13-B (Ismail 2026-07-12): flash ROSSO ~400ms sui nodi della selezione appena
+    // rifiutata (spostamento/copia di gruppo) -- prima il rifiuto era visibile SOLO in
+    // console (warnMoveRejected), invisibile durante un drag reale. Stato in state.js
+    // (_bfRejectFlashMembers/_bfRejectFlashUntil), innescato da triggerRejectFlash()
+    // (interaction.js). Stesso pattern "ri-stroke del path ancora attivo" del bordo di
+    // selezione sopra.
+    if (typeof _bfRejectFlashMembers !== 'undefined' && _bfRejectFlashMembers && _bfRejectFlashMembers.has(i) &&
+        typeof _bfRejectFlashUntil !== 'undefined' && Date.now() < _bfRejectFlashUntil) {
+      ctx.save();
+      ctx.strokeStyle = (typeof cssVar === "function") ? cssVar('--exec-error-color', '#e53935') : '#e53935';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Evidenzia il nodo attualmente trascinato (Drag & Drop)
     if (isBeingDragged) {
       ctx.save();
       ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = "#1e88e5";
+      // R12-E/E1 (Ismail 2026-07-11): era un blu fisso, non seguiva l'editor tema -- riusa
+      // arcDragColor() (stessa var --arc-drag-color gia' usata per l'arrowhead dell'arco
+      // target qui sotto), cosi' TUTTO il feedback visivo di un drag ha lo stesso colore
+      // personalizzabile (acccettazione E1: "incluse selezione/drag").
+      ctx.strokeStyle = (typeof arcDragColor === "function") ? arcDragColor() : "#1e88e5";
       ctx.lineWidth = 3;
       ctx.globalAlpha = 0.75;
       ctx.stroke();
@@ -400,7 +461,9 @@ function draw(forme) {
     }
     ctx.save();
     ctx.strokeStyle = arcHoverColor();
-    ctx.lineWidth = 4;
+    // C3 (round 11): hover deve cambiare SOLO il colore -- stesso lineWidth del tratto
+    // base (drawLine, 2) e stessa scala punta (1), niente piu' "ingrossamento".
+    ctx.lineWidth = 2;
     for (const f of frecce) {
       let hit = false;
       if (hoverArc.kind === "branch") {
@@ -417,7 +480,7 @@ function draw(forme) {
         // stesso rosso dell'evidenziazione -- altrimenti restava nera anche quando il
         // resto dell'arco si coloriva, dando l'impressione che l'evidenziazione fosse
         // incompleta.
-        if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, arcHoverColor(), 1.6);
+        if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, arcHoverColor(), 1);
         // FIX round-4j (vedi nota su drawLine/visualExtra): il placeholder di un corpo
         // VUOTO di While/For e' visivamente un anello (giu' - lato - su fino
         // all'esagono), ma solo il primo tratto e' cliccabile/in frecce[] -- gli altri
@@ -433,7 +496,7 @@ function draw(forme) {
             // continuazione porta davvero una punta -- solo quello la ridisegna nel
             // colore di evidenziazione, altrimenti restava nera anche con l'intero
             // anello/back-edge acceso.
-            if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], arcHoverColor(), 1.6);
+            if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], arcHoverColor(), 1);
           }
         }
       }
@@ -445,7 +508,9 @@ function draw(forme) {
   if (typeof isDraggingNode !== "undefined" && isDraggingNode && typeof dragOverIndex !== "undefined" && dragOverIndex !== -1 && frecce[dragOverIndex]) {
     const fdrag = frecce[dragOverIndex];
     ctx.save();
-    ctx.strokeStyle = "#1e88e5";
+    // R12-E/E1: come sopra -- il corpo della linea era fisso, mentre l'arrowhead di questo
+    // stesso arco (poco sotto, drawArrowhead) usava GIA' arcDragColor(): incoerente fra loro.
+    ctx.strokeStyle = (typeof arcDragColor === "function") ? arcDragColor() : "#1e88e5";
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(fdrag.inzioX, fdrag.inzioY);
@@ -462,6 +527,34 @@ function draw(forme) {
       for (const seg of fdrag.visualExtra) {
         ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
         if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], arcDragColor(), 1.6);
+      }
+    }
+    ctx.restore();
+  }
+
+  // 6bis) EVIDENZIAZIONE dell'INTERA freccia PERCORSA durante l'esecuzione (C1, round 11).
+  // Il check inline dentro drawLine() (sopra, _execHl, FIX #12) colora gia' il PRIMO
+  // segmento di un arco -- utile per gli archi lineari semplici -- ma un arco composto da
+  // piu' segmenti (rami if/cicli: steli+gomiti+ponti) restava illuminato solo a meta'.
+  // Stessa meccanica del punto 5 (hover) sopra: ridisegna l'arco INTERO (segmento +
+  // visualExtra + punta) sopra il disegno base. Va DOPO il bordo di selezione dei nodi
+  // (C4, punto 3 del ciclo nodi sopra): sezioni diverse di draw(), nessuna interferenza.
+  if (typeof executingEdge !== "undefined" && executingEdge) {
+    const _execEdgeCol2 = (typeof cssVar === "function") ? cssVar('--exec-edge-color', '#ff9800') : '#ff9800';
+    ctx.save();
+    ctx.strokeStyle = _execEdgeCol2;
+    ctx.lineWidth = 3;
+    for (const f of frecce) {
+      if (f.fromNodeIndex === executingEdge.from && f.toNodeIndex === executingEdge.to) {
+        ctx.beginPath(); ctx.moveTo(f.inzioX, f.inzioY); ctx.lineTo(f.fineX, f.fineY); ctx.stroke();
+        if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, _execEdgeCol2, 1);
+        if (f.visualExtra) {
+          for (const seg of f.visualExtra) {
+            ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
+            if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], _execEdgeCol2, 1);
+          }
+        }
+        break; // una sola coppia from/to puo' corrispondere a un arco
       }
     }
     ctx.restore();
@@ -489,7 +582,8 @@ function drawDragGhost(node, nodeIndex) {
   ctx.save();
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = coloreNodo;
-  ctx.strokeStyle = "#1e88e5";
+  // R12-E/E1: ghost del nodo durante il drag -- stesso colore di feedback-drag degli altri due punti.
+  ctx.strokeStyle = (typeof arcDragColor === "function") ? arcDragColor() : "#1e88e5";
   ctx.lineWidth = 2.5;
   ctx.setLineDash([5, 3]);
   ctx.shadowColor = "rgba(0,0,0,0.35)";
@@ -849,12 +943,22 @@ function drawIfBranches(ifIdx, node) {
     // direzione la calcola comunque drawArrowhead dal vettore del segmento stesso, mai
     // a mano). Resta non cliccabile (salva=false): e' solo un raccordo visivo, non un
     // punto di inserimento.
-    drawLine(sideX, reconnectY, cx, reconnectY, false, null, null, null, null, true);
+    // R13-G (Ismail 2026-07-12, "->*<- le frecce si sovrappongono troppo al pallino"):
+    // accorcia il ponte di JOIN_DOT_GAP px PRIMA di raggiungere (cx, reconnectY) -- l'estremo
+    // resta sul lato corretto (sideX <= cx: si viene da sinistra, ci si ferma un po' prima di
+    // cx; sideX > cx: da destra, ci si ferma un po' dopo cx), la PUNTA resta orientata uguale
+    // (drawArrowhead la calcola dal vettore del segmento, che non cambia direzione, solo
+    // lunghezza). Stesso identico endX va nel visualExtra subito sotto -- altrimenti hover/
+    // hit-test (arcHitTest, interaction.js) userebbero ancora il vecchio endpoint non
+    // accorciato, disallineati dal segmento REALMENTE disegnato.
+    const JOIN_DOT_GAP = 5;
+    const bridgeEndX = (sideX <= cx) ? (cx - JOIN_DOT_GAP) : (cx + JOIN_DOT_GAP);
+    drawLine(sideX, reconnectY, bridgeEndX, reconnectY, false, null, null, null, null, true);
     // FIX round-4q: aggancia il ponte appena disegnato come visualExtra dell'arco
     // proprietario (vedi sopra) -- hover/drag (punti 5/6 di draw()) lo ridisegnano
     // insieme allo stelo verticale, arrowhead incluso (5o elemento della tupla = true).
     if (bridgeOwnerArc) {
-      bridgeOwnerArc.visualExtra = (bridgeOwnerArc.visualExtra || []).concat([[sideX, reconnectY, cx, reconnectY, true]]);
+      bridgeOwnerArc.visualExtra = (bridgeOwnerArc.visualExtra || []).concat([[sideX, reconnectY, bridgeEndX, reconnectY, true]]);
     }
   }
 
@@ -1254,8 +1358,18 @@ function drawLoopBranches(loopIdx, node) {
   } else {
     drawLine(bodyColX, bodyBottomY, bodyColX, backEdgeGapY, false);
   }
-  drawLine(lastRealX, backEdgeGapY, backEdgeX, backEdgeGapY, false);
-  drawLine(backEdgeX, backEdgeGapY, backEdgeX, diaBottom, false, null, null, null, null, true);
+  // C1 (round 11): back-edge del ciclo (ritorno corpo->condizione) NON e' in frecce[]
+  // (non cliccabile, scelta di design 2026-07-04): il punto 7 sopra (che itera frecce[])
+  // non lo puo' quindi evidenziare durante l'esecuzione. Si passano comunque
+  // lastBodyIdx/loopIdx come fromNodeIndex/toNodeIndex (innocuo qui: salva=false, quindi
+  // non finiscono MAI in frecce[]) cosi' il check _execHl gia' presente DENTRO drawLine()
+  // (FIX #12) colora anche questi due segmenti -- ponte + rientro nell'esagono -- quando
+  // il passo appena eseguito e' esattamente questo back-edge (R12-F: executingEdge.from===
+  // lastBodyIdx && executingEdge.to===loopIdx). Il primo segmento del back-edge (riga sopra,
+  // 'loop_body_end') e' gia' coperto allo stesso modo, essendo gia' salva=true con gli
+  // indici giusti.
+  drawLine(lastRealX, backEdgeGapY, backEdgeX, backEdgeGapY, false, lastBodyIdx, loopIdx);
+  drawLine(backEdgeX, backEdgeGapY, backEdgeX, diaBottom, false, lastBodyIdx, loopIdx, null, null, true);
   // FIX round-4j (vedi nota su drawLine/visualExtra in cima al file): per un corpo
   // VUOTO, i tre segmenti appena disegnati sopra (giu' - lato - su fino all'esagono)
   // sono il "ritorno" visivo dello stesso placeholder self-loop disegnato piu' in
@@ -1576,9 +1690,18 @@ function drawDoWhileBranches(loopIdx, node) {
   };
   for (const bi of body.bodyList) _considerSubtree(bi);
   const backEdgeX = leftMostBodyLeft - BACKEDGE_SEP_PX;
-  drawLine(diaLeft, cy, backEdgeX, cy, false);
-  drawLine(backEdgeX, cy, backEdgeX, bodyTopY, false);
-  drawLine(backEdgeX, bodyTopY, cx, bodyTopY, false, null, null, null, null, true);
+  // C1 (round 11): back-edge del Do-While (condizione vera -> si ritorna in cima al
+  // corpo), NON in frecce[] (non cliccabile). Stesso principio gia' applicato al
+  // back-edge di While/For sopra: si passano loopIdx/primo-nodo-del-corpo come
+  // fromNodeIndex/toNodeIndex (innocuo, salva resta false) solo cosi' il check _execHl
+  // gia' dentro drawLine() colora anche questi segmenti quando il passo appena eseguito
+  // e' esattamente "condizione vera -> rientra nel corpo" (R12-F: executingEdge.from===
+  // loopIdx && executingEdge.to===primo-nodo-del-corpo). Corpo vuoto: nessun target
+  // reale (il placeholder self-loop dedicato, sopra, gestisce gia' quel caso da solo).
+  const _backToBody = body.bodyList.length ? body.bodyList[0] : null;
+  drawLine(diaLeft, cy, backEdgeX, cy, false, loopIdx, _backToBody);
+  drawLine(backEdgeX, cy, backEdgeX, bodyTopY, false, loopIdx, _backToBody);
+  drawLine(backEdgeX, bodyTopY, cx, bodyTopY, false, loopIdx, _backToBody, null, null, true);
 
   // FIX (Ismail 2026-07-07): pallino di convergenza in ALTO del Do-While, nel punto in cui
   // arrivano l'arco d'ingresso (dall'alto) e il back-edge di ritorno (dal ciclo) -- analogo
@@ -1778,24 +1901,48 @@ function drawForwardShape(x, y, w, h) { // "Move/Draw": tag con punta a destra
   ctx.moveTo(x, y); ctx.lineTo(x + w - cut, y); ctx.lineTo(x + w, cy);
   ctx.lineTo(x + w - cut, y + h); ctx.lineTo(x, y + h); ctx.closePath();
 }
-function drawTurnShape(x, y, w, h) { // "Turn": DOPPIA FRECCIA orizzontale (<-[ ]->).
+function drawTurnShape(x, y, w, h, dir) { // "Turn": freccia orizzontale; dir sceglie la punta.
   // Corpo rettangolare a tutta altezza (bordo alto/basso PIATTO: le frecce di
   // collegamento toccano il centro del bordo e agganciano il blocco; il testo sta nel
-  // corpo pieno) + due teste-freccia triangolari ai lati a meta' altezza (identita' "ruota").
+  // corpo pieno) + testa(e)-freccia triangolare ai lati a meta' altezza (identita' "ruota").
+  // R12-D (Ismail 2026-07-11): `dir` e' opzionale (5o parametro, retro-compatibile con i
+  // 2 call-site esistenti che non lo passano -- vedi draw() e il ghost del drag, che
+  // resta SEMPRE a due punte, per design, vedi piano). null/undefined/valore ignoto ->
+  // comportamento storico DOPPIA freccia (nodo nuovo / direzione non ancora scelta).
+  // 'right' -> punta SOLO a destra, lato sinistro PIATTO (bordo verticale a x). 'left' ->
+  // speculare (punta a sinistra, lato destro piatto a x+w).
   const cy = y + h / 2;
   const head = Math.min(w * 0.20, 20);
   const notch = Math.min(h * 0.30, 14);
   ctx.beginPath();
-  ctx.moveTo(x + head, y);                 // corpo: alto-sinistra
-  ctx.lineTo(x + w - head, y);             // corpo: alto-destra (bordo alto piatto)
-  ctx.lineTo(x + w - head, cy - notch);    // testa destra: alto
-  ctx.lineTo(x + w, cy);                   // punta destra
-  ctx.lineTo(x + w - head, cy + notch);    // testa destra: basso
-  ctx.lineTo(x + w - head, y + h);         // corpo: basso-destra
-  ctx.lineTo(x + head, y + h);             // corpo: basso-sinistra (bordo basso piatto)
-  ctx.lineTo(x + head, cy + notch);        // testa sinistra: basso
-  ctx.lineTo(x, cy);                       // punta sinistra
-  ctx.lineTo(x + head, cy - notch);        // testa sinistra: alto
+  if (dir === 'right') {
+    ctx.moveTo(x, y);                        // angolo alto-sinistra (lato piatto, niente testa)
+    ctx.lineTo(x + w - head, y);             // corpo: alto-destra
+    ctx.lineTo(x + w - head, cy - notch);    // testa destra: alto
+    ctx.lineTo(x + w, cy);                   // punta destra
+    ctx.lineTo(x + w - head, cy + notch);    // testa destra: basso
+    ctx.lineTo(x + w - head, y + h);         // corpo: basso-destra
+    ctx.lineTo(x, y + h);                    // angolo basso-sinistra (lato piatto)
+  } else if (dir === 'left') {
+    ctx.moveTo(x + head, y);                 // corpo: alto-sinistra
+    ctx.lineTo(x + w, y);                    // angolo alto-destra (lato piatto, niente testa)
+    ctx.lineTo(x + w, y + h);                // angolo basso-destra (lato piatto)
+    ctx.lineTo(x + head, y + h);             // corpo: basso-sinistra
+    ctx.lineTo(x + head, cy + notch);        // testa sinistra: basso
+    ctx.lineTo(x, cy);                       // punta sinistra
+    ctx.lineTo(x + head, cy - notch);        // testa sinistra: alto
+  } else {
+    ctx.moveTo(x + head, y);                 // corpo: alto-sinistra
+    ctx.lineTo(x + w - head, y);             // corpo: alto-destra (bordo alto piatto)
+    ctx.lineTo(x + w - head, cy - notch);    // testa destra: alto
+    ctx.lineTo(x + w, cy);                   // punta destra
+    ctx.lineTo(x + w - head, cy + notch);    // testa destra: basso
+    ctx.lineTo(x + w - head, y + h);         // corpo: basso-destra
+    ctx.lineTo(x + head, y + h);             // corpo: basso-sinistra (bordo basso piatto)
+    ctx.lineTo(x + head, cy + notch);        // testa sinistra: basso
+    ctx.lineTo(x, cy);                       // punta sinistra
+    ctx.lineTo(x + head, cy - notch);        // testa sinistra: alto
+  }
   ctx.closePath();
 }
 function drawHomeShape(x, y, w, h) { // "Home": casetta (tetto + corpo)

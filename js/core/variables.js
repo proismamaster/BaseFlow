@@ -44,18 +44,18 @@
       switch (tipo) { 
         case "int":
           if (/^-?\d+$/.test(val3)) { fValid = true; valoreConvertito = parseInt(val3); } // Valido intero
-          else { errMsg = "Il valore deve essere un intero valido."; }
+          else { errMsg = (typeof i18nText === 'function' && i18nText('var_err_int')) || "Il valore deve essere un intero valido."; }
           break;
         case "float":
           if (/^-?\d*\.\d+$/.test(val3) || /^-?\d+\.?\d*$/.test(val3)) { fValid = true; valoreConvertito = parseFloat(val3); } // Valido float
-          else { errMsg = "Il valore deve essere un numero decimale valido."; }
+          else { errMsg = (typeof i18nText === 'function' && i18nText('var_err_float')) || "Il valore deve essere un numero decimale valido."; }
           break;
         case "string":
           fValid = true; valoreConvertito = val3; // Le stringhe sono sempre valide (se non vuote, gestito sopra)
           break;
       }
     } else {
-      errMsg = "Nome variabile non valido (deve iniziare con una lettera e contenere solo lettere e numeri).";
+      errMsg = (typeof i18nText === 'function' && i18nText('var_err_name')) || "Nome variabile non valido (deve iniziare con una lettera e contenere solo lettere e numeri).";
     }
 
     // Rilievo 14: rifiuta un nome di variabile GIA' esistente (in un'altra riga).
@@ -84,7 +84,7 @@
       let errorCell = errorRow.insertCell(); // Cella che occupa tutta la larghezza
       errorCell.colSpan = 3; // Occupa 3 colonne
       errorCell.className = "error-message"; // Classe per lo stile del messaggio
-      errorCell.textContent = "Dati non validi. " + errMsg; // Testo dell'errore
+      errorCell.textContent = ((typeof i18nText === 'function' && i18nText('var_err_invalid_data')) || "Dati non validi.") + " " + errMsg; // Testo dell'errore
       // Rimuove il messaggio di errore al prossimo input nella riga problematica
       target.addEventListener("input", () => { if (errorRow.parentNode) errorRow.remove(); }, { once: true });
     }
@@ -105,12 +105,14 @@
     // Select per il tipo di variabile
     let selectTipo = document.createElement("select");
     selectTipo.classList.add("inputVariable");
+    // WP-D1 esteso: testo iniziale ora coerente con _varTypeLabel/i18n (era "Integer" fisso
+    // in inglese) -- in pratica ridondante perche' updateVarTypeOptions() qui sotto lo
+    // riscrive SUBITO nella lingua corrente, ma niente testo hardcoded come fallback iniziale.
     ["int", "float", "string"].forEach(val => {
       let option = document.createElement("option");
-      option.value = val; option.textContent = val.charAt(0).toUpperCase() + val.slice(1);
-      if(val=="int"){ // Personalizzazione testo per "Integer"
-        option.textContent = "Integer"
-      }
+      const _key = { int: 'var_type_int', float: 'var_type_float', string: 'var_type_string' }[val];
+      option.value = val;
+      option.textContent = (typeof i18nText === 'function' && i18nText(_key)) || (val.charAt(0).toUpperCase() + val.slice(1));
       selectTipo.appendChild(option);
     });
     cell2.appendChild(selectTipo);
@@ -151,6 +153,12 @@ function deleteVariableRow(btn) {
   const tab = document.getElementById('tabVariabili');
   if (!tr || !tab) return;
   if (tr.rowIndex >= tab.rows.length - 1) return; // ultima riga = template vuoto: non si elimina
+  // R13-L: se il popover valori era ancorato proprio a questa riga, chiudilo SENZA
+  // committare -- la riga (e il suo input) stanno per sparire dal DOM.
+  if (typeof closeVarValuePopover === 'function') {
+    const pop = document.getElementById('var-value-popover');
+    if (pop && !pop.hidden && pop._targetInput && tr.contains(pop._targetInput)) closeVarValuePopover(false);
+  }
   const varIdx = tr.rowIndex - 1;
   if (Array.isArray(flow.variables) && varIdx >= 0 && varIdx < flow.variables.length) flow.variables.splice(varIdx, 1);
   tab.deleteRow(tr.rowIndex);
@@ -158,23 +166,61 @@ function deleteVariableRow(btn) {
   if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
 }
 
-// Rilievi 24+30: etichette del TIPO variabile — tradotte, e abbreviate quando la tabella e'
-// stretta (Int/Flo/Str) cosi' non deformano il layout.
+// Rilievi 24+30 (v3, Ismail 2026-07-10): il TIPO variabile normalmente resta ESTESO
+// e tradotto (Intero/Decimale/Stringa...) e si abbrevia (Int/Flo/Str) SOLO quando la
+// sidebar si restringe sotto una certa soglia. Quando abbreviato, la colonna Tipo si
+// restringe e cede spazio alla colonna Valore (classe .tab-narrow su #tabVariabili,
+// vedi CSS), cosi' il campo valore + il pulsante elimina restano sempre visibili.
 function _varTypeLabel(val, abbrev) {
-  if (abbrev) return { int: 'Int', float: 'Flo', string: 'Str' }[val] || val;
   const key = { int: 'var_type_int', float: 'var_type_float', string: 'var_type_string' }[val];
-  return (typeof i18nText === 'function' && i18nText(key)) || { int: 'Integer', float: 'Float', string: 'String' }[val] || val;
+  const full = (typeof i18nText === 'function' && i18nText(key)) || { int: 'Integer', float: 'Float', string: 'String' }[val] || val;
+  if (!abbrev) return full;
+  // R12-A3 (Ismail 2026-07-11): PRIMA LETTERA della label TRADOTTA nella lingua corrente
+  // (non piu' 'Int'/'Flo'/'Str' fissi in inglese, insensati in AR/ZH). Array.from invece di
+  // charAt/[0]: al sicuro anche se la label iniziasse con un carattere fuori dal BMP (coppia
+  // surrogata), che charAt spezzerebbe a meta'.
+  const ch = Array.from(full)[0];
+  return ch || full;
+}
+// R12-A3: le <option> di una <select> nativa mostrano il loro textContent per esteso quando
+// il menu e' APERTO, anche se il valore selezionato (a menu chiuso) resta quello scritto per
+// ultimo -- quindi basta riscrivere le option per esteso quando l'utente apre il menu
+// (mousedown/focus, il piu' presto possibile) e tornare ad abbreviare alla chiusura
+// (change/blur) SE la sidebar e' ancora stretta. Un solo attach per <select> (guardia
+// data-var-expand-bound sull'elemento), cosi' updateVarTypeOptions() -- che gira spesso, a
+// ogni resize/drag della sidebar -- puo' richiamarla ad ogni giro senza duplicare i listener.
+function attachVarTypeExpand(sel) {
+  if (!sel || !sel.getAttribute || sel.getAttribute('data-var-expand-bound') === '1') return;
+  sel.setAttribute('data-var-expand-bound', '1');
+  const expand = function () {
+    Array.prototype.forEach.call(sel.options, function (o) { o.textContent = _varTypeLabel(o.value, false); });
+  };
+  const collapse = function () {
+    const sb = document.getElementById('sidebar');
+    const narrow = (sb && sb.getBoundingClientRect) ? (sb.getBoundingClientRect().width < 260) : false;
+    Array.prototype.forEach.call(sel.options, function (o) { o.textContent = _varTypeLabel(o.value, narrow); });
+  };
+  sel.addEventListener('mousedown', expand);
+  sel.addEventListener('focus', expand);
+  sel.addEventListener('change', collapse);
+  sel.addEventListener('blur', collapse);
 }
 function updateVarTypeOptions() {
   if (typeof document === 'undefined' || !document.querySelectorAll) return;
   const sb = document.getElementById('sidebar');
-  const narrow = (sb && sb.getBoundingClientRect) ? (sb.getBoundingClientRect().width < 215) : false;
+  const tab = document.getElementById('tabVariabili');
+  const narrow = (sb && sb.getBoundingClientRect) ? (sb.getBoundingClientRect().width < 260) : false;
+  if (tab && tab.classList) tab.classList.toggle('tab-narrow', narrow);
   document.querySelectorAll('#tabVariabili select.inputVariable').forEach(function (sel) {
+    // R12-A3: copre anche la riga TEMPLATE statica di index.html (gia' nel DOM al load,
+    // mai passata da inserisciRiga) -- updateVarTypeOptions gira su window 'load' qui sotto.
+    attachVarTypeExpand(sel);
     Array.prototype.forEach.call(sel.options, function (o) { o.textContent = _varTypeLabel(o.value, narrow); });
   });
 }
 if (typeof window !== 'undefined') {
   window.updateVarTypeOptions = updateVarTypeOptions;
+  window.attachVarTypeExpand = attachVarTypeExpand;
   window.addEventListener('resize', function () { try { updateVarTypeOptions(); } catch (e) {} });
   window.addEventListener('load', function () { try { updateVarTypeOptions(); } catch (e) {} });
 }
@@ -207,11 +253,130 @@ function toggleVariables() {
   if (!main) return;
   main.classList.toggle('sidebar-collapsed');
   if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
-  if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); } // ora e a fine animazione
-  // FIX (Ismail 2026-07-07): aggiorna --sidebar-width cosi' il tetto di larghezza della
-  // console agganciata segue apertura/chiusura della tabella variabili (subito + a fine
-  // animazione, quando offsetWidth e' definitivo).
-  if (typeof window !== 'undefined' && typeof window.syncLayoutVars === 'function') {
-    window.syncLayoutVars(); setTimeout(window.syncLayoutVars, 240);
+  // R14-E (Ismail 2026-07-13): PRIMA queste 3 chiamate erano in ordine SBAGLIATO --
+  // updateZoomOffset()/centerGraph() giravano PRIMA di syncLayoutVars(), quindi misuravano
+  // la console usando ancora il VECCHIO --sidebar-width (il tetto max-width della console
+  // agganciata dipende da questa var, style.css). Con sidebar E console entrambe aperte al
+  // massimo, questo produceva il centraggio sbagliato segnalato da Ismail. Ora si passa dal
+  // tick condiviso _bfSidebarLiveResizeTick() (init.js), che garantisce l'ordine corretto
+  // (syncLayoutVars -> updateZoomOffset -> centerGraph) ed e' lo STESSO punto di ricalcolo
+  // usato da drag sidebar/console, resize finestra, zoom, cambio lingua -- un solo posto,
+  // niente piu' ordini diversi a seconda di chi lo chiama. Il richiamo a 240ms resta (fine
+  // della transizione CSS di apertura/chiusura, offsetWidth definitivo).
+  if (typeof _bfSidebarLiveResizeTick === 'function') {
+    _bfSidebarLiveResizeTick();
+    setTimeout(_bfSidebarLiveResizeTick, 240);
+  } else if (typeof window !== 'undefined') {
+    // Fallback estremo se init.js non fosse ancora caricato (non dovrebbe capitare: script
+    // caricati in ordine fisso in index.html) -- stesso ordine corretto, ripetuto a mano.
+    if (typeof window.syncLayoutVars === 'function') window.syncLayoutVars();
+    if (typeof updateZoomOffset === 'function') updateZoomOffset();
+    if (typeof centerGraph === 'function') centerGraph();
   }
+}
+
+// ============================================================================
+// R13-L (Ismail 2026-07-12): valori LUNGHI (pensato per String, ma vale per ogni tipo) --
+// doppio binario, per TUTTI i campi valore, costo zero quando non serve:
+// (1) tooltip nativo (title) SEMPRE sincronizzato col valore corrente -- vedi il listener
+//     'input' delegato sotto (digitazione manuale) + il sync esplicito in
+//     refreshVariablesWatch/restoreVariablesTable (execute.js, gia' toccano l'input giusto
+//     dal fix A0, ora aggiornano anche .title li').
+// (2) doppio click sulla cella valore apre un popover con textarea grande (auto-height,
+//     wrap) per editare comodamente. Invio o click fuori -> chiude e COMMITTA (stesso
+//     percorso di validazione di aggiungiVaribile, via evento 'change' sulla riga, gia'
+//     agganciato su ogni riga statica/dinamica). Esc -> chiude SENZA salvare.
+// Durante l'esecuzione il campo mostra il valore RUNTIME (classe .live-value, aggiunta/
+// rimossa da refreshVariablesWatch/restoreVariablesTable) -- STESSO segnale gia' esistente,
+// nessuno stato "sto eseguendo" duplicato: il popover si apre in sola lettura in quel caso
+// (coerenza gia' stabilita per C7, i runtime non si editano).
+// ============================================================================
+function _varSyncValueTitle(input) {
+  if (input) input.title = input.value;
+}
+function _varPopoverAutoHeight() {
+  const ta = document.getElementById('var-value-popover-textarea');
+  if (!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(240, Math.max(38, ta.scrollHeight + 2)) + 'px';
+}
+function openVarValuePopover(input) {
+  if (!input) return;
+  const pop = document.getElementById('var-value-popover');
+  const ta = document.getElementById('var-value-popover-textarea');
+  const hint = document.getElementById('var-value-popover-hint');
+  if (!pop || !ta) return;
+  const readonly = !!(input.classList && input.classList.contains('live-value'));
+  ta.value = input.value;
+  ta.readOnly = readonly;
+  if (pop.classList) pop.classList.toggle('var-popover-readonly', readonly);
+  if (hint) hint.style.display = readonly ? 'none' : '';
+  pop._targetInput = input;
+  const tr = input.closest ? input.closest('tr') : null;
+  const container = document.getElementById('tableContainer');
+  if (tr && container && container.getBoundingClientRect && tr.getBoundingClientRect) {
+    const contRect = container.getBoundingClientRect();
+    const rowRect = tr.getBoundingClientRect();
+    pop.style.top = (rowRect.top - contRect.top + container.scrollTop) + 'px';
+  }
+  pop.hidden = false;
+  if (typeof _bfPushOverlay === 'function') _bfPushOverlay('var-value-popover');
+  _varPopoverAutoHeight();
+  ta.focus();
+  if (!readonly) ta.select();
+}
+function closeVarValuePopover(commit) {
+  const pop = document.getElementById('var-value-popover');
+  if (!pop || pop.hidden) return;
+  const ta = document.getElementById('var-value-popover-textarea');
+  const input = pop._targetInput;
+  if (commit && input && ta && !ta.readOnly) {
+    input.value = ta.value;
+    _varSyncValueTitle(input);
+    // Stesso percorso di validazione di aggiungiVaribile: un 'change' sulla riga (gia'
+    // agganciato da init.js/inserisciRiga su ogni riga, statica o dinamica).
+    const tr = input.closest ? input.closest('tr') : null;
+    if (tr && typeof Event === 'function') tr.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  pop.hidden = true;
+  pop._targetInput = null;
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('var-value-popover');
+}
+if (typeof document !== 'undefined') {
+  // Delega su #tabVariabili: UN solo listener copre sia le righe dinamiche (inserisciRiga)
+  // sia la riga template gia' presente nel DOM al caricamento (index.html) -- nessun bind
+  // per-riga da ricordarsi di ripetere a ogni inserisciRiga().
+  document.addEventListener('DOMContentLoaded', function () {
+    const tab = document.getElementById('tabVariabili');
+    if (tab) {
+      tab.addEventListener('dblclick', function (e) {
+        const input = e.target && e.target.closest ? e.target.closest('input.value-input') : null;
+        if (input) openVarValuePopover(input);
+      });
+    }
+  });
+  document.addEventListener('input', function (e) {
+    const t = e.target;
+    if (!t) return;
+    if (t.classList && t.classList.contains('value-input')) _varSyncValueTitle(t);
+    else if (t.id === 'var-value-popover-textarea') _varPopoverAutoHeight();
+  });
+  // R13-L: la textarea NON passa dal listener 'keydown' globale di init.js (che ignora
+  // volutamente input/textarea/select, vedi WP-D6/round-11) -- serve un handler locale
+  // dedicato per Invio (commit) ed Esc (annulla), altrimenti nessuno dei due farebbe nulla.
+  document.addEventListener('keydown', function (e) {
+    if (!e.target || e.target.id !== 'var-value-popover-textarea') return;
+    if (e.key === 'Escape') { e.stopPropagation(); closeVarValuePopover(false); }
+    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); closeVarValuePopover(true); }
+  });
+  // Click fuori dal popover -> chiude e committa (come da piano).
+  document.addEventListener('mousedown', function (e) {
+    const pop = document.getElementById('var-value-popover');
+    if (!pop || pop.hidden) return;
+    if (!pop.contains(e.target)) closeVarValuePopover(true);
+  });
+}
+if (typeof window !== 'undefined') {
+  window.openVarValuePopover = openVarValuePopover;
+  window.closeVarValuePopover = closeVarValuePopover;
 }

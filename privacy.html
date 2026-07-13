@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — BaseFlow</title>
+  <link rel="stylesheet" href="style.css?v=20260710i">
+  <link rel="icon" type="image/png" href="img/icon.png" />
+  <script>
+    // Eredita il tema/dark-mode scelto nell'app (stesse classi usate da theme.js), cosi'
+    // questa pagina resta sempre coerente ai colori anche se non e' l'app stessa.
+    (function () {
+      try {
+        var t = localStorage.getItem('baseflow-theme') || 'light';
+        document.addEventListener('DOMContentLoaded', function () {
+          var b = document.body.classList;
+          b.toggle('dark-mode', t === 'dark' || t === 'chalk' || t === 'neon');
+          ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (name) {
+            b.toggle('theme-' + name, t === name);
+          });
+        });
+      } catch (e) { /* localStorage non disponibile: resta il tema di default */ }
+    })();
+    // WP-D5 (round 11): traduce SOLO il link "Manual" leggendo la stessa chiave lingua
+    // dell'app (baseflow-lang / I18N_STORAGE_KEY in js/core/i18n.js) -- questa pagina resta
+    // per il resto in inglese fisso (nessun i18n completo qui, fuori scope), quindi il
+    // fallback senza preferenza salvata e' 'en' (coerente col resto del testo della pagina).
+    (function () {
+      var LABELS = { it: 'Manuale', en: 'Manual', ar: 'دليل', zh: '手册' };
+      try {
+        var lang = localStorage.getItem('baseflow-lang') || 'en';
+        if (!LABELS[lang]) lang = 'en';
+        document.addEventListener('DOMContentLoaded', function () {
+          var el = document.getElementById('legal-manual-link');
+          if (el) el.textContent = LABELS[lang];
+        });
+      } catch (e) { /* resta l'etichetta inglese di default nel markup */ }
+    })();
+  </script>
+  <style>
+    .legal-page { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 3rem; color: var(--text, #2c2338); }
+    .legal-page h1 { color: var(--primary-dark, var(--primary)); font-size: 1.8rem; margin-bottom: 0.3rem; }
+    .legal-page .legal-updated { color: #6b6580; font-size: 0.85rem; margin-bottom: 2rem; }
+    .legal-page h2 { color: var(--primary); font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem; }
+    .legal-page p, .legal-page li { line-height: 1.65; font-size: 0.98rem; }
+    .legal-page ul { padding-left: 1.3rem; }
+    .legal-page a { color: var(--primary); }
+    .legal-back {
+      display: inline-flex; align-items: center; gap: 0.4rem; margin-bottom: 1.5rem;
+      color: var(--primary); text-decoration: none; font-weight: 600; font-size: 0.92rem;
+    }
+    .legal-back:hover { text-decoration: underline; }
+    body.dark-mode .legal-page { color: #e8e6f0; }
+    body.dark-mode .legal-page .legal-updated { color: #a89fc4; }
+  </style>
+</head>
+<body>
+  <div class="legal-page">
+    <a class="legal-back" href="index.html">&larr; Back to BaseFlow</a>
+    <a class="legal-back" href="manual.html">&#128214; <span id="legal-manual-link">Manual</span></a>
+    <h1>Privacy Policy</h1>
+    <div class="legal-updated">Last updated: July 2026</div>
+
+    <p>BaseFlow is a free, open-source, entirely <strong>client-side</strong> application: it runs in your browser and has no backend server, no user accounts, and no login. This page explains, in plain terms, what that means for your data.</p>
+
+    <h2>Data we collect</h2>
+    <p>None. BaseFlow does not have a server to send your data to, so it cannot collect, store, or transmit your flowcharts, variables, console input, or any personal information. Everything you create stays on your own device.</p>
+
+    <h2>What is stored on your device</h2>
+    <ul>
+      <li><strong>Your flowchart and settings</strong> (nodes, variables, language, theme, custom theme colors) are saved locally in your browser's <em>localStorage</em>, only so the app can restore your work when you come back. This data never leaves your device.</li>
+      <li><strong>Offline files</strong> (HTML/CSS/JS) are cached by a Service Worker so the app keeps working without an internet connection. See the <a href="cookies.html">Cookie &amp; Local Storage Policy</a> for details.</li>
+    </ul>
+
+    <h2>Third-party requests</h2>
+    <p>A couple of features load resources from third-party providers, only when you use them:</p>
+    <ul>
+      <li><strong>jsDelivr CDN</strong> serves the Shepherd.js library used for the in-app guided tutorials.</li>
+      <li><strong>GitHub's API and image CDN</strong> are used to show the project's contributor avatars in the footer, and to link to the source code.</li>
+    </ul>
+    <p>These providers may see the request (e.g. your IP address and browser user agent) according to their own privacy policies, exactly as any website loading an external resource would. BaseFlow itself does not add any tracking, analytics, or advertising script.</p>
+
+    <h2>Children's privacy</h2>
+    <p>Since BaseFlow collects no personal data whatsoever from anyone, it can be used safely by learners of any age, including in classrooms.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If this policy ever changes (for example if a future version adds an optional online feature), this page will be updated and the date above will reflect it.</p>
+
+    <h2>Contact</h2>
+    <p>BaseFlow is an open-source educational project by Matteo Artifoni and Ismail Barakat. Questions or feedback are welcome via the <a href="https://github.com/proismamaster/BaseFlow" target="_blank" rel="noopener">GitHub repository</a>.</p>
+  </div>
+</body>
+</html>

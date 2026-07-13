@@ -244,6 +244,23 @@ const IF_LABEL_FALSE_COLOR = "#c62828"; // F = rosso scuro
 
 // Ridimensiona il canvas per adattarsi dinamicamente al contenuto dei nodi.
 let saved; // Flag per indicare se ci sono modifiche non salvate nel flowchart
+// B3 (round 11): "Salva" riusa nome/handle del file aperto/gia' salvato invece di richiedere
+// sempre il nome (vedi saveOpen.js saveToCurrentFile). Solo il NOME e' persistito (mai un path
+// completo: l'API File System Access non lo espone comunque, per privacy).
+let currentFileName = null;
+let currentFileHandle = null;
+// R14-A (Ismail 2026-07-13, regola confermata): il PRIMO Salva di OGNI sessione (dopo reload,
+// apertura file o Nuovo -- tutti e tre azzerano questo flag per costruzione, essendo un reload
+// completo della pagina) deve SEMPRE chiedere il popup nome+autore, anche se currentFileName e'
+// gia' noto (es. da un file appena aperto). Diventa true SOLO dopo una SCRITTURA RIUSCITA in
+// questa sessione (save()/saveToCurrentFile(), vedi saveOpen.js) -- MAI settato dall'apertura
+// file (fileIO.js NON lo tocca). I Salva successivi nella stessa sessione restano silenziosi.
+let savedThisSession = false;
+// R13-D (Ismail 2026-07-12): identita' del progetto in elaborazione, mostrata nell'header
+// (#project-identity, index.html) e scritta nel JSON salvato (campo top-level `author`,
+// accanto a nodes/variables). null = non ancora noto (progetto nuovo o file vecchio senza
+// autore) -> l'header mostra il default localizzato ("Autore sconosciuto"/"Unknown author"/...).
+let currentAuthor = null;
 // Struttura dati principale per la logica del flowchart
 let flow = {
   "nodes": [ 
@@ -254,9 +271,43 @@ let flow = {
 };
 
 let frecceSelected = -1; // Indice della freccia selezionata dall'utente (-1 se nessuna)
-let nodoSelected = -1;   // Indice del nodo selezionato dall'utente (-1 se nessuno)
+let nodoSelected = -1;   // Indice del nodo "in editing" (dialog aperto/salvaInfo) -- NON toccare la semantica (regola 8)
+// C4 (round 11): selezione VISIVA a click singolo (bordo colorato), indipendente da
+// nodoSelected -- che resta "nodo in editing" per compatibilita' con salvaInfo/deleteNode/
+// dialogs esistenti. Il "secondo click" sullo stesso nodo selezionato apre il dialog
+// (openNodeEditor), che a sua volta setta nodoSelected.
+let selectedNodeIdx = -1; // Indice del nodo con bordo di selezione (-1 se nessuno)
+// R12-G/Fase1 (Ismail 2026-07-12): selezione MULTIPLA (Ctrl+click), indipendente da
+// selectedNodeIdx (click singolo, C4) e da nodoSelected (nodo in editing, regola 8 -- NON
+// toccata). Array di indici RADICE di "unita'": un nodo semplice, oppure l'INTERO
+// sottoalbero di un if/ciclo (radice + rami/corpo, impliciti -- niente markup interno da
+// tracciare qui). Puo' contenere radici ANNIDATE (un nodo gia' dentro il sottoalbero di
+// un'altra unita' selezionata): la deduplica (l'unita' esterna vince) avviene a valle, in
+// getSelectionUnits() (interaction.js), non qui -- questo resta il registro grezzo del
+// toggle Ctrl+click.
+let multiSelected = [];
+// R13-H (Ismail 2026-07-12): ancora del range Ctrl+Shift+click -- indice RADICE dell'ULTIMA
+// unita' aggiunta alla selezione (click semplice, Ctrl+click o l'estremo di un range appena
+// completato). null = nessuna ancora attiva (Ctrl+Shift+click senza selezione precedente si
+// comporta come un Ctrl+click semplice). Aggiornata da clickNodo/toggleMultiSelect/
+// rangeSelectTo (interaction.js), azzerata dai punti che svuotano la selezione (Esc, click su
+// arco/spazio vuoto).
+let _multiSelAnchor = null;
+// R13-B (Ismail 2026-07-12): feedback VISIBILE per un rifiuto di spostamento/copia di
+// gruppo -- prima SOLO console.warn (invisibile durante un drag reale). Flash rosso
+// ~400ms sui nodi della selezione che ha causato il rifiuto, innescato da
+// triggerRejectFlash() (interaction.js, chiamata da warnMoveRejected/copySelectionGroup),
+// letto da draw() (rendering.js). _bfRejectFlashUntil=0 => nessun flash attivo.
+let _bfRejectFlashMembers = null; // Set<number> dei nodi da evidenziare in rosso, o null
+let _bfRejectFlashUntil = 0;      // Date.now() oltre il quale il flash e' scaduto
 let hoverArc = null;          // Ramo/arco evidenziato al passaggio del mouse
 let executingNodeIndex = -1;  // Nodo attualmente in esecuzione (step/run), evidenziato sul canvas
+// R12-F (Ismail 2026-07-12): evidenziazione SEQUENZIALE start->freccia->blocco->...->end.
+// Sostituisce il vecchio execEdgeFrom (execute.js): la freccia percorsa ha ora un suo stato
+// dedicato, {from,to} | null, mai valorizzato INSIEME a executingNodeIndex>=0 (le due fasi si
+// alternano: fase-nodo azzera executingEdge, fase-arco azzera executingNodeIndex -- vedi
+// highlightExecNode/highlightExecEdge in execute.js). Letto da drawLine()/draw() in rendering.js.
+let executingEdge = null;
 
 let undoStack = []; // Cronologia per Undo (snapshot di flow+nodi)
 let redoStack = []; // Cronologia per Redo
@@ -270,6 +321,15 @@ let dragSubtreeEnd = -1; // fine (esclusiva) del sottoalbero trascinato: dragNod
 let dragCurrentX = 0, dragCurrentY = 0; // coordinate canvas correnti del mouse durante il drag (per il "ghost" che segue il cursore)
 let isDraggingNode = false; // true quando il drag ha superato la soglia di attivazione
 let suppressNextClick = false; // evita che il 'click' dopo un drag riapra il popup di modifica
+// R12-G/Fase2 (Ismail 2026-07-12): true quando il drag in corso sposta l'INTERA
+// selezione multipla contigua (moveSelectionGroup/moveRange), non un singolo nodo/blocco.
+// dragNodeIndex/dragSubtreeEnd, in questo caso, coprono l'intero range [blockStart,
+// blockEnd) del gruppo -- riusano cosi' GRATIS il fade "isBeingDragged" e l'esclusione
+// archi interni di rendering.js/onCanvasMouseMove (pattern del drag-IF esistente).
+let dragIsGroup = false;
+// R14 (Ismail 2026-07-13): drag di gruppo SPARSO (unita' su archi/annidamenti diversi) --
+// attivo solo insieme a dragIsGroup; il fade in rendering usa il member-set, non il range.
+let dragScattered = false;
 
 // --- Dark mode ---
 let darkMode = false; // stato corrente del tema (persistito in localStorage)

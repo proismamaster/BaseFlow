@@ -12,11 +12,22 @@
 // ============================================================================
 
 var TURTLE_TYPES = ['forward', 'turn', 'home', 'pen', 'gclear'];
-var TG_W = 300, TG_H = 300, TG_HOME_X = 150, TG_HOME_Y = 150;
-// stato tartaruga
+// FIX (Ismail 2026-07-10): tela "teoricamente infinita" come il canvas principale.
+// TG_W/TG_H NON sono piu' fissi a 300 -- sono la dimensione LOGICA del contenuto reale
+// (bounding box di tutte le tracce + posizione tartaruga, margine incluso), ricalcolata da
+// _tgRecomputeBounds() a ogni mossa: cresce SOLO quando la tartaruga esce dall'area gia'
+// disegnata. Casa (0,0 in coordinate ASSOLUTE, mai limitate) all'inizio sta al centro di una
+// tela 300x300 di default -- identico a prima -- e via via che il disegno si allarga la tela
+// segue, restando scrollabile in #draw-scroll (overflow:auto, invariato).
+// _tgOriginX/_tgOriginY spostano le coordinate ASSOLUTE della tartaruga (mai clampate, puo'
+// andare a X/Y negativi) nello spazio PIXEL della tela corrente: canvasX = x + _tgOriginX.
+var TG_W = 300, TG_H = 300;
+var TG_HOME_X = 0, TG_HOME_Y = 0; // casa = origine assoluta (0,0), non piu' legata alla dimensione della tela
+var _tgOriginX = 150, _tgOriginY = 150; // default: casa al centro di una tela 300x300 (come prima)
+// stato tartaruga (coordinate ASSOLUTE, illimitate: NON sono coordinate sulla tela)
 var _tg = { x: TG_HOME_X, y: TG_HOME_Y, head: 0, pen: true, color: '#000000', width: 2 };
 var _tgShowTurtle = true; // marcatore tartaruga visibile (toggle nel pannello)
-var _tgSegments = []; // tracce disegnate {x1,y1,x2,y2,color,width} in coord logiche 0..300 (per ridisegnare NITIDO a ogni zoom)
+var _tgSegments = []; // tracce disegnate {x1,y1,x2,y2,color,width} in coordinate ASSOLUTE (non sulla tela: l'offset si applica solo in fase di rendering, vedi _tgOriginX/Y)
 var _TG_SAVE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 var _TG_CLEAR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
 var _TG_EYE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -105,9 +116,15 @@ function _tgSetupDragResize(p) {
   for (let i = 0; i < handles.length; i++) {
     handles[i].addEventListener('mousedown', function (e) {
       if (!stack) return;
-      const sr = stack.getBoundingClientRect(); const pr = p.getBoundingClientRect();
+      // FIX (Ismail 2026-07-10): rw/rh devono essere le dimensioni del PANNELLO (p), non
+      // della tela (stack) -- il resize sposta/ridimensiona il pannello, non la tela. Prima
+      // funzionava "per caso" perche' la tela era sempre forzata quadrata e vicina alla
+      // dimensione del pannello; ora che la tela cresce col disegno (es. 600x300 dopo dei
+      // Forward) usare le sue dimensioni qui faceva scattare il pannello a una larghezza
+      // sballata anche trascinando solo in verticale.
+      const pr = p.getBoundingClientRect();
       rz = true; rdir = this.getAttribute('data-dir') || 'se';
-      rx = e.clientX; ry = e.clientY; rw = sr.width; rh = sr.height; rl = pr.left; rt = pr.top;
+      rx = e.clientX; ry = e.clientY; rw = pr.width; rh = pr.height; rl = pr.left; rt = pr.top;
       p.style.left = rl + 'px'; p.style.top = rt + 'px'; p.style.right = 'auto'; p.style.bottom = 'auto';
       if (document.body && document.body.style) document.body.style.userSelect = 'none';
       e.preventDefault(); e.stopPropagation();
@@ -136,23 +153,65 @@ function _tgSetupDragResize(p) {
     if (drag || rz) { drag = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
   });
 }
-// Rilievo 17: zoom del disegno tartaruga (stesso stile/comportamento del canvas principale).
-// La tela vive in #draw-scroll (overflow:auto): a zoom>1 lo stack supera il contenitore e
-// compaiono le scrollbar (verticale + orizzontale), come nel canvas principale.
-var _tgZoom = 1;
+// FIX (Ismail 2026-07-10): la tela LOGICA (TG_W x TG_H) ora e' la dimensione del
+// CONTENUTO reale (vedi _tgRecomputeBounds), non piu' legata alla dimensione del
+// viewport. Lo stack e' sempre TG_W*zoom x TG_H*zoom: se il disegno e' cresciuto oltre
+// il viewport visibile, lo stack supera #draw-scroll (overflow:auto) e compaiono le
+// scrollbar V+H -- proprio come nel canvas principale.
 function _tgApplyZoom() {
   const stack = document.getElementById('draw-canvas-stack');
-  const scroll = document.getElementById('draw-scroll');
-  if (!stack || !scroll) return;
-  const base = Math.max(140, Math.min(scroll.clientWidth || 300, scroll.clientHeight || 300));
-  const sz = Math.round(base * _tgZoom);
-  stack.style.width = sz + 'px'; stack.style.height = sz + 'px';
+  if (!stack) return;
+  stack.style.width = Math.round(TG_W * _tgZoom) + 'px';
+  stack.style.height = Math.round(TG_H * _tgZoom) + 'px';
   _tgResizeCanvases();
 }
+// Ricalcola la bounding box di tutte le tracce disegnate + la posizione ATTUALE della
+// tartaruga (coordinate assolute, illimitate), e ne ricava la dimensione logica della tela
+// (TG_W/TG_H, mai sotto 300x300 di default) e l'offset (_tgOriginX/Y) che porta quelle
+// coordinate assolute nello spazio pixel della tela corrente. Chiamata dopo ogni mossa che
+// puo' allargare il disegno (forward, home, clear) -- MAI durante turn/pen, che non
+// spostano la tartaruga.
+var TG_MARGIN = 150; // stesso valore di TG_HOME_X/Y originali: default 300x300 invariato
+function _tgRecomputeBounds() {
+  let minX = 0, maxX = 0, minY = 0, maxY = 0; // includi sempre l'origine (casa)
+  for (let i = 0; i < _tgSegments.length; i++) {
+    const sg = _tgSegments[i];
+    if (sg.x1 < minX) minX = sg.x1; if (sg.x1 > maxX) maxX = sg.x1;
+    if (sg.x2 < minX) minX = sg.x2; if (sg.x2 > maxX) maxX = sg.x2;
+    if (sg.y1 < minY) minY = sg.y1; if (sg.y1 > maxY) maxY = sg.y1;
+    if (sg.y2 < minY) minY = sg.y2; if (sg.y2 > maxY) maxY = sg.y2;
+  }
+  if (_tg.x < minX) minX = _tg.x; if (_tg.x > maxX) maxX = _tg.x;
+  if (_tg.y < minY) minY = _tg.y; if (_tg.y > maxY) maxY = _tg.y;
+  TG_W = Math.max(300, (maxX - minX) + TG_MARGIN * 2);
+  TG_H = Math.max(300, (maxY - minY) + TG_MARGIN * 2);
+  _tgOriginX = TG_MARGIN - minX;
+  _tgOriginY = TG_MARGIN - minY;
+}
+// Scorre #draw-scroll cosi' la tartaruga resta visibile dopo che la tela e' cresciuta
+// (stesso spirito di centerGraph() per il canvas principale, ma qui "insegue" la tartaruga
+// invece di centrare l'intero contenuto).
+function _tgScrollToTurtle() {
+  const scroll = document.getElementById('draw-scroll');
+  if (!scroll) return;
+  const px = (_tg.x + _tgOriginX) * _tgZoom;
+  const py = (_tg.y + _tgOriginY) * _tgZoom;
+  scroll.scrollLeft = Math.max(0, Math.round(px - scroll.clientWidth / 2));
+  scroll.scrollTop = Math.max(0, Math.round(py - scroll.clientHeight / 2));
+}
+var _tgZoom = 1;
 function tgZoomIn() { _tgZoom = Math.min(5, +(_tgZoom * 1.2).toFixed(3)); _tgApplyZoom(); }
 function tgZoomOut() { _tgZoom = Math.max(0.4, +(_tgZoom / 1.2).toFixed(3)); _tgApplyZoom(); }
 function tgZoomReset() { _tgZoom = 1; _tgApplyZoom(); }
 if (typeof window !== 'undefined') { window.tgZoomIn = tgZoomIn; window.tgZoomOut = tgZoomOut; window.tgZoomReset = tgZoomReset; }
+// FIX #27/#35: al resize della finestra la tela e i controlli del pannello tartaruga si
+// riadattano (come il canvas principale che si ricentra), quando il pannello e' aperto.
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', function () {
+    const p = document.getElementById('draw-output-panel');
+    if (p && p.style.display !== 'none' && typeof _tgApplyZoom === 'function') { try { _tgApplyZoom(); } catch (e) {} }
+  });
+}
 function showTurtlePanel() { const p = ensureTurtlePanel(); if (p) { p.style.display = 'flex'; _tgApplyZoom(); if (typeof bfBringToFront === 'function') bfBringToFront(p); } return p; }
 // Adatta la RISOLUZIONE interna delle tele alla dimensione mostrata (x devicePixelRatio) e
 // applica una trasformazione cosi' le coordinate logiche 0..300 riempiono la tela: il disegno
@@ -171,6 +230,10 @@ function _tgResizeCanvases() {
     const pw = panel.getBoundingClientRect().width || 340;
     const bs = Math.max(26, Math.min(46, Math.round(pw * 0.095)));
     panel.style.setProperty('--tg-btn', bs + 'px');
+    // FIX #35: anche i pulsanti della toolbar superiore scalano col pannello, cosi' zoom e
+    // toolbar si ridimensionano INSIEME mantenendo proporzioni coerenti rispetto alla finestra.
+    const hs = Math.max(22, Math.min(38, Math.round(pw * 0.078)));
+    panel.style.setProperty('--tg-head-btn', hs + 'px');
   }
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
   const dw = stack.clientWidth || stack.offsetWidth || TG_W;
@@ -185,14 +248,16 @@ function _tgResizeCanvases() {
   redrawTurtleMarker();
   return changed;
 }
-// Ridisegna TUTTE le tracce dal buffer (usato dopo un resize per rimanere nitido/coerente).
+// Ridisegna TUTTE le tracce dal buffer (usato dopo un resize/ridisegno per rimanere nitido/
+// coerente). Le tracce sono salvate in coordinate ASSOLUTE (illimitate): l'offset corrente
+// (_tgOriginX/Y, da _tgRecomputeBounds) le porta nello spazio pixel della tela.
 function _tgRenderDrawing() {
   const g = _tgApplyTransform('draw-canvas'); if (!g) return;
   g.clearRect(0, 0, TG_W, TG_H);
   for (let i = 0; i < _tgSegments.length; i++) {
     const sg = _tgSegments[i];
     g.strokeStyle = sg.color; g.lineWidth = Math.max(0.4, sg.width); g.lineCap = 'round';
-    g.beginPath(); g.moveTo(sg.x1, sg.y1); g.lineTo(sg.x2, sg.y2); g.stroke();
+    g.beginPath(); g.moveTo(sg.x1 + _tgOriginX, sg.y1 + _tgOriginY); g.lineTo(sg.x2 + _tgOriginX, sg.y2 + _tgOriginY); g.stroke();
   }
 }
 function _tgCtx(id) { const c = document.getElementById(id); return (c && c.getContext) ? c.getContext('2d') : null; }
@@ -200,6 +265,7 @@ function _tgCtx(id) { const c = document.getElementById(id); return (c && c.getC
 function resetTurtle() {
   _tg = { x: TG_HOME_X, y: TG_HOME_Y, head: 0, pen: true, color: '#000000', width: 2 };
   _tgSegments = [];
+  _tgRecomputeBounds(); // torna alla tela 300x300 di default
   _tgRenderDrawing();
   redrawTurtleMarker();
 }
@@ -211,20 +277,23 @@ function redrawTurtleMarker() {
   g.clearRect(0, 0, TG_W, TG_H);
   if (!_tgShowTurtle) return; // tartaruga nascosta
   const rad = _tg.head * Math.PI / 180;
+  // Posizione della tartaruga sulla TELA (coordinate assolute + offset corrente, vedi
+  // _tgOriginX/Y) -- _tg.x/_tg.y da soli sono coordinate ASSOLUTE, non pixel sulla tela.
+  const px = _tg.x + _tgOriginX, py = _tg.y + _tgOriginY;
   // Marcatore "aquilone" (kite) orientato: piu' moderno e pulito del vecchio triangolo piatto.
   // Colore coerente col tema (--primary), con nucleo e bordo scuro per staccare sul disegno.
   const sin = Math.sin, cos = Math.cos;
-  const tip  = [_tg.x + 12 * sin(rad),            _tg.y - 12 * cos(rad)];
-  const tail = [_tg.x - 7  * sin(rad),            _tg.y + 7  * cos(rad)];
-  const lft  = [_tg.x + 6  * sin(rad - Math.PI/2),_tg.y - 6  * cos(rad - Math.PI/2)];
-  const rgt  = [_tg.x + 6  * sin(rad + Math.PI/2),_tg.y - 6  * cos(rad + Math.PI/2)];
+  const tip  = [px + 12 * sin(rad),            py - 12 * cos(rad)];
+  const tail = [px - 7  * sin(rad),            py + 7  * cos(rad)];
+  const lft  = [px + 6  * sin(rad - Math.PI/2),py - 6  * cos(rad - Math.PI/2)];
+  const rgt  = [px + 6  * sin(rad + Math.PI/2),py - 6  * cos(rad + Math.PI/2)];
   let prim = '#6200ea';
   try { const c = getComputedStyle(document.documentElement).getPropertyValue('--primary'); if (c && c.trim()) prim = c.trim(); } catch (e) {}
   g.beginPath(); g.moveTo(tip[0], tip[1]); g.lineTo(lft[0], lft[1]); g.lineTo(tail[0], tail[1]); g.lineTo(rgt[0], rgt[1]); g.closePath();
   g.fillStyle = prim; g.globalAlpha = 0.92; g.fill(); g.globalAlpha = 1;
   g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 1.2; g.lineJoin = 'round'; g.stroke();
   // piccolo nucleo chiaro al centro
-  g.beginPath(); g.arc(_tg.x, _tg.y, 2, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.9)'; g.fill();
+  g.beginPath(); g.arc(px, py, 2, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.9)'; g.fill();
 }
 
 function _tgEval(expr, variables, currentNode) {
@@ -243,13 +312,12 @@ function execForward(distExpr, variables, currentNode) {
   showTurtlePanel();
   const rad = _tg.head * Math.PI / 180;
   const nx = _tg.x + d * Math.sin(rad), ny = _tg.y - d * Math.cos(rad);
-  if (_tg.pen) {
-    _tgSegments.push({ x1: _tg.x, y1: _tg.y, x2: nx, y2: ny, color: _tg.color, width: _tg.width });
-    const g = _tgApplyTransform('draw-canvas');
-    if (g) { g.strokeStyle = _tg.color; g.lineWidth = Math.max(0.4, _tg.width); g.lineCap = 'round';
-      g.beginPath(); g.moveTo(_tg.x, _tg.y); g.lineTo(nx, ny); g.stroke(); }
-  }
-  _tg.x = nx; _tg.y = ny; redrawTurtleMarker();
+  if (_tg.pen) _tgSegments.push({ x1: _tg.x, y1: _tg.y, x2: nx, y2: ny, color: _tg.color, width: _tg.width });
+  _tg.x = nx; _tg.y = ny;
+  // FIX (Ismail 2026-07-10): la tartaruga puo' andare OLTRE la tela attuale -> ricalcola
+  // sempre la bounding box/tela (puo' crescere) e riallinea zoom + scroll di conseguenza,
+  // invece di disegnare solo il segmento incrementale su una tela di dimensione fissa.
+  _tgRecomputeBounds(); _tgApplyZoom(); _tgScrollToTurtle();
   if (typeof printMessage === 'function') printMessage('Turtle: ' + (_tg.pen ? 'draw' : 'move') + ' ' + d, 'debug');
   return true;
 }
@@ -262,7 +330,11 @@ function execTurn(dir, angleExpr, variables, currentNode) {
 }
 function execHome() {
   _tg.x = TG_HOME_X; _tg.y = TG_HOME_Y; _tg.head = 0;
-  showTurtlePanel(); redrawTurtleMarker();
+  showTurtlePanel();
+  // Il disegno gia' fatto NON si restringe (la bounding box include comunque tutte le
+  // tracce), ma la tela/offset possono comunque cambiare se prima erano centrati sulla
+  // vecchia posizione: ricalcola per sicurezza.
+  _tgRecomputeBounds(); _tgApplyZoom(); _tgScrollToTurtle();
   if (typeof printMessage === 'function') printMessage('Turtle: home', 'debug');
   return true;
 }
@@ -276,7 +348,8 @@ function execPen(state, color, width) {
 function execClearScreen() {
   _tgSegments = [];
   _tg.x = TG_HOME_X; _tg.y = TG_HOME_Y; _tg.head = 0;
-  showTurtlePanel(); _tgRenderDrawing(); redrawTurtleMarker();
+  showTurtlePanel();
+  _tgRecomputeBounds(); _tgApplyZoom(); // tela torna a 300x300 di default (nessuna traccia)
   if (typeof printMessage === 'function') printMessage('Turtle: clear screen', 'debug');
   return true;
 }
@@ -327,6 +400,18 @@ function _parseTurtle(type, info) {
   return {};
 }
 
+// R12-D (Ismail 2026-07-11): direzione GREZZA del turn, senza il default 'right' che
+// _parseTurtle applica per esecuzione/etichetta -- serve a rendering.js per sapere se
+// l'utente ha GIA' scelto una direzione (forma a una punta) o no (forma a due punte,
+// stato iniziale/non ancora configurato). 'left'|'right' se salvata esplicitamente,
+// altrimenti null (info vuota, o dir vuota lasciata da un salvataggio senza scelta).
+function turnDirectionOf(info) {
+  const s = String(info == null ? '' : info);
+  const raw = (s.split(';')[0] || '').trim();
+  return (raw === 'left' || raw === 'right') ? raw : null;
+}
+if (typeof window !== 'undefined') window.turnDirectionOf = turnDirectionOf;
+
 // ---- Dialog di configurazione ----
 var turtleNodeIndex = -1;
 function ensureTurtleDialog() {
@@ -344,7 +429,7 @@ function ensureTurtleDialog() {
     '<div id="tg-turn-wrap">' +
       '<label>' + _dt('tg_direction', 'Direzione') + ':</label>' +
       '<div class="tg-radios">' +
-        '<label><input type="radio" name="tg-dir" value="right" checked> <span>' + _dt('tg_right', 'Destra') + '</span></label>' +
+        '<label><input type="radio" name="tg-dir" value="right"> <span>' + _dt('tg_right', 'Destra') + '</span></label>' +
         '<label><input type="radio" name="tg-dir" value="left"> <span>' + _dt('tg_left', 'Sinistra') + '</span></label>' +
       '</div>' +
       '<label>' + _dt('tg_degrees', 'Gradi') + ':</label><input type="text" id="tg-angle" class="draw-input" value="90"></div>' +
@@ -381,7 +466,11 @@ function openTurtleDialog(idx) {
   if (t === 'forward') { const e = document.getElementById('tg-dist'); if (e) e.value = p.dist; }
   else if (t === 'turn') {
     const e = document.getElementById('tg-angle'); if (e) e.value = p.angle;
-    const rs = document.getElementsByName('tg-dir'); for (let i = 0; i < rs.length; i++) rs[i].checked = (rs[i].value === p.dir);
+    // R12-D: usa la direzione GREZZA (turnDirectionOf), non p.dir di _parseTurtle (che
+    // defaulta a 'right') -- un turn appena creato non deve aprire il dialog con una
+    // radio gia' selezionata.
+    const rawDir = (typeof turnDirectionOf === 'function') ? turnDirectionOf(flow.nodes[idx].info || '') : null;
+    const rs = document.getElementsByName('tg-dir'); for (let i = 0; i < rs.length; i++) rs[i].checked = (rs[i].value === rawDir);
   } else if (t === 'pen') {
     const c = document.getElementById('tg-color'); if (c) c.value = /^#([0-9a-f]{6})$/i.test(p.color) ? p.color : '#000000';
     const w = document.getElementById('tg-width'); if (w) w.value = p.width;
@@ -389,10 +478,12 @@ function openTurtleDialog(idx) {
   }
   document.getElementById('draw-popup').classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
+  if (typeof _bfPushOverlay === 'function') _bfPushOverlay('draw-popup'); // R13-F: registro condiviso Esc
 }
 function closeTurtleDialog() {
   const d = document.getElementById('draw-popup'); if (d) d.classList.remove('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('draw-popup');
 }
 function saveTurtleNode() {
   if (turtleNodeIndex < 0 || typeof flow === 'undefined' || !flow.nodes[turtleNodeIndex]) { closeTurtleDialog(); return; }
@@ -401,7 +492,10 @@ function saveTurtleNode() {
   const val = function (id) { const e = document.getElementById(id); return e ? String(e.value).replace(/;/g, ',').trim() : ''; };
   let info = '';
   if (t === 'forward') info = val('tg-dist') || '0';
-  else if (t === 'turn') info = (radio('tg-dir') || 'right') + ';' + (val('tg-angle') || '0');
+  // R12-D: NIENTE default 'right' qui -- se l'utente non ha scelto una radio, la
+  // direzione resta vuota (turnDirectionOf la rilegge come null, forma a due punte).
+  // L'angolo e' comunque salvato: le due scelte sono indipendenti.
+  else if (t === 'turn') info = radio('tg-dir') + ';' + (val('tg-angle') || '0');
   else if (t === 'pen') info = (radio('tg-pen') || 'down') + ';' + ((document.getElementById('tg-color') || {}).value || '#000000') + ';' + (val('tg-width') || '2');
   if (typeof pushHistory === 'function') pushHistory();
   flow.nodes[turtleNodeIndex].info = info;

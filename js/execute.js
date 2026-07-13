@@ -28,28 +28,53 @@ let runSpeed = 350;    // ms tra un blocco e l'altro durante Run (0 = istantaneo
 function setRunSpeed(v){ runSpeed = parseInt(v, 10) || 0; }
 function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 // FIX #12 (Ismail 2026-07-08): oltre al nodo, evidenzia anche l'ARCO percorso.
-var execEdgeFrom = -1; // indice del nodo da cui si e' arrivati al nodo corrente
+// R12-F (Ismail 2026-07-12): execEdgeFrom sostituito da executingEdge (state.js) -- vedi
+// highlightExecNode/highlightExecEdge poco sotto per il nuovo modello a due fasi.
+// C7 (round 11): flow.variables contiene SOLO i valori INIZIALI (fonte di verita', quella
+// che si salva su file). L'esecuzione lavora SEMPRE su una COPIA runtime (_runtimeVars),
+// creata all'inizio di ogni nuova esecuzione (executeFlow/executeStep, ramo currentNode ==
+// null) e riusata passo-passo finche' l'esecuzione e' in corso/in pausa. Azzerata (null) a
+// esecuzione FERMA (fine run, Stop, Reset): la tabella Variabili torna quindi a mostrare
+// flow.variables (vedi renderWatch/restoreVariablesTable) finche' non riparte un nuovo run.
+let _runtimeVars = null;
 // MIGLIORIA #41 (Ismail 2026-07-08): "watch" delle variabili in tempo reale durante
 // l'esecuzione. flow.variables e' mutato live dall'esecutore, quindi basta leggerlo.
 function renderWatch(active) {
   const box = document.getElementById('console-watch');
   if (!box || typeof box.setAttribute !== 'function') return; // ambiente senza DOM reale (test)
-  if (!active || typeof flow === 'undefined' || !flow.variables || !flow.variables.length) {
+  // C7 (round 11): durante l'esecuzione mostra la copia RUNTIME (_runtimeVars); a run fermo
+  // (chiamate residue con active=false, o _runtimeVars non ancora creata) il fallback e' sui
+  // valori INIZIALI (flow.variables) -- solo per non rompere chi chiamasse renderWatch a freddo.
+  const _watchVars = (typeof _runtimeVars !== 'undefined' && _runtimeVars) ? _runtimeVars : (typeof flow !== 'undefined' && flow ? flow.variables : null);
+  if (!active || typeof flow === 'undefined' || !_watchVars || !_watchVars.length) {
     box.setAttribute('hidden', ''); box.innerHTML = ''; return;
   }
   box.removeAttribute('hidden');
   let html = '<div class="watch-title">' + ((typeof i18nText === 'function' && i18nText('watch_title')) || 'Variabili') + '</div>';
-  html += flow.variables.map(function (v) {
+  html += _watchVars.map(function (v) {
     const val = (v && v.value !== undefined && v.value !== null && v.value !== '') ? String(v.value) : '—';
     return '<div class="watch-row"><span class="watch-name">' + (v.name || '?') + '</span>=<span class="watch-val">' + val.replace(/</g,'&lt;') + '</span></div>';
   }).join('');
   box.innerHTML = html;
 }
-function highlightExec(idx){
-  execEdgeFrom = (typeof executingNodeIndex === "number" && executingNodeIndex >= 0) ? executingNodeIndex : -1;
+// R12-F (Ismail 2026-07-12): evidenziazione SEQUENZIALE (start -> freccia -> blocco -> ... ->
+// end), un elemento alla volta. Il vecchio highlightExec(idx) evidenziava SEMPRE la coppia
+// nodo+arco insieme (arco = passo precedente); ora le due fasi sono funzioni separate che si
+// azzerano a vicenda (mai executingNodeIndex>=0 ed executingEdge non-null insieme):
+// - highlightExecNode(idx): fase-NODO, SOLO il blocco idx (idx<0 = nessuna evidenziazione:
+//   usata per pulire tutto a fine run/Stop/Reset, esattamente come il vecchio highlightExec(-1)).
+// - highlightExecEdge(from,to): fase-ARCO, SOLO la freccia from->to (from/to<0 = nessun arco).
+function highlightExecNode(idx){
   executingNodeIndex = idx;
-  if (idx < 0) execEdgeFrom = -1; // reset: nessun arco evidenziato
+  executingEdge = null; // le due fasi non sono mai attive insieme
   renderWatch(idx >= 0); // aggiorna/mostra il watch durante l'esecuzione, lo nasconde a fine run
+  if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
+}
+function highlightExecEdge(from, to){
+  executingEdge = (typeof from === "number" && typeof to === "number" && from >= 0 && to >= 0) ? { from: from, to: to } : null;
+  executingNodeIndex = -1; // le due fasi non sono mai attive insieme
+  // Niente renderWatch qui: la fase-arco e' puramente visiva, le variabili cambiano
+  // all'esecuzione del nodo (refreshVariablesWatch), non durante la freccia (vedi trappola piano).
   if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
 }
 
@@ -76,26 +101,79 @@ function refreshVariablesWatch(variables, touchedName) {
   for (let i = 0; i < variables.length; i++) {
     const row = tabVariabili.rows[i + 1]; // riga 0 = header
     if (!row || !row.cells || !row.cells[2]) continue;
-    const valueInput = row.cells[2].querySelector ? row.cells[2].querySelector('input') : null;
+    // R12-A0 HOTFIX (Ismail 2026-07-11, causa verificata da Fable): dal 2026-07-08 il PRIMO
+    // <input> della cella valore e' la checkbox .assign-check (C5/C7), non piu' il campo
+    // valore -- querySelector('input') da solo becca la checkbox e il valore runtime finiva
+    // scritto (invisibile) su checkbox.value. Stesso pattern gia' corretto usato altrove
+    // (variables.js aggiungiVaribile): preferisci input.value-input, fallback al generico.
+    const valueInput = row.cells[2].querySelector ? (row.cells[2].querySelector('input.value-input') || row.cells[2].querySelector('input')) : null;
     if (!valueInput) continue;
     if (typeof document !== 'undefined' && document.activeElement === valueInput) continue; // non interrompere l'editing manuale
     valueInput.value = variables[i].value;
+    // R13-L (Ismail 2026-07-12): tooltip nativo sempre sincronizzato col valore corrente --
+    // qui il valore e' quello RUNTIME, aggiornato a ogni giro di esecuzione.
+    if (typeof _varSyncValueTitle === 'function') _varSyncValueTitle(valueInput); else valueInput.title = valueInput.value;
+    // R12-A0: il campo e' spesso disabled (checkbox Assegna non spuntata) -- durante
+    // l'esecuzione il valore RUNTIME deve restare leggibile anche disabled (vedi style.css
+    // .value-input.live-value:disabled, contrasto migliore del disabled "a riposo").
+    if (valueInput.classList) valueInput.classList.add('live-value');
     if (touchedName && variables[i].name === touchedName && row.classList) {
       row.classList.add('var-updated');
       setTimeout(function () { row.classList.remove('var-updated'); }, 450);
     }
   }
 }
+// C7 (round 11): riporta la tabella Variabili ai valori INIZIALI (flow.variables) quando
+// l'esecuzione e' FERMA (fine run naturale, Stop, Reset) -- stessa meccanica di
+// refreshVariablesWatch ma la sorgente sono i valori iniziali, e SENZA la classe
+// 'var-updated' (qui non stiamo segnalando una variabile appena toccata da un run, stiamo
+// riportando la tabella allo stato "a riposo": nessun lampeggio).
+function restoreVariablesTable() {
+  if (typeof flow === 'undefined' || !flow || !Array.isArray(flow.variables)) return;
+  if (typeof tabVariabili === 'undefined' || !tabVariabili || !tabVariabili.rows) return;
+  for (let i = 0; i < flow.variables.length; i++) {
+    const row = tabVariabili.rows[i + 1]; // riga 0 = header
+    if (!row || !row.cells || !row.cells[2]) continue;
+    // R12-A0: stesso hotfix di selettore di refreshVariablesWatch qui sopra (vedi commento li').
+    const valueInput = row.cells[2].querySelector ? (row.cells[2].querySelector('input.value-input') || row.cells[2].querySelector('input')) : null;
+    if (!valueInput) continue;
+    if (typeof document !== 'undefined' && document.activeElement === valueInput) continue; // non interrompere l'editing manuale
+    valueInput.value = flow.variables[i].value;
+    // R13-L (Ismail 2026-07-12): tooltip nativo sincronizzato anche qui -- run finita/
+    // fermata, il campo torna a mostrare (e a "spiegare" via hover) il valore di progetto.
+    if (typeof _varSyncValueTitle === 'function') _varSyncValueTitle(valueInput); else valueInput.title = valueInput.value;
+    // R12-A0: run finita/fermata -> la tabella torna "a riposo", niente piu' evidenza live.
+    if (valueInput.classList) valueInput.classList.remove('live-value');
+  }
+}
 function run(){
     const c = document.getElementById('console-popup');
+    // FIX (Ismail 2026-07-10): riaprendo il terminale da chiuso (dalla barra/linguetta),
+    // deve sempre ripartire agganciato (fisso) -- non restare nell'ultima modalita'
+    // mobile/flottante in cui era stato lasciato. Si azzerano anche eventuali stili
+    // inline (posizione/dimensione) lasciati da un resize/trascinamento precedente, cosi'
+    // riparte pulito con il layout CSS di default della modalita' agganciata.
+    const wasActive = c.classList.contains('active');
+    if (!wasActive) {
+        c.classList.add('docked');
+        const _mt = document.getElementById('console-mobile-toggle'); if (_mt) _mt.classList.remove('is-mobile');
+        c.style.left = ''; c.style.top = ''; c.style.transform = ''; c.style.margin = '';
+        c.style.width = ''; c.style.height = ''; c.style.maxWidth = ''; c.style.maxHeight = '';
+        c.style.removeProperty('--console-scale');
+    }
     c.classList.add('active');
     // FIX #38 (Ismail 2026-07-08): la console (anche sganciata) NON e' modale: e' uno
     // strumento flottante/trascinabile. Niente overlay, cosi' il grafo resta scorrevole e
     // interagibile con il terminale mobile aperto.
     const _ov = document.getElementById('overlay'); if (_ov) _ov.classList.remove('active');
-    updateZoomOffset();
-    // Ricentra subito e di nuovo a fine transizione (larghezza console/griglia definitiva).
-    if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); }
+    // R14-E (Ismail 2026-07-13): passa dal tick condiviso _bfSidebarLiveResizeTick() (init.js)
+    // invece di chiamare updateZoomOffset()/centerGraph() direttamente -- garantisce l'ordine
+    // corretto (syncLayoutVars -> updateZoomOffset -> centerGraph, la console dipende da
+    // --sidebar-width per il suo tetto max-width) ed e' lo stesso punto di ricalcolo usato da
+    // ogni altro trigger (drag sidebar/console, resize, zoom, cambio lingua). Ricentra subito
+    // e di nuovo a fine transizione (larghezza console/griglia definitiva).
+    if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); setTimeout(_bfSidebarLiveResizeTick, 240); }
+    else { updateZoomOffset(); if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); } }
     if (typeof updateTerminalTab === 'function') updateTerminalTab();
 }
 
@@ -130,11 +208,21 @@ function updateTerminalTab() {
   tab.classList.toggle('is-open', !!open);
 }
 
+// FIX (Ismail 2026-07-10): in modalita' agganciata, cliccare tutta la barra "Console"
+// la chiude/nasconde (comportamento voluto, specchia il pannello Variabili). In modalita'
+// MOBILE (flottante) pero' la barra si trascina per spostare la finestra: se l'intera barra
+// chiudeva al click, un trascinamento breve/senza movimento faceva sparire il terminale per
+// sbaglio. Da flottante quindi la barra NON chiude piu' -- solo la X dedicata lo fa.
+function onConsoleTitlebarClick(e) {
+    const c = document.getElementById('console-popup');
+    if (c && c.classList.contains('docked')) closeConsole();
+}
 function closeConsole() {
     document.getElementById('console-popup').classList.remove('active');
     document.getElementById('overlay').classList.remove('active');
-    updateZoomOffset();
-    if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); }
+    // R14-E (Ismail 2026-07-13): stesso tick condiviso di run() sopra -- vedi commento li'.
+    if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); setTimeout(_bfSidebarLiveResizeTick, 240); }
+    else { updateZoomOffset(); if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); } }
 }
 
 // Aggancia la console come pannello laterale destro o la sgancia come popup centrale.
@@ -145,11 +233,17 @@ function toggleConsoleDock() {
     { const _ov = document.getElementById('overlay'); if (_ov) _ov.classList.remove('active'); } // console non modale (#38)
     // Stato del toggle "Terminale mobile": attivo quando la console e' sganciata (floating).
     { const _mt = document.getElementById('console-mobile-toggle'); if (_mt) _mt.classList.toggle('is-mobile', !docked); }
-    // FIX #28 (Ismail 2026-07-08): al cambio modalita' azzera gli stili inline lasciati dal
-    // drag del popup, cosi' la modalita' agganciata torna al suo layout CSS pulito.
+    // FIX #28 (Ismail 2026-07-08) + FIX (2026-07-10): al cambio modalita' azzera TUTTI gli
+    // stili inline lasciati da drag/resize del popup (posizione E dimensione), cosi'
+    // ciascuna modalita' riparte dal suo layout CSS pulito invece di ereditare larghezza/
+    // altezza dell'altra modalita' (altrimenti passando da fisso a mobile il popup restava
+    // "incastrato" con le dimensioni del pannello agganciato invece della sua forma normale).
     c.style.left = ''; c.style.top = ''; c.style.transform = ''; c.style.margin = '';
-    updateZoomOffset();
-    if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); }
+    c.style.width = ''; c.style.height = ''; c.style.maxWidth = ''; c.style.maxHeight = '';
+    c.style.removeProperty('--console-scale');
+    // R14-E (Ismail 2026-07-13): stesso tick condiviso di run()/closeConsole() sopra.
+    if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); setTimeout(_bfSidebarLiveResizeTick, 240); }
+    else { updateZoomOffset(); if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 240); } }
 }
 
 // Segue il resize della console per tenere i controlli zoom a sinistra di essa.
@@ -157,7 +251,12 @@ function toggleConsoleDock() {
     try {
         const c = document.getElementById('console-popup');
         if (c && typeof ResizeObserver !== 'undefined') {
-            new ResizeObserver(function(){ updateZoomOffset(); if (typeof centerGraph === 'function') centerGraph(); }).observe(c);
+            // R14-E (Ismail 2026-07-13): stesso tick condiviso (rAF-throttled: qui e' importante,
+            // il ResizeObserver puo' sparare piu' volte per singolo cambio di layout).
+            new ResizeObserver(function(){
+                if (typeof _bfSidebarLiveResizeTick === 'function') _bfSidebarLiveResizeTick();
+                else { updateZoomOffset(); if (typeof centerGraph === 'function') centerGraph(); }
+            }).observe(c);
         }
     } catch(_) {}
 })();
@@ -190,8 +289,19 @@ function toggleConsoleDock() {
             if (newWidth < MIN_W) newWidth = MIN_W;
             if (newWidth > maxW) newWidth = maxW;
             consoleEl.style.width = newWidth + 'px';
-            updateZoomOffset();
-            if (typeof centerGraph === 'function') centerGraph();
+            // R13-C (Ismail 2026-07-12): prima chiamava updateZoomOffset()+centerGraph()
+            // DIRETTAMENTE a ogni mousemove -- niente throttling, niente syncLayoutVars()
+            // (che aggiorna --sidebar-width, da cui dipende il TETTO max-width della console
+            // agganciata: style.css ~1254). Diverso dalla maniglia della sidebar Variabili
+            // (init.js), che gia' passa dal tick condiviso rAF _bfSidebarLiveResizeTick()
+            // (round 11 C6) -- qui il resize della console restava un percorso PARALLELO e
+            // non unificato: da cui il riassestamento "in ritardo" (si vedeva giusto solo
+            // dopo che qualche altro trigger, es. il ResizeObserver sotto, richiamava le
+            // stesse funzioni in un frame successivo). Riusa lo STESSO tick, stesso ordine
+            // garantito (syncLayoutVars -> updateZoomOffset -> centerGraph), un solo giro
+            // per frame anche con mousemove ad alta frequenza.
+            if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); }
+            else { updateZoomOffset(); if (typeof centerGraph === 'function') centerGraph(); }
         });
         window.addEventListener('mouseup', function(){
             if (!resizing) return;
@@ -201,38 +311,126 @@ function toggleConsoleDock() {
     } catch(_) {}
 })();
 
+// Ridimensionamento a 8 maniglie del terminale MOBILE (flottante, sganciato): stesso
+// meccanismo del pannello tartaruga (_tgSetupDragResize in draw.js) -- maniglie .tg-rz
+// su tutti i lati/angoli, ridimensiona ORIZZONTALMENTE e VERTICALMENTE. Attivo solo
+// quando la console NON e' agganciata (li' c'e' gia' la maniglia laterale dedicata).
+(function () {
+    try {
+        const el = document.getElementById('console-popup');
+        if (!el) return;
+        let rz = false, rdir = '', rx = 0, ry = 0, rw = 0, rh = 0, rl = 0, rt = 0;
+        const MIN_W = 320, MIN_H = 220, MAX_W = 1100, MAX_H = 1100;
+        const handles = el.querySelectorAll('.tg-rz');
+        for (let i = 0; i < handles.length; i++) {
+            handles[i].addEventListener('mousedown', function (e) {
+                if (el.classList.contains('docked')) return; // solo da flottante
+                const r = el.getBoundingClientRect();
+                rz = true; rdir = this.getAttribute('data-dir') || 'se';
+                rx = e.clientX; ry = e.clientY; rw = r.width; rh = r.height; rl = r.left; rt = r.top;
+                el.style.left = rl + 'px'; el.style.top = rt + 'px';
+                el.style.transform = 'none'; el.style.margin = '0';
+                // NB: niente piu' maxWidth/maxHeight:'none' qui -- il tetto CSS (max-width/
+                // max-height su #console-popup:not(.docked)) deve restare attivo, cosi' la
+                // finestra non cresce oltre un limite reale (richiesta Ismail 2026-07-10).
+                if (document.body && document.body.style) document.body.style.userSelect = 'none';
+                e.preventDefault(); e.stopPropagation();
+            });
+        }
+        window.addEventListener('mousemove', function (e) {
+            if (!rz) return;
+            const ddx = e.clientX - rx, ddy = e.clientY - ry;
+            let nw = rw, nh = rh, nl = rl, nt = rt;
+            if (rdir.indexOf('e') !== -1) nw = rw + ddx;
+            if (rdir.indexOf('w') !== -1) { nw = rw - ddx; nl = rl + ddx; }
+            if (rdir.indexOf('s') !== -1) nh = rh + ddy;
+            if (rdir.indexOf('n') !== -1) { nh = rh - ddy; nt = rt + ddy; }
+            nw = Math.max(MIN_W, Math.min(MAX_W, nw)); nh = Math.max(MIN_H, Math.min(MAX_H, nh));
+            if (rdir.indexOf('w') !== -1) nl = rl + (rw - nw);
+            if (rdir.indexOf('n') !== -1) nt = rt + (rh - nh);
+            el.style.width = nw + 'px'; el.style.height = nh + 'px';
+            el.style.left = nl + 'px'; el.style.top = nt + 'px';
+            // FIX (Ismail 2026-07-10): scritta "Console" e pulsanti (badge/zoom/mobile-toggle)
+            // si ingrandiscono/rimpiccioliscono col ridimensionamento, non restano fissi --
+            // stessa idea gia' usata per il titolo della tartaruga che segue lo zoom.
+            // Attenuato (Ismail 2026-07-10): la crescita 1:1 con la larghezza era eccessiva --
+            // ora la scala si muove a META' velocita' rispetto al ridimensionamento e resta
+            // in un intervallo piu' stretto.
+            const rawScale = 1 + (nw / 600 - 1) * 0.4;
+            const scale = Math.max(0.85, Math.min(1.3, rawScale));
+            el.style.setProperty('--console-scale', scale.toFixed(3));
+        });
+        window.addEventListener('mouseup', function () {
+            if (rz) { rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
+        });
+    } catch (_) {}
+})();
+
 function resetFlow() {
     currentNode = "0"; // Reimposta al primo nodo
     prevNode = null; // FIX B2: nessun "nodo precedente" significativo dopo un reset
     stopRequested = false;
+    _openInlineP = null; // A4: chiudi un'eventuale riga di stampa rimasta "aperta"
+    _runtimeVars = null; // C7 (round 11): nessuna esecuzione in corso -- il prossimo run riparte da una copia fresca
     // Ripulisce lo stato runtime dei nodi "for" (_forInitialized): senza questo, un
     // reset a meta' di un ciclo lascerebbe il flag a true e la prossima esecuzione
     // salterebbe l'inizializzazione, ripartendo dal valore precedente invece che da capo.
     if (typeof flow !== 'undefined' && flow && Array.isArray(flow.nodes)) {
         flow.nodes.forEach(n => { if (n) n._forInitialized = false; });
     }
-    highlightExec(-1);
+    restoreVariablesTable(); // C7: tabella Variabili torna ai valori INIZIALI, PRIMA di nascondere l'evidenziazione
+    highlightExecNode(-1); // R12-F: azzera entrambe le fasi (nodo+arco)
     if (typeof nodi !== 'undefined' && Array.isArray(nodi)) nodi.forEach(function (v) { if (v) v._error = false; });
     if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
     const consoleOutput = document.getElementById('console-output');
-    printMessage("Flow resetted. Ready to execute again."); // Flusso resettato. Pronto per essere eseguito di nuovo. (Nota: printMessage già gestisce l'output, questo commento traduce il messaggio originale se fosse stato un commento a sé)
+    // WP-D1 esteso: 'debug' passata ESPLICITAMENTE, altrimenti classifyConsoleMsg() (regex sul
+    // testo INGLESE originale) non riconosce piu' il messaggio tradotto e lo mostra sempre.
+    printMessage((typeof i18nText === 'function' && i18nText('flow_reset')) || "Flow resetted. Ready to execute again.", 'debug');
     const input = document.getElementById('console-input')
     const btn = document.getElementById('console-send')
     input.classList.remove('active');
+    if (typeof _setStopEnabled === 'function') _setStopEnabled(false); // FIX #36: dopo Reset il flusso non e' in esecuzione
 }
 
 async function executeStep(){
   if(currentNode== null){
     currentNode = "0"; // Reimposta al primo nodo se currentNode è nullo
     prevNode = null; // FIX B2: riavvio dall'inizio, nessun predecessore significativo
+    _openInlineP = null; // A4: nuova esecuzione, niente riga aperta ereditata dalla precedente
+    // C7 (round 11): nuova esecuzione (Step da fermo) -> copia runtime FRESCA dai valori
+    // iniziali. Lo step-through riusa POI questa stessa copia passo dopo passo (stato modulo).
+    _runtimeVars = JSON.parse(JSON.stringify((typeof flow !== 'undefined' && flow && flow.variables) || []));
   }
-  highlightExec(parseInt(currentNode)); // evidenzia il blocco che sta per essere eseguito
-  const node = flow.nodes[parseInt(currentNode)];
+  // C7: rete di sicurezza -- currentNode parte gia' a "0" (non null) al primissimo Step della
+  // sessione (nessun Reset/Stop precedente), quindi il ramo sopra potrebbe non essere passato:
+  // se la copia runtime non esiste ancora, creala ora.
+  if (!_runtimeVars) _runtimeVars = JSON.parse(JSON.stringify((typeof flow !== 'undefined' && flow && flow.variables) || []));
+  if (typeof _setStopEnabled === 'function') _setStopEnabled(true); // FIX #36: Stop attivo durante lo step-through
+  const idxBeforeExec = parseInt(currentNode);
+  highlightExecNode(idxBeforeExec); // evidenzia il blocco che sta per essere eseguito
+  const node = flow.nodes[idxBeforeExec];
   const nodeIdxBeforeExec = currentNode; // FIX B2: sara' il "prevNode" del prossimo giro
-  currentNode = await executeNode(node,currentNode,flow.variables,prevNode);
+  currentNode = await executeNode(node,currentNode,_runtimeVars,prevNode);
   prevNode = nodeIdxBeforeExec;
-  refreshVariablesWatch(flow.variables, touchedVarName(node)); // aggiorna il pannello Variabili "live"
-  highlightExec(currentNode != null ? parseInt(currentNode) : -1); // sposta l'evidenziazione al prossimo
+  refreshVariablesWatch(_runtimeVars, touchedVarName(node)); // aggiorna il pannello Variabili "live"
+  if (currentNode == null) {
+    // C7 (round 11): lo step-through e' arrivato alla FINE del flusso da solo (senza passare
+    // da Stop) -- stessa regola di executeFlow/requestStop: esecuzione ferma -> tabella agli
+    // iniziali, PRIMA di nascondere l'evidenziazione.
+    restoreVariablesTable();
+    _runtimeVars = null;
+    highlightExecNode(-1); // R12-F: fine flusso, nessun arco da mostrare
+  } else {
+    // R12-F (Ismail 2026-07-12): Step = un ciclo COMPLETO nodo->arco per pressione. Mostra
+    // la freccia appena percorsa per un lampo breve (Step e' manuale: non deve richiedere
+    // all'utente di aspettare l'intera runSpeed a ogni click, ma l'arco resta comunque
+    // visibile) poi sposta l'evidenziazione al blocco successivo.
+    const idxAfterExec = parseInt(currentNode);
+    highlightExecEdge(idxBeforeExec, idxAfterExec);
+    await sleep(Math.min(300, runSpeed || 300));
+    highlightExecNode(idxAfterExec); // sposta l'evidenziazione al prossimo blocco
+  }
+  if (typeof _setStopEnabled === 'function') _setStopEnabled(currentNode != null); // FIX #36: a fine flusso Stop torna disabilitato
 }
 
 // Tetto di sicurezza anti-loop-infinito (bug BLOCCANTE trovato dalla review di
@@ -249,25 +447,54 @@ let pauseRequested = false;
 let _bfRunning = false;
 function _setRunning(on) { _bfRunning = !!on; const b = document.getElementById('exec-pause'); if (b) b.disabled = !on; const s = document.getElementById('console-stop'); if (s) s.disabled = !on; }
 function requestPause() { if (_bfRunning) pauseRequested = true; }
+function _setStopEnabled(on) { const s = document.getElementById('console-stop'); if (s) s.disabled = !on; }
 // Stop = interruzione COMPLETA + azzeramento: la prossima esecuzione riparte da Start.
-function requestStop() { stopRequested = true; }
+// Durante il Run automatico segnala solo la richiesta (il while-loop la gestisce); in modalita'
+// Step (nessun run automatico in corso) agisce SUBITO: azzera lo stato, toglie l'evidenziazione
+// e si disabilita (la prossima esecuzione riparte da Start). FIX #36.
+function requestStop() {
+  stopRequested = true;
+  if (!_bfRunning) {
+    stopRequested = false;
+    currentNode = null; prevNode = null;
+    if (typeof flow !== 'undefined' && flow && Array.isArray(flow.nodes)) flow.nodes.forEach(function (n) { if (n) n._forInitialized = false; });
+    // C7 (round 11): Stop da fermo (es. durante uno step-through) -- esecuzione FINITA:
+    // tabella agli iniziali PRIMA di nascondere l'evidenziazione, copia runtime azzerata.
+    if (typeof restoreVariablesTable === 'function') restoreVariablesTable();
+    _runtimeVars = null;
+    if (typeof highlightExecNode === 'function') highlightExecNode(-1); // R12-F: azzera nodo+arco
+    // WP-D1 esteso: 'debug' esplicita per lo stesso motivo di flow_reset (vedi resetFlow sopra).
+    printMessage((typeof i18nText === 'function' && i18nText('exec_stopped')) || "Execution stopped by user.", 'debug');
+    _setStopEnabled(false);
+  }
+}
 
 async function executeFlow(json){
     console.log(json)
     if(currentNode== null){
       currentNode = "0"; // Reimposta al primo nodo se currentNode è nullo
       prevNode = null; // FIX B2: riavvio dall'inizio, nessun predecessore significativo
+      _openInlineP = null; // A4: nuova esecuzione, niente riga aperta ereditata dalla precedente
       if (typeof resetDrawBuffer === 'function') resetDrawBuffer(); // nuova esecuzione: tela pulita
       if (typeof nodi !== 'undefined' && Array.isArray(nodi)) nodi.forEach(function (v) { if (v) v._error = false; });
+      // C7 (round 11): nuova esecuzione -> copia runtime FRESCA dai valori iniziali
+      // (flow.variables, la fonte di verita' che si salva). L'esecuzione lavora SEMPRE
+      // sulla copia, mai sull'originale -- cosi' un Run non muta piu' i valori iniziali.
+      _runtimeVars = JSON.parse(JSON.stringify((typeof flow !== 'undefined' && flow && flow.variables) || []));
     }
-    let variables = json.variables;
+    // C7: rete di sicurezza -- currentNode parte gia' a "0" (non null) al primissimo Run
+    // della sessione (nessun Reset/Stop precedente), quindi il ramo sopra potrebbe non
+    // essere passato: se la copia runtime non esiste ancora, creala ora.
+    if (!_runtimeVars) _runtimeVars = JSON.parse(JSON.stringify((typeof flow !== 'undefined' && flow && flow.variables) || []));
+    let variables = _runtimeVars;
     let stepGuard = 0;
     stopRequested = false; pauseRequested = false;
     let _paused = false;
     _setRunning(true);
     while(currentNode != null){
         if (stopRequested) {
-            printMessage("Execution stopped by user.");
+            // WP-D1 esteso: 'debug' esplicita per lo stesso motivo di flow_reset (vedi resetFlow sopra).
+    printMessage((typeof i18nText === 'function' && i18nText('exec_stopped')) || "Execution stopped by user.", 'debug');
             stopRequested = false;
             // Stop azzera lo stato: currentNode=null -> la prossima esecuzione riparte da Start
             currentNode = null; prevNode = null;
@@ -279,33 +506,64 @@ async function executeFlow(json){
             throwError(errMsg('err_infinite_loop', {n: MAX_EXECUTION_STEPS}));
             break;
         }
-        highlightExec(parseInt(currentNode)); // evidenzia il blocco corrente
+        const idxBeforeExec2 = parseInt(currentNode); // R12-F: indice del nodo di questa fase-nodo
+        highlightExecNode(idxBeforeExec2); // evidenzia il blocco corrente
         if (runSpeed > 0) await sleep(runSpeed); // velocità animazione (Lenta/Normale/Veloce/Istantanea)
         if (pauseRequested) { // Pausa: sospende QUI, il blocco resta evidenziato, si riprende con Esegui/Passo
             pauseRequested = false; _paused = true;
-            printMessage('\u23F8 Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
+            printMessage((typeof i18nText === 'function' && i18nText('exec_paused')) || '\u23F8 Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
             break;
         }
-        const node = json.nodes[parseInt(currentNode)];
+        const node = json.nodes[idxBeforeExec2];
         const nodeIdxBeforeExec = currentNode; // FIX B2: sara' il "prevNode" del prossimo giro
         // MIGLIORIA #42 (Ismail 2026-07-08): il blocco Pause e' un BREAKPOINT reale. Durante il
         // Run automatico, quando si raggiunge un Pause si esegue (pass-through), si avanza al
         // nodo successivo e si INTERROMPE il run: l'utente riprende con Esegui o Step. currentNode
         // resta sul nodo DOPO il Pause, quindi riprendendo non si ripausa all'infinito.
         if (node && node.type === 'pause') {
-            printMessage('\u23F8 Breakpoint (Pause). Premi Esegui o Step per continuare.', 'debug');
+            printMessage((typeof i18nText === 'function' && i18nText('exec_breakpoint')) || '\u23F8 Breakpoint (Pause). Premi Esegui o Step per continuare.', 'debug');
             currentNode = await executeNode(node, currentNode, variables, prevNode);
             prevNode = nodeIdxBeforeExec;
             refreshVariablesWatch(variables, touchedVarName(node));
-            highlightExec(currentNode != null ? parseInt(currentNode) : -1);
+            // R12-F: il breakpoint Pause MANTIENE il comportamento di prima -- salto diretto
+            // all'evidenziazione del nodo successivo, SENZA fase-arco (il run e' comunque
+            // interrotto qui: l'arco eventuale si vedra' al prossimo Esegui/Step, quando la
+            // scansione riparte normalmente dal nodo corrente).
+            highlightExecNode(currentNode != null ? parseInt(currentNode) : -1);
+            // C7 (round 11): un breakpoint Pause interrompe il run ma resta RIPRENDIBILE
+            // (Esegui/Step), esattamente come pauseRequested qui sotto -- deve quindi settare
+            // _paused come quel caso, cosi' il ramo "if (!_paused)" a fine funzione NON
+            // ripristina i valori iniziali (perderebbe lo stato runtime a meta' esecuzione).
+            _paused = true;
             break;
         }
         currentNode = await executeNode(node,currentNode,variables,prevNode);
         prevNode = nodeIdxBeforeExec;
         refreshVariablesWatch(variables, touchedVarName(node)); // aggiorna il pannello Variabili "live"
+        // R12-F (Ismail 2026-07-12): FASE-ARCO -- SOLO se c'e' un prossimo nodo e la velocita'
+        // non e' Istantanea (runSpeed===0 salta la fase-arco: nessun highlight intermedio,
+        // comportamento veloce attuale invariato). Stessa durata della fase-nodo (sleep(runSpeed)):
+        // scansione uniforme come richiesto dal piano.
+        if (currentNode != null && runSpeed > 0) {
+            const idxAfterExec2 = parseInt(currentNode);
+            highlightExecEdge(idxBeforeExec2, idxAfterExec2);
+            await sleep(runSpeed);
+            if (pauseRequested) { // Pausa durante la fase-arco: resta evidenziato l'ARCO (non il nodo)
+                pauseRequested = false; _paused = true;
+                printMessage((typeof i18nText === 'function' && i18nText('exec_paused')) || '⏸ Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
+                break;
+            }
+        }
     }
     _setRunning(false);
-    if (!_paused) highlightExec(-1); // finita/stop: rimuove l'evidenziazione (in pausa: la mantiene)
+    if (!_paused) {
+        // C7 (round 11): esecuzione FINITA (fine naturale, Stop, o guard anti-loop) -- tabella
+        // Variabili agli iniziali PRIMA di rimuovere l'evidenziazione (in pausa: niente, il
+        // run puo' riprendere e perderebbe lo stato runtime).
+        restoreVariablesTable();
+        _runtimeVars = null;
+        highlightExecNode(-1); // R12-F: azzera entrambe le fasi (finita/stop: in pausa le mantiene)
+    }
 }
 
 // FIX #13 (Ismail 2026-07-08): impostazioni terminale. L'utente puo' scegliere quali
@@ -338,17 +596,41 @@ function toggleConsoleSettingsPanel(){
   const show = p.hasAttribute('hidden');
   if (show) { p.removeAttribute('hidden'); syncConsoleSettingsUI(); } else { p.setAttribute('hidden', ''); }
 }
-function printMessage(msg, category){
+// A4 (round 11): stato modulo per l'opzione Output "a capo dopo la stampa". Quando l'ultima
+// stampa 'output' aveva newline:false, il suo <p> resta "aperto" qui: la prossima stampa
+// 'output' vi appende il testo invece di crearne uno nuovo (comportamento Flowgorithm).
+// Le categorie non-'output' (debug/if/loop) e reset/nuova esecuzione chiudono sempre la riga.
+let _openInlineP = null;
+function printMessage(msg, category, opts){
     const cat = category || classifyConsoleMsg(msg);
     // 'output' (contenuto utente) e gli errori si mostrano SEMPRE; le altre categorie
     // rispettano le impostazioni del terminale.
-    if (cat !== 'output' && consoleSettings && consoleSettings[cat] === false) return;
+    if (cat !== 'output' && consoleSettings && consoleSettings[cat] === false) {
+        _openInlineP = null; // anche una stampa soppressa chiude la riga aperta (niente stato sporco)
+        return;
+    }
     const consoleOutput = document.getElementById('console-output');
-    const messageElement = document.createElement('p');
-    messageElement.textContent = "> " +  msg;
-    if (cat && cat !== 'output' && messageElement.setAttribute) messageElement.setAttribute('data-cat', cat);
-    consoleOutput.appendChild(messageElement);
+    if (cat !== 'output') {
+        // Le categorie non-output non si appendono MAI alla riga aperta: la chiudono.
+        _openInlineP = null;
+        const messageElement = document.createElement('p');
+        messageElement.textContent = "> " +  msg;
+        if (messageElement.setAttribute) messageElement.setAttribute('data-cat', cat);
+        consoleOutput.appendChild(messageElement);
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        return;
+    }
+    // cat === 'output'
+    if (_openInlineP) {
+        _openInlineP.textContent += msg; // continua la riga precedente (senza ripetere "> ")
+    } else {
+        const messageElement = document.createElement('p');
+        messageElement.textContent = "> " + msg;
+        consoleOutput.appendChild(messageElement);
+        _openInlineP = messageElement;
+    }
     consoleOutput.scrollTop = consoleOutput.scrollHeight; // Scorre fino in fondo
+    if (!opts || opts.newline !== false) _openInlineP = null; // chiudi, salvo richiesta esplicita di restare aperta
 }
 
 function throwError(msg){
@@ -373,7 +655,9 @@ function throwError(msg){
 function clearConsole() {
     const consoleOutput = document.getElementById('console-output');
     consoleOutput.innerHTML = ''; // Pulisce l'output della console
-    printMessage("Console cleared."); // Console pulita
+    _openInlineP = null; // A4: niente riferimenti a <p> ormai rimossi dal DOM
+    // WP-D1 esteso: 'debug' esplicita, stesso motivo di flow_reset/exec_stopped sopra.
+    printMessage((typeof i18nText === 'function' && i18nText('console_cleared')) || "Console cleared.", 'debug');
 }
 
 async function executeNode(node,currentNode,variables,prevNodeArg){
@@ -388,7 +672,9 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
   switch(node.type){
             case "start":       // NODO START
                 console.log("Start\n");
-                printMessage("Start");
+                // WP-D1 esteso: riusa la chiave nd_start (stesso testo "Start" del nodo) -- 'debug'
+                // esplicita, altrimenti classifyConsoleMsg() non riconosce piu' il testo tradotto.
+                printMessage((typeof i18nText === 'function' && i18nText('nd_start')) || "Start", 'debug');
                 currentNode = node.next;
                 break;
             case "print": // NODO PRINT
@@ -410,7 +696,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                           }
                           let v = getVariable(variable, variables);
                           if (v) {
-                            expression += v.value.toString();
+                            expression += _varValueForExpr(v); // R13-M: quota le String
                           } else {
                             expression += variable;
                           }
@@ -427,7 +713,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                           }
                           let v = getVariable(variable, variables);
                           if (v) {
-                            expression += v.value.toString();
+                            expression += _varValueForExpr(v); // R13-M: quota le String
                           } else {
                             expression += variable;
                           }
@@ -444,10 +730,10 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                           if(!existVariable(variable,variables)){
                             throwError(errMsg('err_not_declared_node', {n: currentNode, v: variable}))
                             return null;
-                          } 
+                          }
                           let v = getVariable(variable, variables);
                           if (v) {
-                            expression += v.value.toString();
+                            expression += _varValueForExpr(v); // R13-M: quota le String
                           } else {
                             expression += variable;
                           }
@@ -460,7 +746,8 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                   }
                 }
                 console.log("Print: " + string);
-                printMessage(string, 'output');
+                // A4 (round 11): node.newline assente = true (retro-compat coi flow salvati prima).
+                printMessage(string, 'output', { newline: node.newline !== false });
                 currentNode = node.next;
                 break; 
               case "if": // NODO IF
@@ -571,7 +858,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     let forVarName = initParts[0].trim();
                     let forInitExp = initParts[1].trim();
                     variables.forEach(v => {
-                      forInitExp = forInitExp.replace(new RegExp(`\\b${v.name}\\b`, 'g'), v.value.toString());
+                      forInitExp = forInitExp.replace(new RegExp(`\\b${v.name}\\b`, 'g'), _varValueForExpr(v)); // R13-M: quota le String
                     });
                     if (!existVariable(forVarName, variables)) {
                         throwError(errMsg('err_not_declared_node', {n: currentNode, v: forVarName}));
@@ -629,7 +916,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 variables.forEach(v => {
                   // Sostituisci i nomi delle variabili nell'espressione con i loro valori
                   // Usa i confini delle parole per evitare sostituzioni parziali
-                  exp = exp.replace(new RegExp(`\\b${v.name}\\b`, 'g'), v.value.toString());
+                  exp = exp.replace(new RegExp(`\\b${v.name}\\b`, 'g'), _varValueForExpr(v)); // R13-M: quota le String
                 });
                 if(!existVariable(varName,variables)){
                   throwError(errMsg('err_not_declared_node', {n: currentNode, v: varName}))
@@ -690,7 +977,7 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), vv.value.toString()); });
+        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
         try { v.value = v.value + safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
         return true;
     }
@@ -698,7 +985,7 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), vv.value.toString()); });
+        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
         try { v.value = v.value - safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
         return true;
     }
@@ -706,7 +993,7 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), vv.value.toString()); });
+        variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
         try { v.value = safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
         return true;
     }
@@ -714,63 +1001,63 @@ function applyForIncrement(incrExpr, variables, currentNode) {
     return false;
 }
 
-function checkCondition(condition, variables) {
-    let expression = "";
-    let isVar = false;
-    let variable = "";
+// R13-M: quando una variabile String viene iniettata dentro un'espressione da passare a
+// safeEvaluate (condizioni, Assegna, incrementi For), va quotata+escaped -- altrimenti il
+// testo sostituito finisce come identificatore "nudo" e safeEvaluate lo rifiuta con
+// "identificatore non permesso" (es. y = x con x stringa "hi" diventava l'espressione
+// invalida "hi" invece della stringa valida 'hi'). Numeri/bool restano semplicemente
+// stringificati come prima (nessuna regressione sui flow numerici esistenti).
+function _varValueForExpr(v) {
+    if (typeof v.value === 'string') return "'" + v.value.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+    return v.value.toString();
+}
 
-    for (let j = 0; j < condition.length; j++) {
-        if (condition[j] == " ") {
-            if (isVar) {
-                isVar = false;
-                let v = getVariable(variable, variables);
-                if(!existVariable(variable,variables)){
-                  throwError(errMsg('err_not_declared', {v: variable}))
-                  return {};
-                }
-                if (v) {
-                    expression += v.value.toString();
-                } else {
-                    expression += variable;
-                }
-                variable = "";
+// R13-M: sostituzione variabili "token-aware" per le condizioni (if/while/do/for).
+// PRIMA: uno scan carattere-per-carattere trattava OGNI carattere che non fosse una cifra
+// ne' uno tra "+-*/<>!=.()" come inizio di un nome di variabile -- operatori a piu'
+// caratteri come && || % ?: finivano quindi inglobati in un identificatore inesistente
+// (es. "&&" diventava una presunta variabile "&&", mai dichiarata -> errore). safeEvaluate
+// (safeEval.js) supporta gia' && || % ternario, Math.* e true/false: il problema era SOLO
+// qui. ORA: si riconoscono solo due "isole" -- stringhe quotate (copiate verbatim, mai
+// sostituite dentro: permette name == "Mario") e identificatori (variabili dichiarate ->
+// sostituite col valore via _varValueForExpr; membri dopo un punto come Math.floor, o le
+// parole chiave true/false/null/Math, lasciati passare invariati) -- tutto il resto
+// (operatori, spazi, cifre, parentesi) attraversa lo scan senza essere toccato, cosi'
+// safeEvaluate vede l'espressione originale intatta.
+function checkCondition(condition, variables) {
+    const s = String(condition);
+    let expression = "";
+    let i = 0;
+    while (i < s.length) {
+        const ch = s[i];
+        if (ch === '"' || ch === "'") {
+            const quote = ch;
+            let j = i + 1, lit = ch;
+            while (j < s.length) {
+                lit += s[j];
+                if (s[j] === '\\' && j + 1 < s.length) { lit += s[j + 1]; j += 2; continue; }
+                if (s[j] === quote) { j++; break; }
+                j++;
             }
-            continue;
+            expression += lit; i = j; continue;
         }
-        if (!isNaN(condition[j]) || "+-*/<>!=.()".includes(condition[j])) {
-            if (isVar) {
-                isVar = false;
-                let v = getVariable(variable, variables);
-                if(!existVariable(variable,variables)){
-                  throwError(errMsg('err_not_declared', {v: variable}))
-                  return {};
-                }
-                if (v) {
-                    expression += v.value.toString();
-                } else {
-                    expression += variable;
-                }
-                variable = "";
-            }
-            expression += condition[j];
-        } else {
-            isVar = true;
-            variable += condition[j];
-        }
-        if (j == condition.length - 1 && isVar) {
-            let v = getVariable(variable, variables);
-            if(!existVariable(variable,variables)){
-                throwError(errMsg('err_not_declared', {v: variable}))
-                return {};
-            }
-            if (v) {
-                expression += v.value.toString();
+        if (/[A-Za-z_]/.test(ch)) {
+            let j = i, id = "";
+            while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) { id += s[j]; j++; }
+            const isMember = expression.length > 0 && expression[expression.length - 1] === '.';
+            if (isMember || id === 'true' || id === 'false' || id === 'null' || id === 'Math') {
+                expression += id;
             } else {
-                expression += variable;
+                if (!existVariable(id, variables)) {
+                    throwError(errMsg('err_not_declared', {v: id}));
+                    return {};
+                }
+                const v = getVariable(id, variables);
+                expression += _varValueForExpr(v);
             }
-            isVar = false;
-            variable = "";
+            i = j; continue;
         }
+        expression += ch; i++;
     }
 
     try {
@@ -993,13 +1280,23 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 // flowchart non e' gia' vuoto) chiede conferma prima (messaggio tradotto).
 function _doClearCanvas() {
   try {
+    // R13-J (Ismail 2026-07-12): Svuota e' una MODIFICA come le altre, non un salvataggio
+    // implicito. PRIMA: clearHistory() cancellava TUTTO l'undo/redo (impossibile tornare
+    // indietro) e poi saved=true spegneva il pallino come se il contenuto vuoto fosse gia'
+    // sul file -- incoerente (Ctrl+Z, se fosse stato disponibile, avrebbe riportato il
+    // vecchio grafo, a quel punto DAVVERO non salvato: lo stato mentiva). ORA: pushHistory()
+    // salva uno snapshot del grafo PRIMA di svuotarlo (stesso pattern di ogni altra modifica
+    // -- Undo disponibile, la cronologia non si tronca, solo il redo si azzera come sempre
+    // per una nuova azione), poi saved=false (il pallino si accende: il canvas vuoto non e'
+    // ancora scritto sul file). currentFileName NON si tocca: si sta ancora lavorando su
+    // quel file, solo svuotato.
+    if (typeof pushHistory === 'function') pushHistory();
     flow = { nodes: [ { type: 'start', info: '', next: '1' }, { type: 'end', info: '', next: null } ], variables: [] };
     nodi = [
       { relX: 0.35, relY: 0.05, width: 100, height: 40, color: 'white', text: 'Start' },
       { relX: 0.35, relY: 0.4, width: 100, height: 40, color: 'white', text: 'End' }
     ];
-    if (typeof clearHistory === 'function') clearHistory();
-    saved = true;
+    saved = false;
     if (typeof calcoloY === 'function') calcoloY(nodi);
     if (typeof draw === 'function') draw(nodi);
     if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
@@ -1019,9 +1316,14 @@ function clearCanvas() {
   _doClearCanvas();
 }
 // Rilievo 16: avviso del browser prima di RICARICARE/chiudere se ci sono modifiche non salvate.
+// B2 (round 11): limite tecnico del browser -- questo popup e' NATIVO e non stilizzabile (i browser
+// lo impongono per sicurezza). Resta come ultima rete per chiusura tab/refresh dalla UI del browser;
+// Ctrl+R, Cmd+R e F5 sono gia' intercettati IN-APP con dialog stilizzato (init.js). window._bfBypassUnload
+// e' settato dai reload GIA' confermati con quel dialog, per evitare il doppio avviso (stilizzato + nativo).
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('beforeunload', function (e) {
     try {
+      if (window._bfBypassUnload) return;
       const dirty = (typeof saved !== 'undefined' && !saved) && !(typeof isEmpty === 'function' && isEmpty());
       if (dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
     } catch (_) {}
@@ -1034,12 +1336,48 @@ function syncUnsavedIndicator() {
   if (!el) return;
   const dirty = (typeof saved !== 'undefined') && !saved && !(typeof isEmpty === 'function' && isEmpty());
   if (dirty) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+  // R13-D: il pallino ora vive DENTRO #project-identity (index.html) -- lo stato "sporco"
+  // aggiorna anche il tooltip del blocco intero, non solo la sua visibilita'.
+  if (typeof updateProjectIdentity === 'function') updateProjectIdentity();
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('DOMContentLoaded', function () {
     try { setInterval(syncUnsavedIndicator, 600); } catch (e) {}
   });
 }
+
+// R13-D (Ismail 2026-07-12): riga "NomeProgetto — Autore" nell'header (#project-identity),
+// letta da currentFileName/currentAuthor (state.js). Richiamata da syncUnsavedIndicator (gia'
+// in polling ogni 600ms, cosi' resta fresca senza dover intercettare OGNI singolo punto che
+// tocca i due nomi) e direttamente dopo load/save/nuovo progetto per un aggiornamento immediato
+// (niente attesa del prossimo tick di polling). Tooltip sull'intero blocco: nome completo +
+// autore + stato salvataggio, tradotto (i18n).
+function updateProjectIdentity() {
+  if (typeof document === 'undefined') return;
+  const txt = document.getElementById('project-identity-text');
+  const wrap = document.getElementById('project-identity');
+  if (!txt && !wrap) return;
+  const t = function (k, fb) { return (typeof i18nText === 'function' && i18nText(k)) || fb; };
+  const name = (typeof currentFileName === 'string' && currentFileName)
+    ? currentFileName.replace(/\.json$/i, '')
+    : t('untitled_project', 'Untitled');
+  const author = (typeof currentAuthor === 'string' && currentAuthor)
+    ? currentAuthor
+    : t('unknown_author', 'Unknown author');
+  if (txt) txt.textContent = name + ' — ' + author;
+  if (wrap) {
+    const dirty = (typeof saved !== 'undefined') && !saved && !(typeof isEmpty === 'function' && isEmpty());
+    const stateTxt = dirty ? t('unsaved_dot', 'Unsaved changes') : t('saved_state', 'Saved');
+    // R14-B.2 (Ismail 2026-07-13): data-tip (non piu' title) -- letto live dal tooltip
+    // istantaneo di js/core/ux.js (stesso meccanismo dei pulsanti .bf-icon, niente
+    // ritardo del sistema operativo). Il "title" nativo restava a volte con la
+    // traduzione statica sbagliata finche' applyLanguage() non veniva rieseguito
+    // (data-i18n-title), oltre al ritardo OS -- entrambi i problemi spariscono qui
+    // perche' data-tip non e' mai toccato da applyLanguage().
+    wrap.setAttribute('data-tip', name + ' — ' + author + ' — ' + stateTxt);
+  }
+}
+if (typeof window !== 'undefined') window.updateProjectIdentity = updateProjectIdentity;
 
 // FIX #3/#24 (Ismail 2026-07-08): la console AGGANCIATA e' position:fixed (resta ferma
 // rispetto alla viewport/canvas). Quando pero' si scrolla la PAGINA fino al footer, deve

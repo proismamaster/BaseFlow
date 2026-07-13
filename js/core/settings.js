@@ -7,11 +7,44 @@
 // originali (theme-select, lang-select, run-speed, cset-*), quindi tutta la logica esistente
 // in theme.js / i18n.js / execute.js continua a funzionare senza modifiche.
 // ============================================================================
+// D3 (round 11): impostazioni Prestazioni -- stesso pattern di consoleSettings (execute.js):
+// oggetto in modulo + persistenza localStorage con Object.assign sul default (cosi' un valore
+// futuro aggiunto al default non viene perso se il localStorage salvato e' "vecchio").
+var perfSettings = { reducedAnim: false, hoverHighlight: true };
+try {
+  const _ps = (typeof localStorage !== 'undefined') ? JSON.parse(localStorage.getItem('baseflow-perf')) : null;
+  if (_ps && typeof _ps === 'object') perfSettings = Object.assign(perfSettings, _ps);
+} catch (e) { /* non bloccante */ }
+function savePerfSettings() { try { if (typeof localStorage !== 'undefined') localStorage.setItem('baseflow-perf', JSON.stringify(perfSettings)); } catch (e) {} }
+// Applica gli EFFETTI reali delle impostazioni correnti (classe su body + pulizia hover
+// residuo). Va chiamata sia al toggle sia al caricamento pagina (init.js).
+function applyPerfSettings() {
+  if (typeof document !== 'undefined' && document.body && document.body.classList) {
+    document.body.classList.toggle('perf-reduced', !!perfSettings.reducedAnim);
+  }
+  // D3: quando l'hover si disattiva, ripulisci UNA VOLTA un'eventuale evidenziazione residua
+  // (onCanvasHover da qui in poi fa early-return e non la ripulirebbe piu' da solo).
+  if (!perfSettings.hoverHighlight && typeof hoverArc !== 'undefined' && hoverArc) {
+    hoverArc = null;
+    if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+  }
+}
+function togglePerfSetting(key, val) {
+  perfSettings[key] = !!val;
+  savePerfSettings();
+  applyPerfSettings();
+}
+function syncPerfSettingsUI() {
+  const a = document.getElementById('perf-anim'); if (a) a.checked = !!perfSettings.reducedAnim;
+  const h = document.getElementById('perf-hover'); if (h) h.checked = !!perfSettings.hoverHighlight;
+}
+
 function openSettingsPopup() {
   const p = document.getElementById('settings-popup');
   if (!p) return;
   // Sincronizza i controlli con lo stato corrente prima di mostrarli.
   try { if (typeof syncConsoleSettingsUI === 'function') syncConsoleSettingsUI(); } catch (e) {}
+  try { syncPerfSettingsUI(); } catch (e) {}
   try {
     const ls = document.getElementById('lang-select');
     if (ls && typeof currentLang !== 'undefined') ls.value = currentLang;
@@ -23,11 +56,13 @@ function openSettingsPopup() {
   } catch (e) {}
   p.classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
+  if (typeof _bfPushOverlay === 'function') _bfPushOverlay('settings-popup'); // R13-F: registro condiviso Esc
 }
 
 function closeSettingsPopup() {
   const p = document.getElementById('settings-popup');
   if (p) p.classList.remove('active');
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('settings-popup');
   // Rimuove l'overlay solo se l'editor dei temi (che ha il proprio ciclo di vita) non e' aperto.
   const te = document.getElementById('theme-editor');
   const teOpen = te && !te.hasAttribute('hidden');
@@ -51,4 +86,7 @@ if (typeof window !== 'undefined') {
   window.closeSettingsPopup = closeSettingsPopup;
   window.startCreateThemeFromSettings = startCreateThemeFromSettings;
   window.loadThemeFromSettings = loadThemeFromSettings;
+  window.togglePerfSetting = togglePerfSetting;
+  window.applyPerfSettings = applyPerfSettings;
+  window.syncPerfSettingsUI = syncPerfSettingsUI;
 }

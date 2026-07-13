@@ -4,9 +4,9 @@ function openFileWithGuard() {
   const inp = document.getElementById('fileInput');
   if (!inp) return;
   const dirty = (typeof saved !== 'undefined' && !saved) && !(typeof isEmpty === 'function' && isEmpty());
-  if (dirty && typeof showStyledConfirm === 'function') {
-    const msg = (typeof i18nText === 'function' && i18nText('unsaved')) || 'Ci sono modifiche non salvate. Continuare?';
-    showStyledConfirm(msg, function () { inp.click(); }, { danger: true, okLabel: (typeof i18nText === 'function' && i18nText('yes')) || 'S\u00ec' });
+  if (dirty && typeof showUnsavedDialog === 'function') {
+    // FIX #34: stesso dialog unificato "modifiche non salvate" di Nuovo/Ricarica (Salva / Non salvare=apri / Annulla).
+    showUnsavedDialog({ onSave: function () { if (typeof saveFile === 'function') saveFile(); }, onDiscard: function () { inp.click(); } });
     return;
   }
   inp.click();
@@ -36,18 +36,31 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
         if (typeof validateFlow === "function") {
           const validation = validateFlow(json);
           if (!validation.valid) {
-            alert(
+            const msg =
               "Impossibile caricare il file: la struttura del flowchart non e' valida.\n\n" +
               validation.errors.map((e) => "- " + e).join("\n") +
-              "\n\nIl flowchart attualmente aperto non e' stato modificato."
-            );
+              "\n\nIl flowchart attualmente aperto non e' stato modificato.";
+            // B1 (round 11): showStyledAlert e' non-bloccante -> reset del value PRIMA di aprirla,
+            // cosi' l'utente puo' ri-selezionare lo stesso file anche mentre la modale e' aperta.
             event.target.value = ""; // permette di ri-selezionare lo stesso file
+            const title = (typeof i18nText === 'function' && i18nText('load_invalid_title')) || 'File non valido';
+            if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true, title: title });
+            else if (typeof alert === 'function') alert(msg);
             return;
           }
         }
 
         if (typeof clearHistory === 'function') clearHistory(); // reset Undo/Redo al caricamento
         flow = json; // Aggiorna la struttura logica 'flow' con quella caricata
+        // R13-D (Ismail 2026-07-12): campo `author` top-level, opzionale -- i file salvati
+        // PRIMA di questo round non ce l'hanno (validateFlow valida solo nodes/variables, lo
+        // ignora): null -> l'header mostra il default localizzato "Autore sconosciuto".
+        currentAuthor = (typeof json.author === 'string' && json.author.trim()) ? json.author.trim() : null;
+        // C4 (round 11): il file caricato ricostruisce 'nodi' da zero -- azzera anche il
+        // bordo di selezione visiva, altrimenti punterebbe a un indice/nodo stantio.
+        if (typeof selectedNodeIdx !== 'undefined') selectedNodeIdx = -1;
+        // R12-G/Fase1: idem per la selezione multipla.
+        if (typeof multiSelected !== 'undefined') multiSelected = [];
 
         // Ricostruisce l'array dei nodi visuali 'nodi' basandosi su flow.nodes
         nodi = []; // Resetta l'array dei nodi visuali
@@ -96,8 +109,16 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
         // FIX (Ismail 2026-07-08): centra il grafo caricato nell'area visibile.
         if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 120); }
         saved = true;   // Considera il flowchart caricato come "salvato"
+        // B3 (round 11): <input type=file> non da' un handle riscrivibile -- solo il NOME. Il
+        // prossimo "Salva" lo riusera' (picker precompilato o download diretto, vedi saveOpen.js).
+        currentFileName = file.name;
+        currentFileHandle = null;
+        if (typeof updateProjectIdentity === 'function') updateProjectIdentity(); // R13-D
       } catch (err) {
-        alert("Errore nel parsing del file JSON: " + err.message); // Gestione errore parsing
+        // B1 (round 11): modale stilizzata invece di alert() nativo.
+        const msg = (typeof i18nFormat === 'function' && i18nFormat('load_parse_err', { msg: err.message })) || ("Errore nel file JSON: " + err.message);
+        if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true });
+        else if (typeof alert === 'function') alert(msg);
       }
     };
     reader.readAsText(file); // Avvia la lettura del file come testo

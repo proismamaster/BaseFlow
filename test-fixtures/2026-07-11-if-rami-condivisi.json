@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    { "type": "start", "info": "", "next": "1" },
+    { "type": "assign", "info": "i = 5", "next": "2" },
+    { "type": "if", "info": "i = 5", "next": { "true": "3", "false": "6" } },
+    { "type": "if", "info": "i > 3", "next": { "true": "4", "false": "6" } },
+    { "type": "print", "info": "\"A\"", "next": "5" },
+    { "type": "end", "info": "", "next": null },
+    { "type": "print", "info": "\"B\"", "next": "5" }
+  ],
+  "variables": []
+}

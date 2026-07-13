@@ -77,12 +77,67 @@ function isBranchingNodeType(type) {
 
 const DRAG_THRESHOLD_PX = 6; // soglia di movimento oltre la quale un mousedown diventa un drag
 
+// D4 (round 11): tolleranza di hit-test degli archi, calcolata UNA volta (non ad ogni
+// evento): un dito e' molto meno preciso di un puntatore mouse, quindi su pointer "coarse"
+// (touch) serve un target piu' grande. 8px resta il default storico per mouse/trackpad.
+const ARC_TOL = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? 14 : 8;
+
 // Mousedown su un nodo trascinabile: memorizza il nodo "afferrato" e il punto di partenza.
 // Non impedisce il click normale: se il mouse non si sposta abbastanza, sara' un click.
 function onCanvasMouseDown(event) {
   const { x: mx, y: my } = canvasCoordsFromEvent(event);
   const idx = hitTestNode(mx, my);
   if (idx === -1 || !flow.nodes[idx]) return;
+
+  // R12-G/Fase2 (Ismail 2026-07-12): se il nodo afferrato e' membro di una selezione
+  // multipla attiva (Ctrl+click, Fase1), il drag sposta l'INTERO gruppo -- MA solo se la
+  // selezione e' CONTIGUA (stesso identico controllo di moveSelectionGroup/
+  // copySelectionGroup). Se non lo e', rifiuto pulito qui: il drag non parte nemmeno
+  // (nessun dragNodeIndex impostato), coerente coi guard esistenti sotto che gia'
+  // rifiutano AL mousedown le topologie non valide invece di lasciar partire un drag
+  // "rotto" che poi non fa nulla al rilascio.
+  if (typeof multiSelected !== 'undefined' && multiSelected.length) {
+    const flatMembers = (typeof _multiSelectMemberSet === 'function') ? _multiSelectMemberSet() : new Set();
+    if (flatMembers.has(idx)) {
+      const units = (typeof getSelectionUnits === 'function') ? getSelectionUnits() : [];
+      // R13-B: STESSA validazione di moveSelectionGroup (validateSelectionUnitsSameLevel),
+      // non piu' una copia locale del vecchio controllo -- le due copie duplicate erano
+      // gia' identiche ma rischiavano di divergere a un futuro fix (come infatti successo:
+      // questo era il punto dove il drag partiva "silenziosamente valido" anche per una
+      // selezione cross-annidamento, prima di scoprire la corruzione solo al rilascio).
+      const check = (typeof validateSelectionUnitsSameLevel === 'function') ? validateSelectionUnitsSameLevel(units) : { valid: false, reason: 'validatore non disponibile' };
+      if (!check.valid) {
+        // R14: selezione SPARSA (cross-annidamento) -- il drag PARTE comunque e al
+        // rilascio moveSelectionGroup instrada verso moveScatteredSelection (catena di
+        // mosse singole con rollback). Il fade usa il member-set (dragScattered).
+        dragNodeIndex = idx;
+        dragSubtreeEnd = idx + 1;
+        dragIsGroup = true;
+        dragScattered = true;
+        isDraggingNode = false;
+        dragStartX = mx;
+        dragStartY = my;
+        if (event.pointerId !== undefined && canvas && canvas.setPointerCapture) {
+          try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+        }
+        return;
+      }
+      // dragNodeIndex/dragSubtreeEnd coprono l'INTERO range del gruppo: riusano cosi'
+      // GRATIS il fade "isBeingDragged" di rendering.js e l'esclusione degli archi
+      // interni in onCanvasMouseMove sotto (stesso pattern del drag di un blocco IF).
+      dragNodeIndex = units[0].blockStart;
+      dragSubtreeEnd = units[units.length - 1].blockEnd;
+      dragIsGroup = true;
+      isDraggingNode = false;
+      dragStartX = mx;
+      dragStartY = my;
+      if (event.pointerId !== undefined && canvas && canvas.setPointerCapture) {
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+      }
+      return;
+    }
+  }
+
   const nodeType = flow.nodes[idx].type;
   if (nodeType === "if") {
     // dragSubtreeEnd deve riflettere il confine VERO del sottoalbero (blockEnd),
@@ -142,6 +197,14 @@ function onCanvasMouseDown(event) {
     dragStartX = mx;
     dragStartY = my;
   }
+  // D4 (round 11): se uno dei tre rami sopra ha davvero avviato un drag (dragNodeIndex
+  // impostato), cattura il puntatore sul canvas -- cosi' i pointermove/pointerup
+  // successivi arrivano SEMPRE al canvas anche se il dito/mouse esce dai suoi bordi
+  // durante il trascinamento (essenziale su touch, dove non esiste un equivalente del
+  // vecchio window.addEventListener('mouseup', ...) per "seguire" il puntatore).
+  if (dragNodeIndex !== -1 && event.pointerId !== undefined && canvas && canvas.setPointerCapture) {
+    try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+  }
 }
 
 // Mousemove durante un possibile drag: attiva il drag oltre soglia ed evidenzia
@@ -173,6 +236,11 @@ function onCanvasMouseMove(event) {
   // (non si puo' droppare un blocco dentro se stesso). I bordi (fromNodeIndex/
   // toNodeIndex ESATTAMENTE uguali a dragNodeIndex o dragSubtreeEnd, cioe' gli
   // archi che gia' toccano il blocco dall'ESTERNO) restano validi come target.
+  // R14 (fix post-test di Ismail): per un drag SPARSO si esclude SOLO il range del nodo
+  // afferrato. NIENTE esclusione via member-set: in un grafo reale con join condivisi e
+  // rami vuoti quasi OGNI arco tocca la selezione, e l'esclusione rendeva impossibile
+  // trovare un bersaglio (drag che "non fa nulla"). La sicurezza la garantiscono le
+  // guardie per-passo delle mosse singole + il rollback totale in moveScatteredSelection.
   for (let i = 0; i < frecce.length; i++) {
     const f = frecce[i];
     if (f.fromNodeIndex >= dragNodeIndex && f.fromNodeIndex < dragSubtreeEnd) continue;
@@ -188,30 +256,104 @@ function onCanvasMouseMove(event) {
 // Altrimenti rilascia lo stato senza fare nulla (il click normale seguira' come sempre).
 function onCanvasMouseUp(event) {
   if (typeof dragNodeIndex === 'undefined' || dragNodeIndex === -1) return;
+  // D4 (round 11): rilascia la cattura del puntatore presa in onCanvasMouseDown (se presente).
+  if (event && event.pointerId !== undefined && canvas && canvas.releasePointerCapture) {
+    try { canvas.releasePointerCapture(event.pointerId); } catch (e) {}
+  }
   const wasDragging = isDraggingNode;
   const nodeIdx = dragNodeIndex;
   const targetArrow = dragOverIndex;
+  const wasGroup = !!dragIsGroup;
   dragNodeIndex = -1;
   dragSubtreeEnd = -1;
   isDraggingNode = false;
   dragOverIndex = -1;
+  dragIsGroup = false;
+  dragScattered = false; // R14: azzera anche il flag del drag sparso
   if (canvas && canvas.style) canvas.style.cursor = 'default';
   if (wasDragging) {
     suppressNextClick = true;
     if (targetArrow !== -1) {
-      const draggedType = flow.nodes[nodeIdx] && flow.nodes[nodeIdx].type;
-      if (draggedType === "if") {
-        moveIfBlock(nodeIdx, targetArrow);
-      } else if (isBranchingNodeType(draggedType)) {
-        // N6: While/For/Do trascinato come blocco (vedi moveLoopBlock).
-        moveLoopBlock(nodeIdx, targetArrow);
+      if (wasGroup) {
+        // R12-G/Fase2: drag di gruppo -- multiSelected non e' stato toccato durante
+        // mousemove, quindi moveSelectionGroup puo' ricalcolare getSelectionUnits() da
+        // zero (stesso range gia' validato in onCanvasMouseDown) e delegare a moveRange.
+        moveSelectionGroup(targetArrow);
       } else {
-        moveNode(nodeIdx, targetArrow);
+        const draggedType = flow.nodes[nodeIdx] && flow.nodes[nodeIdx].type;
+        if (draggedType === "if") {
+          moveIfBlock(nodeIdx, targetArrow);
+        } else if (isBranchingNodeType(draggedType)) {
+          // N6: While/For/Do trascinato come blocco (vedi moveLoopBlock).
+          moveLoopBlock(nodeIdx, targetArrow);
+        } else {
+          moveNode(nodeIdx, targetArrow);
+        }
       }
     } else {
       draw(nodi);
     }
   }
+}
+
+// D4 (round 11): pointercancel (es. iOS Safari puo' cancellare un puntatore a meta'
+// gesto: scroll di sistema, notifica, cambio app) -- va trattato come un rilascio che
+// ANNULLA il drag, MAI come un rilascio che lo completa: nessuno spostamento viene
+// eseguito, solo un ridisegno per far sparire l'eventuale "ghost" del nodo trascinato e
+// l'evidenziazione dell'arco target. Stessa cattura del puntatore rilasciata per pulizia.
+function onCanvasPointerCancel(event) {
+  _cancelTouchLongPress();
+  if (typeof dragNodeIndex === 'undefined' || dragNodeIndex === -1) return;
+  if (event && event.pointerId !== undefined && canvas && canvas.releasePointerCapture) {
+    try { canvas.releasePointerCapture(event.pointerId); } catch (e) {}
+  }
+  dragNodeIndex = -1;
+  dragSubtreeEnd = -1;
+  isDraggingNode = false;
+  dragOverIndex = -1;
+  dragIsGroup = false; // R12-G/Fase2: annulla anche un eventuale drag di gruppo in corso
+  dragScattered = false; // R14: idem per il drag sparso
+  if (canvas && canvas.style) canvas.style.cursor = 'default';
+  if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+}
+
+// D4 (round 11): long-press (touch) = equivalente del click destro/menu contestuale
+// desktop. Listener DEDICATI e indipendenti dal drag&drop (dragNodeIndex/isDraggingNode
+// non vengono ne' letti ne' scritti qui): un secondo pointerdown/pointermove/pointerup
+// sullo stesso canvas, attivo SOLO per pointerType 'touch'. Il flag di soppressione del
+// click successivo riusa suppressNextClick, la STESSA protezione anti-click-dopo-drag
+// gia' verificata in WP-C2 (non una nuova variabile parallela).
+const TOUCH_LONGPRESS_MS = 500;
+const TOUCH_LONGPRESS_MOVE_TOL = 8;
+let _touchLongPressTimer = null;
+let _touchLongPressStartX = 0, _touchLongPressStartY = 0;
+function _cancelTouchLongPress() {
+  if (_touchLongPressTimer) { clearTimeout(_touchLongPressTimer); _touchLongPressTimer = null; }
+}
+function onCanvasTouchPointerDown(event) {
+  if (event.pointerType !== 'touch') return;
+  _cancelTouchLongPress();
+  _touchLongPressStartX = event.clientX;
+  _touchLongPressStartY = event.clientY;
+  const cx = event.clientX, cy = event.clientY;
+  _touchLongPressTimer = setTimeout(function () {
+    _touchLongPressTimer = null;
+    if (typeof showContextMenu === 'function') {
+      // showContextMenu usa SOLO clientX/clientY/preventDefault (verificato) -- un
+      // oggetto sintetico minimale basta, non serve un vero PointerEvent.
+      showContextMenu({ clientX: cx, clientY: cy, preventDefault: function () {} });
+    }
+    suppressNextClick = true; // il click sintetico dopo il pointerup non deve riaprire/deselezionare
+  }, TOUCH_LONGPRESS_MS);
+}
+function onCanvasTouchPointerMove(event) {
+  if (event.pointerType !== 'touch' || !_touchLongPressTimer) return;
+  const dist = Math.hypot(event.clientX - _touchLongPressStartX, event.clientY - _touchLongPressStartY);
+  if (dist > TOUCH_LONGPRESS_MOVE_TOL) _cancelTouchLongPress();
+}
+function onCanvasTouchPointerUp(event) {
+  if (event.pointerType !== 'touch') return;
+  _cancelTouchLongPress();
 }
 
 // M6 (review Fable, 2026-07-05 mattina): tutti i rifiuti di moveNode/moveIfBlock/
@@ -419,6 +561,8 @@ function moveNode(nodeIndex, arrowId) {
 
   nodi.splice(newActualNodeIndex, 0, nodeVisual);
 
+  selectedNodeIdx = -1; // C4 (round 11): indici shiftati -- azzera la selezione visiva
+  multiSelected = []; // R12-G: idem per la selezione multipla
   saved = false;
   calcoloY(nodi);
   draw(nodi);
@@ -440,42 +584,39 @@ function moveNode(nodeIndex, arrowId) {
 // (il blocco estratto si portava dietro per errore il fratello). Fix: si usano i
 // confini VERI (`collectFullIfSubtreeMembers`, espansione ricorsiva + verifica di
 // contiguita'), non l'intervallo ifIdx..joinIndex.
-function moveIfBlock(ifIdx, arrowId) {
-  if (ifIdx < 0 || ifIdx >= flow.nodes.length) { warnMoveRejected("moveIfBlock", "indice IF fuori range", { ifIdx }); return; }
-  const ifLogic = flow.nodes[ifIdx];
-  if (!ifLogic || ifLogic.type !== "if") { warnMoveRejected("moveIfBlock", "nodo non e' un IF", { ifIdx, type: ifLogic && ifLogic.type }); return; }
-
-  const info = collectFullIfSubtreeMembers(ifIdx);
-  if (!info || !info.contiguous) { warnMoveRejected("moveIfBlock", "sottoalbero non contiguo (topologia inattesa)", { ifIdx }); return; } // topologia inattesa: non rischiare
-  const blockStart = info.blockStart; // atteso === ifIdx, ma si usa il valore calcolato
-  const blockEnd = info.blockEnd;     // fine VERA del blocco (puo' essere < joinIndex)
+// R12-G/Fase2 (Ismail 2026-07-12): generalizzazione di moveIfBlock/moveLoopBlock (sotto,
+// ora wrapper sottili) su un RANGE [blockStart, blockEnd) di N nodi CONTIGUI con una
+// singola "uscita logica" esterna (exitIdxOrig) verso cui va rediretto qualunque
+// puntatore che oggi punta a blockStart. Rifattorizzazione CONSERVATIVA: il corpo qui
+// sotto e' l'estrazione MECCANICA (nessuna riscrittura di logica) di cio' che prima era
+// duplicato identico in moveIfBlock e moveLoopBlock -- solo `joinIdxOrig`/`exitIdxOrig`
+// diventano il parametro generico `exitIdxOrig`, e i messaggi di warnMoveRejected usano
+// il nome funzione passato da chi chiama (fnName), per restare IDENTICI a prima.
+// Riusata anche da moveSelectionGroup() per il drag di un GRUPPO di selezione multipla
+// contigua (Fase2): stesso identico algoritmo, la sola differenza e' la provenienza di
+// blockStart/blockEnd/exitIdxOrig (getSelectionUnits() invece di un singolo walker).
+// Equivalenza comportamentale con le vecchie moveIfBlock/moveLoopBlock dimostrata con
+// harness differenziale (before/after) su scenari if/ciclo singolo e annidato — vedi
+// report di consegna.
+function moveRange(blockStart, blockEnd, exitIdxOrig, arrowId, fnName) {
+  fnName = fnName || "moveRange";
   const blockSize = blockEnd - blockStart;
-  const joinIdxOrig = info.joinIndex; // punto di uscita LOGICO (puo' essere oltre blockEnd)
-  // FIX (Ismail 2026-07-07, "lo fa spostare ma se rilascio su arco non si sposta"): il
-  // guard rifiutava OGNI join < blockEnd. Ma un IF annidato come corpo (o ultimo membro)
-  // di un ciclo ha i rami che convergono ALL'INDIETRO sul ciclo genitore (joinIdxOrig <
-  // blockStart): non e' corruzione -- dopo la rimozione del blocco il puntatore del corpo
-  // del ciclo torna a puntare a se stesso (loopIdx===next.true), che e' la rappresentazione
-  // VALIDA di un ciclo a corpo vuoto. Come per moveLoopBlock, si rifiuta SOLO se il join
-  // cade STRETTAMENTE DENTRO il blocco (>= blockStart && < blockEnd), cioe' corruzione vera.
-  if (joinIdxOrig === null || joinIdxOrig === undefined ||
-      (joinIdxOrig >= blockStart && joinIdxOrig < blockEnd)) { warnMoveRejected("moveIfBlock", "join del blocco assente o incoerente (dentro il blocco)", { ifIdx, joinIdxOrig, blockStart, blockEnd }); return; }
 
   const arrow = frecce[arrowId];
-  if (!arrow) { warnMoveRejected("moveIfBlock", "arco target mancante", { arrowId }); return; }
+  if (!arrow) { warnMoveRejected(fnName, "arco target mancante", { arrowId }); return false; }
   let targetFrom = arrow.fromNodeIndex;
   let targetTo = arrow.toNodeIndex;
   const targetType = arrow.type;
   // M3 (review Fable, 2026-07-04 notte-6): whitelist estesa a loop_body/loop_exit/
   // loop_body_end -- vedi moveNode per la spiegazione completa (stessi redirect di
   // inserisciNodo, gia' testati e sicuri).
-  if (!["normal", "if_true", "if_false", "if_join", "loop_body", "loop_exit", "loop_body_end"].includes(targetType)) { warnMoveRejected("moveIfBlock", "tipo di arco target non supportato", { targetType }); return; }
+  if (!["normal", "if_true", "if_false", "if_join", "loop_body", "loop_exit", "loop_body_end"].includes(targetType)) { warnMoveRejected(fnName, "tipo di arco target non supportato", { targetType }); return false; }
 
   // Non si puo' partire da un genitore che sta DENTRO il blocco VERO, ne' droppare
   // STRETTAMENTE dentro (i bordi blockStart/blockEnd, cioe' gli archi che gia'
   // toccano il blocco dall'esterno, restano validi: no-op sicuro come in moveNode).
-  if (targetFrom >= blockStart && targetFrom < blockEnd) { warnMoveRejected("moveIfBlock", "genitore dell'arco target dentro il blocco spostato", { targetFrom, blockStart, blockEnd }); return; }
-  if (targetTo !== null && targetTo !== undefined && targetTo > blockStart && targetTo < blockEnd) { warnMoveRejected("moveIfBlock", "target dell'arco strettamente dentro il blocco spostato", { targetTo, blockStart, blockEnd }); return; }
+  if (targetFrom >= blockStart && targetFrom < blockEnd) { warnMoveRejected(fnName, "genitore dell'arco target dentro il blocco spostato", { targetFrom, blockStart, blockEnd }); return false; }
+  if (targetTo !== null && targetTo !== undefined && targetTo > blockStart && targetTo < blockEnd) { warnMoveRejected(fnName, "target dell'arco strettamente dentro il blocco spostato", { targetTo, blockStart, blockEnd }); return false; }
 
   pushHistory(); // snapshot per Undo (prima dello spostamento)
 
@@ -484,11 +625,11 @@ function moveIfBlock(ifIdx, arrowId) {
 
   // STEP A — rimozione. Come per moveNode/deleteNode: un puntatore ESTERNO che
   // punta esattamente a blockStart (l'ingresso del blocco) va rediretto al vero
-  // successore (joinIdxOrig, adattato per lo shift), non lasciato invariato
+  // successore (exitIdxOrig, adattato per lo shift), non lasciato invariato
   // sperando che lo shift lo faccia atterrare li' per coincidenza — falso quando
-  // c'e' un "buco" fra blockEnd e joinIdxOrig occupato da contenuto estraneo.
+  // c'e' un "buco" fra blockEnd e exitIdxOrig occupato da contenuto estraneo.
   const adjustForRemoval = (v) => (v >= blockEnd ? v - blockSize : v);
-  const ownExitAdjusted = adjustForRemoval(joinIdxOrig);
+  const ownExitAdjusted = adjustForRemoval(exitIdxOrig);
 
   flow.nodes.splice(blockStart, blockSize);
   nodi.splice(blockStart, blockSize);
@@ -496,7 +637,7 @@ function moveIfBlock(ifIdx, arrowId) {
     const n = flow.nodes[i];
     // BUG B2 (review Fable): generalizzato da "solo if" a isBranchingNodeType, stesso
     // motivo del fix in moveNode -- un ciclo altrove nel flusso non veniva ri-shiftato
-    // quando si sposta un blocco IF che non lo contiene.
+    // quando si sposta un blocco che non lo contiene.
     if (isBranchingNodeType(n.type) && typeof n.next === "object" && n.next !== null) {
       const t = parseInt(n.next.true, 10);
       const f = parseInt(n.next.false, 10);
@@ -529,7 +670,7 @@ function moveIfBlock(ifIdx, arrowId) {
   function remapPointer(oldStr) {
     const v = parseInt(oldStr, 10);
     if (isNaN(v)) return oldStr;
-    if (v === joinIdxOrig) return newExitRef.toString();
+    if (v === exitIdxOrig) return newExitRef.toString();
     if (v >= blockStart && v < blockEnd) return (newActualNodeIndex + (v - blockStart)).toString();
     return oldStr; // non dovrebbe succedere per un blocco ben formato; per sicurezza non tocca
   }
@@ -618,11 +759,12 @@ function moveIfBlock(ifIdx, arrowId) {
     parentLogic.next = newTargetStr;
   }
 
-  // Nodo visuale IF (relX): stessa logica di posizionamento di moveNode/inserisciNodo,
-  // applicata solo al rombo dell'IF (i figli interni mantengono le relX gia' calcolate
-  // dal layout precedente; calcoloY() qui sotto le ricalcola comunque tutte da zero
-  // in base alla struttura logica, quindi non serve propagare offset ai figli).
-  const ifVisual = blockVisual[0];
+  // Nodo visuale radice del blocco (relX): stessa logica di posizionamento di
+  // moveNode/inserisciNodo, applicata solo alla radice (i figli interni mantengono le
+  // relX gia' calcolate dal layout precedente; calcoloY() qui sotto le ricalcola
+  // comunque tutte da zero in base alla struttura logica, quindi non serve propagare
+  // offset ai figli).
+  const rootVisual = blockVisual[0];
   const parentVis = nodi[targetFrom];
   let newRelX;
   const elbowOffset = 40;
@@ -643,18 +785,47 @@ function moveIfBlock(ifIdx, arrowId) {
   } else {
     newRelX = 0.5;
   }
-  if (ifVisual) {
-    const nodeWidth = ifVisual.width || 100;
+  if (rootVisual) {
+    const nodeWidth = rootVisual.width || 100;
     const minRX = (nodeWidth / 2) / w + 0.01;
     const maxRX = 1 - (nodeWidth / 2) / w - 0.01;
     if (newRelX < minRX) newRelX = minRX;
     if (newRelX > maxRX) newRelX = maxRX;
-    ifVisual.relX = newRelX;
+    rootVisual.relX = newRelX;
   }
 
+  selectedNodeIdx = -1; // C4 (round 11): indici shiftati -- azzera la selezione visiva
+  multiSelected = []; // R12-G: idem per la selezione multipla
   saved = false;
   calcoloY(nodi);
   draw(nodi);
+  return true;
+}
+
+function moveIfBlock(ifIdx, arrowId) {
+  if (ifIdx < 0 || ifIdx >= flow.nodes.length) { warnMoveRejected("moveIfBlock", "indice IF fuori range", { ifIdx }); return; }
+  const ifLogic = flow.nodes[ifIdx];
+  if (!ifLogic || ifLogic.type !== "if") { warnMoveRejected("moveIfBlock", "nodo non e' un IF", { ifIdx, type: ifLogic && ifLogic.type }); return; }
+
+  const info = collectFullIfSubtreeMembers(ifIdx);
+  if (!info || !info.contiguous) { warnMoveRejected("moveIfBlock", "sottoalbero non contiguo (topologia inattesa)", { ifIdx }); return; } // topologia inattesa: non rischiare
+  const blockStart = info.blockStart; // atteso === ifIdx, ma si usa il valore calcolato
+  const blockEnd = info.blockEnd;     // fine VERA del blocco (puo' essere < joinIndex)
+  const joinIdxOrig = info.joinIndex; // punto di uscita LOGICO (puo' essere oltre blockEnd)
+  // FIX (Ismail 2026-07-07, "lo fa spostare ma se rilascio su arco non si sposta"): il
+  // guard rifiutava OGNI join < blockEnd. Ma un IF annidato come corpo (o ultimo membro)
+  // di un ciclo ha i rami che convergono ALL'INDIETRO sul ciclo genitore (joinIdxOrig <
+  // blockStart): non e' corruzione -- dopo la rimozione del blocco il puntatore del corpo
+  // del ciclo torna a puntare a se stesso (loopIdx===next.true), che e' la rappresentazione
+  // VALIDA di un ciclo a corpo vuoto. Come per moveLoopBlock, si rifiuta SOLO se il join
+  // cade STRETTAMENTE DENTRO il blocco (>= blockStart && < blockEnd), cioe' corruzione vera.
+  if (joinIdxOrig === null || joinIdxOrig === undefined ||
+      (joinIdxOrig >= blockStart && joinIdxOrig < blockEnd)) { warnMoveRejected("moveIfBlock", "join del blocco assente o incoerente (dentro il blocco)", { ifIdx, joinIdxOrig, blockStart, blockEnd }); return; }
+
+  // R12-G/Fase2: da qui in poi la meccanica di spostamento e' interamente delegata a
+  // moveRange (vedi sopra) -- moveIfBlock resta solo il "calcolo dei confini" per un
+  // singolo blocco IF, invariato rispetto a prima del refactor.
+  moveRange(blockStart, blockEnd, joinIdxOrig, arrowId, "moveIfBlock");
 }
 
 
@@ -685,7 +856,6 @@ function moveLoopBlock(loopIdx, arrowId) {
   if (!info || !info.contiguous) { warnMoveRejected("moveLoopBlock", "sottoalbero non contiguo (topologia inattesa)", { loopIdx }); return; } // topologia inattesa: non rischiare
   const blockStart = info.blockStart; // atteso === loopIdx
   const blockEnd = info.blockEnd;
-  const blockSize = blockEnd - blockStart;
   const exitIdxOrig = info.exitIndex; // punto di uscita LOGICO (next.false del ciclo)
   if (exitIdxOrig === null || exitIdxOrig === undefined) { warnMoveRejected("moveLoopBlock", "uscita del blocco assente", { loopIdx }); return; }
   // FIX M2 (review Fable, 2026-07-04 notte-6): a differenza di un IF (che non ha
@@ -701,188 +871,150 @@ function moveLoopBlock(loopIdx, arrowId) {
   // rifiuta ancora, per sicurezza.
   if (exitIdxOrig >= blockStart && exitIdxOrig < blockEnd) { warnMoveRejected("moveLoopBlock", "uscita del blocco cade dentro il blocco stesso (corruzione)", { exitIdxOrig, blockStart, blockEnd }); return; }
 
+  // R12-G/Fase2: da qui in poi la meccanica di spostamento e' interamente delegata a
+  // moveRange (vedi sopra) -- moveLoopBlock resta solo il "calcolo dei confini" per un
+  // singolo blocco ciclo, invariato rispetto a prima del refactor.
+  moveRange(blockStart, blockEnd, exitIdxOrig, arrowId, "moveLoopBlock");
+}
+
+// R12-G/Fase2 (Ismail 2026-07-12): sposta l'INTERA selezione multipla (Ctrl+click,
+// Fase1) sull'arco arrowId, quando e' CONTIGUA -- generalizza moveIfBlock/moveLoopBlock
+// a un range di PIU' unita' tramite moveRange, esattamente come copySelectionGroup
+// generalizza copySubtree per la copia. Stesso identico controllo di contiguita' di
+// copySelectionGroup (ogni coppia consecutiva: blockEnd===blockStart successivo E
+// exit===blockStart successivo). Rifiuto pulito (nessun pushHistory, nessuna modifica)
+// se la selezione non e' contigua: il messaggio arriva via warnMoveRejected, coerente
+// col resto della famiglia move*.
+function moveSelectionGroup(arrowId) {
+  const units = getSelectionUnits();
+  if (!units.length) { warnMoveRejected("moveSelectionGroup", "nessuna unita' selezionata", {}); return false; }
+  // R13-B: validazione unica (vedi validateSelectionUnitsSameLevel) -- rileva sia la
+  // vecchia non-contiguita' sia il nuovo caso di selezione cross-annidamento (join
+  // condiviso con un contenitore esterno) che prima produceva corruzione silenziosa.
+  const check = validateSelectionUnitsSameLevel(units);
+  if (!check.valid) {
+    // R14 (Ismail 2026-07-13): una selezione NON contigua/cross-annidamento non e' piu'
+    // un rifiuto -- e' il caso "sparso", gestito dalla catena di mosse singole sotto.
+    return moveScatteredSelection(arrowId);
+  }
+  const blockStart = units[0].blockStart;
+  const blockEnd = units[units.length - 1].blockEnd;
+  const exitIdx = units[units.length - 1].exit;
+  return moveRange(blockStart, blockEnd, exitIdx, arrowId, "moveSelectionGroup");
+}
+
+// ============================================================================
+// R14 (Ismail 2026-07-13, feature esplicita): spostamento di una selezione multipla
+// SPARSA (unita' su rami/archi/annidamenti DIVERSI). La strada contigua
+// (moveSelectionGroup -> moveRange) resta quella maestra per i range chiusi; qui il
+// caso generale viene risolto con una CATENA di mosse singole GIA' testate
+// (moveNode/moveIfBlock/moveLoopBlock), una per unita': la prima atterra sull'arco
+// target, ognuna delle successive sull'arco che ESCE dall'unita' precedente -- alla
+// destinazione le unita' diventano CONSECUTIVE nell'ordine originale (alto -> basso).
+//
+// Scelte tecniche (per chi tocca questo codice):
+// - Fra un passo e l'altro gli indici scivolano: le unita' si ritrovano TAGGANDO gli
+//   OGGETTI nodo (proprieta' temporanea _gmOrder) -- gli splice spostano riferimenti,
+//   non cloni, quindi il tag sopravvive a ogni shift. I tag si rimuovono SEMPRE alla
+//   fine (lo snapshot di rollback e' preso PRIMA dei tag: e' pulito per costruzione).
+// - UNDO SINGOLO: ogni mossa interna fa il proprio pushHistory; a fine catena gli
+//   snapshot intermedi vengono collassati lasciando solo il primo (stato pre-catena).
+// - Successo di ogni passo = la serializzazione di flow.nodes E' CAMBIATA (le mosse
+//   non hanno un contratto di ritorno uniforme). Un passo rifiutato => ROLLBACK
+//   TOTALE allo stato pre-catena: mai risultati parziali, mai corruzione.
+function moveScatteredSelection(arrowId) {
+  const units = getSelectionUnits();
+  if (!units.length) { warnMoveRejected("moveScatteredSelection", "nessuna unita' selezionata", {}); return false; }
   const arrow = frecce[arrowId];
-  if (!arrow) { warnMoveRejected("moveLoopBlock", "arco target mancante", { arrowId }); return; }
-  let targetFrom = arrow.fromNodeIndex;
-  let targetTo = arrow.toNodeIndex;
-  const targetType = arrow.type;
-  // M3: whitelist estesa a loop_body/loop_exit/loop_body_end -- vedi moveNode.
-  if (!["normal", "if_true", "if_false", "if_join", "loop_body", "loop_exit", "loop_body_end"].includes(targetType)) { warnMoveRejected("moveLoopBlock", "tipo di arco target non supportato", { targetType }); return; }
+  if (!arrow) { warnMoveRejected("moveScatteredSelection", "arco target mancante", { arrowId }); return false; }
+  // R14 (fix post-test di Ismail): NESSUN veto preventivo sugli archi che "toccano" la
+  // selezione — in grafi reali con join condivisi sarebbero quasi tutti. Le mosse singole
+  // hanno gia' le proprie guardie (self-drop, target interno al blocco, ...): se un passo
+  // viene rifiutato, il rollback totale sotto riporta tutto com'era e fa il flash.
+  if (!["normal", "if_true", "if_false", "if_join", "loop_body", "loop_exit", "loop_body_end"].includes(arrow.type)) {
+    warnMoveRejected("moveScatteredSelection", "tipo di arco target non supportato", { targetType: arrow.type });
+    triggerRejectFlash(_multiSelectMemberSet());
+    return false;
+  }
 
-  // Non si puo' partire da un genitore DENTRO il blocco, ne' droppare STRETTAMENTE
-  // dentro (i bordi, cioe' gli archi che gia' toccano il blocco dall'esterno, restano
-  // validi: no-op sicuro come in moveIfBlock/moveNode).
-  if (targetFrom >= blockStart && targetFrom < blockEnd) { warnMoveRejected("moveLoopBlock", "genitore dell'arco target dentro il blocco spostato", { targetFrom, blockStart, blockEnd }); return; }
-  if (targetTo !== null && targetTo !== undefined && targetTo > blockStart && targetTo < blockEnd) { warnMoveRejected("moveLoopBlock", "target dell'arco strettamente dentro il blocco spostato", { targetTo, blockStart, blockEnd }); return; }
+  const snap = snapshotState();          // PRIMA dei tag: snapshot pulito
+  const undoLenBefore = undoStack.length;
+  units.forEach(function (u, k) { flow.nodes[u.root]._gmOrder = k; });
 
-  pushHistory(); // snapshot per Undo (prima dello spostamento)
-
-  const blockLogic = flow.nodes.slice(blockStart, blockEnd);
-  const blockVisual = nodi.slice(blockStart, blockEnd);
-
-  // STEP A — rimozione. Un puntatore ESTERNO che punta esattamente a blockStart
-  // (l'ingresso del blocco, cioe' il ciclo stesso) va rediretto al vero successore
-  // (exitIdxOrig, adattato per lo shift), non lasciato invariato.
-  const adjustForRemoval = (v) => (v >= blockEnd ? v - blockSize : v);
-  const ownExitAdjusted = adjustForRemoval(exitIdxOrig);
-
-  flow.nodes.splice(blockStart, blockSize);
-  nodi.splice(blockStart, blockSize);
-  for (let i = 0; i < flow.nodes.length; i++) {
-    const n = flow.nodes[i];
-    if (isBranchingNodeType(n.type) && typeof n.next === "object" && n.next !== null) {
-      const t = parseInt(n.next.true, 10);
-      const f = parseInt(n.next.false, 10);
-      if (!isNaN(t)) n.next.true = (t === blockStart ? ownExitAdjusted : adjustForRemoval(t)).toString();
-      if (!isNaN(f)) n.next.false = (f === blockStart ? ownExitAdjusted : adjustForRemoval(f)).toString();
-    } else if (typeof n.next === "string" && n.next !== null) {
-      const nx = parseInt(n.next, 10);
-      if (!isNaN(nx)) n.next = (nx === blockStart ? ownExitAdjusted : adjustForRemoval(nx)).toString();
+  const cleanupTags = function () {
+    for (let i = 0; i < flow.nodes.length; i++) {
+      if (flow.nodes[i] && flow.nodes[i]._gmOrder !== undefined) delete flow.nodes[i]._gmOrder;
     }
-  }
-  if (targetFrom >= blockEnd) targetFrom -= blockSize;
-  if (targetTo !== null && targetTo !== undefined) {
-    if (targetTo >= blockEnd) targetTo -= blockSize;
-    else if (targetTo === blockStart) targetTo = ownExitAdjusted;
-  }
+  };
+  const idxByTag = function (k) {
+    for (let i = 0; i < flow.nodes.length; i++) { if (flow.nodes[i] && flow.nodes[i]._gmOrder === k) return i; }
+    return -1;
+  };
+  const findArcId = function (pred) {
+    for (let i = frecce.length - 1; i >= 0; i--) { if (frecce[i] && pred(frecce[i])) return frecce[i].id; }
+    return -1;
+  };
+  // Stesso set di tipi "di continuazione" usato da pasteNode per trovare l'arco che
+  // esce da un nodo/blocco appena piazzato.
+  const CONT_TYPES = ["normal", "if_join", "loop_exit", "loop_body_end"];
 
-  // STEP B — ricalcolo dei riferimenti INTERNI del blocco sulla nuova base, PRIMA di
-  // reinserirlo. Il back-edge (che punta a loopIdx stesso, cioe' blockStart) e la
-  // exitIdxOrig (se referenziata da un nodo interno, es. un ciclo annidato la cui
-  // uscita punta OLTRE se' stesso ma ANCORA dentro/appena fuori questo blocco) vengono
-  // rimappati con la stessa remapPointer generalizzata di moveIfBlock.
-  // P1 FIX (review Fable, 2026-07-05 pomeriggio): regola UNICA per ogni arco che punta
-  // all'indietro (targetTo <= targetFrom), stessa di moveNode/moveIfBlock -- vedi
-  // moveNode per la spiegazione completa e PLANS/2026-07-05-nested-while-visuals.md P1.
-  const isBackwardMove = (targetTo !== null && targetTo !== undefined && targetTo <= targetFrom);
-  const newActualNodeIndex = isBackwardMove ? (targetFrom + 1) : targetTo;
-  const newExitRef = (targetTo >= newActualNodeIndex ? newActualNodeIndex + blockSize : targetTo);
-  function remapPointer(oldStr) {
-    const v = parseInt(oldStr, 10);
-    if (isNaN(v)) return oldStr;
-    if (v === exitIdxOrig) return newExitRef.toString();
-    if (v >= blockStart && v < blockEnd) return (newActualNodeIndex + (v - blockStart)).toString();
-    return oldStr;
-  }
-  for (const n of blockLogic) {
-    if (isBranchingNodeType(n.type) && typeof n.next === "object" && n.next !== null) {
-      n.next.true = remapPointer(n.next.true);
-      n.next.false = remapPointer(n.next.false);
-    } else if (typeof n.next === "string" && n.next !== null) {
-      n.next = remapPointer(n.next);
-    }
-  }
-
-  // Fa spazio per il blocco: incrementa di blockSize tutti i puntatori ESTERNI >= newActualNodeIndex.
-  for (let i = 0; i < flow.nodes.length; i++) {
-    const n = flow.nodes[i];
-    if (isBranchingNodeType(n.type) && typeof n.next === "object" && n.next !== null) {
-      const t = parseInt(n.next.true, 10);
-      const f = parseInt(n.next.false, 10);
-      if (!isNaN(t) && t >= newActualNodeIndex) n.next.true = (t + blockSize).toString();
-      if (!isNaN(f) && f >= newActualNodeIndex) n.next.false = (f + blockSize).toString();
-    } else if (typeof n.next === "string" && n.next !== null) {
-      const nx = parseInt(n.next, 10);
-      if (!isNaN(nx) && nx >= newActualNodeIndex) n.next = (nx + blockSize).toString();
-    }
-  }
-
-  flow.nodes.splice(newActualNodeIndex, 0, ...blockLogic);
-  nodi.splice(newActualNodeIndex, 0, ...blockVisual);
-
-  const parentLogic = flow.nodes[targetFrom];
-  const newTargetStr = newActualNodeIndex.toString();
-  if (parentLogic && parentLogic.type === "if") {
-    if (targetType === "if_join") {
-      const shiftedJoin = newActualNodeIndex + blockSize;
-      const redirectBranchToNew = (branchStartStr, sideKey) => {
-        const start = parseInt(branchStartStr, 10);
-        if (isNaN(start)) return;
-        if (start === shiftedJoin) {
-          if (parentLogic.next && typeof parentLogic.next === "object") parentLogic.next[sideKey] = newTargetStr;
-        } else {
-          redirectJoinRefs(start, shiftedJoin, newTargetStr, new Set());
-        }
-      };
-      if (parentLogic.next && typeof parentLogic.next === "object") {
-        redirectBranchToNew(parentLogic.next.true, "true");
-        redirectBranchToNew(parentLogic.next.false, "false");
-      }
-    } else if (targetType === "if_true") {
-      parentLogic.next.true = newTargetStr;
-    } else if (targetType === "if_false") {
-      parentLogic.next.false = newTargetStr;
-    } else if (targetType === "loop_body_end") {
-      // M3: vedi moveNode -- parentLogic (IF) e' l'ultimo nodo del corpo di un ciclo
-      // ESTERNO, redirect identico a if_join ma senza shift in avanti (backward).
-      const oldLoopTarget = targetTo;
-      const redirectBranchToNewLoop = (branchStartStr, sideKey) => {
-        const start = parseInt(branchStartStr, 10);
-        if (isNaN(start)) return;
-        if (start === oldLoopTarget) {
-          if (parentLogic.next && typeof parentLogic.next === "object") parentLogic.next[sideKey] = newTargetStr;
-        } else {
-          redirectJoinRefs(start, oldLoopTarget, newTargetStr, new Set());
-        }
-      };
-      if (parentLogic.next && typeof parentLogic.next === "object") {
-        redirectBranchToNewLoop(parentLogic.next.true, "true");
-        redirectBranchToNewLoop(parentLogic.next.false, "false");
-      }
-    }
-  } else if (parentLogic && isBranchingNodeType(parentLogic.type) && targetType === "loop_body") {
-    // M3: vedi moveNode -- dentro il corpo di un ciclo.
-    if (parentLogic.next && typeof parentLogic.next === "object") parentLogic.next.true = newTargetStr;
-  } else if (parentLogic && isBranchingNodeType(parentLogic.type) && targetType === "loop_exit") {
-    // M3: vedi moveNode -- subito dopo l'uscita di un ciclo.
-    if (parentLogic.next && typeof parentLogic.next === "object") parentLogic.next.false = newTargetStr;
-  } else if (parentLogic && isBranchingNodeType(parentLogic.type) && targetType === "loop_body_end") {
-    // M3: vedi moveNode -- parentLogic e' un ciclo, esso stesso ultimo del corpo di
-    // un ciclo ESTERNO (nesting di cicli).
-    if (parentLogic.next && typeof parentLogic.next === "object") parentLogic.next.false = newTargetStr;
-  } else if (parentLogic) {
-    parentLogic.next = newTargetStr;
-  }
-
-  // Nodo visuale del ciclo (relX): stessa logica di posizionamento di moveIfBlock.
-  const loopVisual = blockVisual[0];
-  const parentVis = nodi[targetFrom];
-  let newRelX;
-  const elbowOffset = 40;
-  if (parentLogic && parentLogic.type === "if") {
-    if (targetType === "if_join" && parentVis) {
-      newRelX = parentVis.relX;
-    } else if (targetType === "if_true" && parentVis) {
-      const prX = parentVis.relX * w + parentVis.width / 2;
-      newRelX = (prX + elbowOffset) / w;
-    } else if (targetType === "if_false" && parentVis) {
-      const plX = parentVis.relX * w - parentVis.width / 2;
-      newRelX = (plX - elbowOffset) / w;
+  let ok = true, reason = "";
+  for (let k = 0; k < units.length; k++) {
+    let stepArcId;
+    if (k === 0) {
+      stepArcId = arrowId; // frecce non ancora ricostruite: l'arco validato sopra e' ancora valido
     } else {
-      newRelX = parentVis ? parentVis.relX : 0.5;
+      const prevIdx = idxByTag(k - 1);
+      stepArcId = (prevIdx === -1) ? -1 : findArcId(function (f) {
+        return f.fromNodeIndex === prevIdx && CONT_TYPES.indexOf(f.type) !== -1;
+      });
     }
-  } else if (parentVis && (targetType === "normal" || targetType === "loop_body" || targetType === "loop_exit" || targetType === "loop_body_end")) {
-    newRelX = parentVis.relX;
-  } else {
-    newRelX = 0.5;
-  }
-  if (loopVisual) {
-    const nodeWidth = loopVisual.width || 100;
-    const minRX = (nodeWidth / 2) / w + 0.01;
-    const maxRX = 1 - (nodeWidth / 2) / w - 0.01;
-    if (newRelX < minRX) newRelX = minRX;
-    if (newRelX > maxRX) newRelX = maxRX;
-    loopVisual.relX = newRelX;
+    if (stepArcId === -1) { ok = false; reason = "arco di aggancio del passo " + k + " non trovato"; break; }
+    const rIdx = idxByTag(k);
+    if (rIdx === -1) { ok = false; reason = "unita' " + k + " persa durante la catena"; break; }
+    const beforeSig = JSON.stringify(flow.nodes);
+    const t = flow.nodes[rIdx].type;
+    if (t === "if") moveIfBlock(rIdx, stepArcId);
+    else if (isBranchingNodeType(t)) moveLoopBlock(rIdx, stepArcId);
+    else moveNode(rIdx, stepArcId);
+    if (JSON.stringify(flow.nodes) === beforeSig) { ok = false; reason = "passo " + k + " rifiutato dalla mossa singola"; break; }
   }
 
+  if (!ok) {
+    warnMoveRejected("moveScatteredSelection", reason + " -> rollback totale, nessuna modifica applicata", {});
+    undoStack.length = undoLenBefore; // scarta gli snapshot della catena parziale
+    restoreState(snap);               // stato pre-catena (snapshot senza tag)
+    cleanupTags();                    // difesa in profondita' (non dovrebbero esserci)
+    updateUndoRedoButtons();
+    triggerRejectFlash(_multiSelectMemberSet());
+    if (typeof draw === "function") draw(nodi);
+    return false;
+  }
+
+  // Selezione ricostruita sulle NUOVE posizioni, PRIMA di togliere i tag.
+  const newRoots = [];
+  for (let k = 0; k < units.length; k++) { const i2 = idxByTag(k); if (i2 !== -1) newRoots.push(i2); }
+  cleanupTags();
+  multiSelected = newRoots;
+  // Collassa gli N snapshot della catena in UNO (il pre-catena): un solo Ctrl+Z.
+  if (undoStack.length > undoLenBefore + 1) undoStack.length = undoLenBefore + 1;
+  updateUndoRedoButtons();
   saved = false;
   calcoloY(nodi);
   draw(nodi);
+  return true;
 }
 // Evidenzia il ramo/arco del flowchart sotto il cursore (hover). Per gli IF
 // evidenzia solo il ramo specifico (T o F) su cui si trova il mouse.
 function onCanvasHover(event) {
   if (typeof frecce === 'undefined' || !frecce) return;
+  // D3 (round 11): impostazione Prestazioni "evidenzia frecce al passaggio del mouse" OFF ->
+  // salta hit-test e ridisegno ad OGNI movimento del mouse (il costo reale che il WP vuole
+  // azzerare -- l'hover di C3 e' solo-colore ma il ridisegno resta comunque quello costoso).
+  // Lo stato hover residuo viene ripulito UNA volta da applyPerfSettings() quando il toggle
+  // passa a OFF, non qui ad ogni evento. Il feedback di DRAG (onCanvasMouseMove) e' un ramo
+  // completamente diverso e non viene toccato.
+  if (typeof perfSettings !== 'undefined' && perfSettings && perfSettings.hoverHighlight === false) return;
   const rect = canvas.getBoundingClientRect();
   const _rw = rect.width || w, _rh = rect.height || h;
   const mx = (event.clientX - rect.left) * (w / _rw);
@@ -893,7 +1025,7 @@ function onCanvasHover(event) {
   let best = -1;
   for (let i = frecce.length - 1; i >= 0; i--) {
     const f = frecce[i];
-    if (arcHitTest(f, mx, my, 8)) { best = i; break; }
+    if (arcHitTest(f, mx, my, ARC_TOL)) { best = i; break; }
   }
   let desc = null;
   if (best >= 0) {
@@ -931,6 +1063,20 @@ function arcHitTest(f, x, y, tol) {
 }
 
 function clickFreccia(event) {
+  // C4 (round 11): il click e' arrivato qui perche' NON e' su un nodo (checkClick), quindi
+  // e' su un arco o su spazio vuoto: in entrambi i casi deseleziona il nodo eventualmente
+  // selezionato (bordo colorato). Ridisegna solo se c'era davvero qualcosa da deselezionare.
+  if (typeof selectedNodeIdx !== "undefined" && selectedNodeIdx !== -1) {
+    selectedNodeIdx = -1;
+    draw(nodi);
+  }
+  // R12-G/Fase1: click su un arco/spazio vuoto azzera anche la selezione multipla (click
+  // semplice, come da piano: "Esc/click vuoto azzerano entrambi").
+  if (typeof multiSelected !== "undefined" && multiSelected.length) {
+    multiSelected = [];
+    _multiSelAnchor = null; // R13-H: nessuna selezione attiva -> nessuna ancora
+    draw(nodi);
+  }
   // Blocco 1: Calcola le coordinate del click relative al canvas
   let rect = canvas.getBoundingClientRect();
   const _rw = rect.width || w, _rh = rect.height || h;
@@ -950,13 +1096,16 @@ function clickFreccia(event) {
   // quindi e' anche quello che l'utente si aspetta di colpire cliccando in quel punto.
   for (let i = frecce.length - 1; i >= 0; i--) {
     const freccia = frecce[i];
-    if (arcHitTest(freccia, clickX, clickY, 8)) { // include i segmenti visualExtra (orizzontali)
+    if (arcHitTest(freccia, clickX, clickY, ARC_TOL)) { // include i segmenti visualExtra (orizzontali)
       console.log("Hai cliccato la freccia", freccia.id);
       document.getElementById("popup-window").classList.add("active");
       // FINESTRA non-modale (stile Windows): niente overlay, cosi' il terminale resta aperto e
       // cliccabile sullo sfondo; il click porta la finestra cliccata in primo piano (bfBringToFront).
       // (Il popup resta comunque centrato: position:fixed, indipendente dallo scroll.)
       if (typeof bfBringToFront === "function") bfBringToFront(document.getElementById("popup-window"));
+      // R13-F (Ismail 2026-07-12): registra l'apertura nello stack condiviso Esc (popups.js) --
+      // cosi' Esc chiude SOLO questo popup se e' il piu' recente, non tutti insieme.
+      if (typeof _bfPushOverlay === 'function') _bfPushOverlay('popup-window');
       frecceSelected = freccia.id; // Memorizza l'ID della freccia selezionata
       return;
     }
@@ -1005,6 +1154,8 @@ function restoreState(state) {
   nodi = JSON.parse(JSON.stringify(state.nodi));
   nodoSelected = -1;
   frecceSelected = -1;
+  selectedNodeIdx = -1; // C4 (round 11): indici shiftati -- azzera la selezione visiva
+  multiSelected = []; // R12-G: idem per la selezione multipla (Undo/Redo)
   saved = false;
   calcoloY(nodi);
   draw(nodi);
@@ -1369,7 +1520,10 @@ function inserisciNodo(tipo) {
 
 
   // Gestisce il click su un nodo.
-  // Se il nodo non è 'start' o 'end', apre il popup per modificarne le informazioni.
+  // C4 (round 11): modello a 2 click. 1° click su un nodo NON selezionato -> lo seleziona
+  // SOLO (bordo colorato, nessun popup). 2° click sullo STESSO nodo gia' selezionato -> apre
+  // il dialog giusto per tipo tramite openNodeEditor() (gia' usata dal menu contestuale "Modifica",
+  // A1/A4): nessuna duplicazione della logica per-tipo, che ora vive solo li'.
   function clickNodo(event) {
     // Calcola le coordinate del click relative al canvas
     let rect = canvas.getBoundingClientRect();
@@ -1388,38 +1542,312 @@ function inserisciNodo(tipo) {
       // Controlla se il click è all'interno del nodo
       if (clickX >= x0 && clickX <= x1 && clickY >= y0 && clickY <= y1) {
         console.log("Hai cliccato il nodo", i);
-        // Apre il popup di modifica solo per nodi che non siano 'start' o 'end'
-        if (flow.nodes[i].type === "for" && typeof openForDialog === "function") {
-          // FIX (Ismail 2026-07-07): il For si modifica con un dialog dedicato (Variabile/
-          // Iniziale/Finale/Direzione/Passo), non scrivendo a mano la sintassi.
-          openForDialog(i);
-          nodoSelected = i;
+        if (flow.nodes[i].type === "start" || flow.nodes[i].type === "end") {
+          // Start/End non sono editabili ne' selezionabili (invariato).
+          selectedNodeIdx = -1;
+          multiSelected = []; // R12-G: idem per la selezione multipla
+          _multiSelAnchor = null; // R13-H: nessuna selezione attiva -> nessuna ancora
+          draw(nodi);
           return;
         }
-        if (typeof TURTLE_TYPES !== "undefined" && TURTLE_TYPES.indexOf(flow.nodes[i].type) !== -1) {
-          // Blocchi GRAFICA (turtle): forward/turn/pen aprono un dialog dedicato; home/gclear
-          // non hanno parametri (openTurtleDialog non mostra nulla per loro).
-          if (typeof openTurtleDialog === "function") openTurtleDialog(i);
-          nodoSelected = i;
+        // R12-G/Fase1 (Ismail 2026-07-12): Ctrl/Cmd+click TOGGLE dell'unita' nella
+        // selezione multipla, alternativo al flusso C4 a 2 click qui sotto. Solo desktop:
+        // nessun equivalente touch in questo round (il long-press di D4 resta libero per
+        // il suo scopo attuale -- annotato nel report).
+        // R13-H (Ismail 2026-07-12): Ctrl+Shift+click PRIMA del semplice Ctrl+click sotto
+        // (stesso tasto modificatore base, va controllato il caso piu' specifico prima) --
+        // range di selezione dall'ancora (_multiSelAnchor) fino a questa unita'.
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
+          rangeSelectTo(i);
           return;
         }
-        if (flow.nodes[i].type != "start" && flow.nodes[i].type != "end") {
-          document.getElementById("edit-node-popup").classList.add("active");
-          document.getElementById("overlay").classList.add("active"); 
-          document.getElementById("edit-node-title").innerHTML = (typeof i18nText === "function" && i18nText("edit_title")) || ("Edit " + flow.nodes[i].type + " node");
-          document.getElementById("edit-node-input").value = flow.nodes[i].info || "";
-          // FIX B1 (review Fable, 2026-07-05, piano Do-While/For): il For richiede la
-          // sintassi a 3 parti "init;condizione;incremento" (l'executor -- applyForIncrement
-          // in execute.js -- la spacca sui ";" e da' un errore leggibile se manca un pezzo).
-          // Un hint nel placeholder evita di scoprirlo solo in fase di esecuzione.
-          const editInput = document.getElementById("edit-node-input");
-          if (editInput) editInput.placeholder = (flow.nodes[i].type === "for") ? "es. i=0;i<10;i++" : "";
+        if (event.ctrlKey || event.metaKey) {
+          toggleMultiSelect(i);
+          return;
         }
-        nodoSelected = i;
+        // Qualunque click SEMPLICE (non Ctrl) azzera la selezione multipla: riprende il
+        // controllo il flusso C4 esistente sotto (1 click = seleziona, 2 click sullo
+        // stesso nodo = apre il dialog).
+        if (multiSelected.length) multiSelected = [];
+        if (selectedNodeIdx !== i) {
+          // 1° click: SOLO selezione visiva, nessun dialog. R13-H: diventa anche la nuova
+          // ancora di un futuro Ctrl+Shift+click (una selezione SINGOLA e' comunque "attiva").
+          selectedNodeIdx = i;
+          _multiSelAnchor = i;
+          draw(nodi);
+          return;
+        }
+        // 2° click sullo stesso nodo gia' selezionato: apre il dialog giusto per tipo.
+        openNodeEditor(i);
         return;
       }
     }
   }
+
+  // ============================================================================
+  // R12-G/Fase1 (Ismail 2026-07-12): SELEZIONE MULTIPLA (Ctrl+click) -- stato in
+  // multiSelected (state.js), array grezzo di indici RADICE. "Unita'" = un nodo semplice,
+  // oppure l'INTERO sottoalbero di un if/ciclo (radice + rami/corpo, impliciti). Le
+  // funzioni sotto derivano dalla selezione grezza le UNITA' effettive (dedup: se
+  // un'unita' selezionata e' membro del sottoalbero di un'ALTRA unita' anch'essa
+  // selezionata, quella ESTERNA vince e l'interna si scarta -- Trappola (a) del piano),
+  // usate da evidenziazione (rendering.js), elimina-gruppo e copia-gruppo.
+  // ============================================================================
+
+  // Toggle Ctrl+click: aggiunge/rimuove l'indice grezzo. Start/End restano sempre esclusi
+  // (come il click semplice C4). Alternativo a selectedNodeIdx: i due bordi di selezione
+  // non convivono sullo stesso gesto.
+  function toggleMultiSelect(i) {
+    if (!flow.nodes[i] || flow.nodes[i].type === 'start' || flow.nodes[i].type === 'end') return;
+    // R13-B2 (Ismail 2026-07-12): Ctrl+click deve UNIRE la selezione singola esistente,
+    // non ripartire da zero. Prima: click semplice su A (bordo pieno, selectedNodeIdx),
+    // poi Ctrl+click su B -> A si perdeva (multiSelected partiva vuoto, solo B dentro).
+    // Fix: se non c'e' GIA' una selezione di gruppo in corso e A e' selezionato
+    // singolarmente (diverso dall'unita' appena cliccata), "promuovi" prima A nel
+    // gruppo -- cosi' il primo Ctrl+click dopo un click semplice UNISCE invece di
+    // ripartire da zero (Start/End non promuovibili, come per ogni unita' qui).
+    if (!multiSelected.length && selectedNodeIdx >= 0 && selectedNodeIdx !== i && flow.nodes[selectedNodeIdx] &&
+        flow.nodes[selectedNodeIdx].type !== 'start' && flow.nodes[selectedNodeIdx].type !== 'end') {
+      multiSelected.push(selectedNodeIdx);
+    }
+    selectedNodeIdx = -1;
+    const pos = multiSelected.indexOf(i);
+    if (pos === -1) multiSelected.push(i); else multiSelected.splice(pos, 1);
+    // R13-H: l'ancora del range e' sempre l'ULTIMA unita' aggiunta -- su un'aggiunta e' i
+    // stesso; su una rimozione (toggle-off) torna all'ultima rimasta nel gruppo, o nulla se
+    // il gruppo si e' svuotato (un Ctrl+Shift+click successivo ripartirebbe da zero).
+    _multiSelAnchor = (pos === -1) ? i : (multiSelected.length ? multiSelected[multiSelected.length - 1] : null);
+    draw(nodi);
+  }
+
+  // Info di UN'unita' a partire dalla sua radice: { root, members:Set, blockStart,
+  // blockEnd, exit }. Per un if/ciclo riusa collectFullIfSubtreeMembers/
+  // collectFullLoopSubtreeMembers (STESSE funzioni di R12-C/deleteBlock/copySubtree, nessun
+  // nuovo walker) -- null se la struttura interna non e' valida (contiguous:false), cosi'
+  // un'unita' corrotta si scarta silenziosamente invece di propagare dati inconsistenti.
+  function _unitInfo(rootIdx) {
+    const node = flow.nodes[rootIdx];
+    if (!node) return null;
+    if (node.type === 'if') {
+      const info = collectFullIfSubtreeMembers(rootIdx);
+      if (!info || !info.contiguous) return null;
+      return { root: rootIdx, members: new Set(info.sorted), blockStart: info.blockStart, blockEnd: info.blockEnd, exit: info.joinIndex };
+    }
+    if (isBranchingNodeType(node.type)) {
+      const info = collectFullLoopSubtreeMembers(rootIdx);
+      if (!info || !info.contiguous) return null;
+      return { root: rootIdx, members: new Set(info.sorted), blockStart: info.blockStart, blockEnd: info.blockEnd, exit: info.exitIndex };
+    }
+    // Nodo semplice: unita' di un solo indice, l'uscita e' il suo stesso next (stringa).
+    const nx = (typeof node.next === 'string') ? parseInt(node.next, 10) : NaN;
+    return { root: rootIdx, members: new Set([rootIdx]), blockStart: rootIdx, blockEnd: rootIdx + 1, exit: isNaN(nx) ? null : nx };
+  }
+
+  // Selezione grezza -> unita' EFFETTIVE, deduplicate (esterna vince) e ordinate per
+  // indice radice crescente. Punto UNICO riusato da evidenziazione/elimina-gruppo/
+  // copia-gruppo, cosi' le tre operazioni vedono sempre la STESSA vista della selezione.
+  function getSelectionUnits() {
+    if (typeof multiSelected === 'undefined' || !multiSelected.length) return [];
+    const raw = multiSelected.filter(function (i) { return flow.nodes[i]; });
+    const withInfo = raw.map(_unitInfo).filter(function (u) { return u !== null; });
+    const kept = withInfo.filter(function (u) {
+      return !withInfo.some(function (other) { return other.root !== u.root && other.members.has(u.root); });
+    });
+    kept.sort(function (a, b) { return a.root - b.root; });
+    return kept;
+  }
+
+  // Insieme PIATTO di tutti gli indici membri delle unita' selezionate (deduplicate) --
+  // usato da draw() (rendering.js) per il bordo tratteggiato, calcolato una volta per
+  // frame invece che per ogni nodo del loop di disegno.
+  function _multiSelectMemberSet() {
+    const set = new Set();
+    if (typeof multiSelected === 'undefined' || !multiSelected.length) return set;
+    getSelectionUnits().forEach(function (u) { u.members.forEach(function (m) { set.add(m); }); });
+    return set;
+  }
+
+  // R13-B (Ismail 2026-07-12, causa radice del bug "spostamento di gruppo con annidati
+  // corrompe il grafo"): tutti gli indici che puntano a targetIdx come 'next' (diretto o
+  // via next.true/next.false). Usata da validateSelectionUnitsSameLevel per stabilire se
+  // il punto di convergenza fra due unita' consecutive e' ESCLUSIVO della selezione (join
+  // "privato" della prima unita') o CONDIVISO con qualcosa fuori da essa (join di un
+  // antenato comune, es. l'altro ramo dello stesso IF padre) -- vedi commento sotto.
+  function _predecessorsOf(targetIdx) {
+    const preds = [];
+    if (targetIdx === null || targetIdx === undefined || !flow || !flow.nodes) return preds;
+    for (let i = 0; i < flow.nodes.length; i++) {
+      const n = flow.nodes[i];
+      if (!n) continue;
+      if (isBranchingNodeType(n.type) && typeof n.next === 'object' && n.next !== null) {
+        const t = parseInt(n.next.true, 10);
+        const f = parseInt(n.next.false, 10);
+        if (t === targetIdx || f === targetIdx) preds.push(i);
+      } else if (typeof n.next === 'string' && n.next !== null) {
+        const nx = parseInt(n.next, 10);
+        if (nx === targetIdx) preds.push(i);
+      }
+    }
+    return preds;
+  }
+
+  // R13-B: validazione RINFORZATA di "stesso livello" per un array di unita' (da
+  // getSelectionUnits, gia' ordinate per indice radice). Sostituisce il vecchio controllo
+  // usato IDENTICO e duplicato in tre punti (moveSelectionGroup, onCanvasMouseDown,
+  // copySelectionGroup): `cur.blockEnd===nxt.blockStart && cur.exit===nxt.blockStart`.
+  //
+  // BUG TROVATO (harness R13-B, vedi report di consegna): quel controllo verifica solo che
+  // gli INDICI si incastrino, non che le unita' siano DAVVERO sorelle nello stesso ramo.
+  // Un IF (o ciclo) che e' l'ULTIMO membro del ramo di un padre ha il proprio `exit`
+  // (joinIndex) che punta al join CONDIVISO del padre stesso, non a un nodo "privato" —
+  // se quel join numericamente coincide con l'indice di inizio dell'unita' selezionata
+  // successiva (es. il nodo subito dopo l'INTERO if padre), il vecchio controllo la
+  // accetta come se fosse una sorella diretta nello stesso ramo. moveRange rimuove allora
+  // l'intero range come blocco unico: qualunque puntatore ESTERNO che puntava a quello
+  // stesso join condiviso (es. l'ALTRO ramo del padre, che vi convergeva anch'esso) non
+  // viene redirect correttamente (STEP A di moveRange redirige solo i puntatori uguali a
+  // blockStart, non quelli che cadono a meta' del range) — corruzione silenziosa: quel
+  // ramo resta con un puntatore stantio verso un indice ormai occupato da un nodo
+  // completamente diverso dopo lo shift.
+  //
+  // FIX: per ogni transizione fra unita' consecutive, il punto di convergenza (cur.exit)
+  // deve essere raggiunto SOLO da nodi gia' inclusi nel prefisso di selezione accumulato
+  // fin li' (_predecessorsOf) -- se un predecessore esterno esiste, il join e' condiviso
+  // con un contenitore diverso: la selezione ATTRAVERSA un confine di annidamento e va
+  // rifiutata pulita (mai corrotta). Restituisce { valid, reason }.
+  function validateSelectionUnitsSameLevel(units) {
+    if (!units.length) return { valid: false, reason: "nessuna unita' selezionata" };
+    const accumulated = new Set(units[0].members);
+    for (let k = 0; k < units.length - 1; k++) {
+      const cur = units[k], nxt = units[k + 1];
+      if (cur.blockEnd !== nxt.blockStart || cur.exit !== nxt.blockStart) {
+        return { valid: false, reason: "selezione multipla non contigua" };
+      }
+      const preds = _predecessorsOf(cur.exit);
+      for (let p = 0; p < preds.length; p++) {
+        if (!accumulated.has(preds[p])) {
+          return { valid: false, reason: "selezione attraversa un confine di annidamento (join condiviso con un contenitore esterno alla selezione)" };
+        }
+      }
+      nxt.members.forEach(function (m) { accumulated.add(m); });
+    }
+    return { valid: true, reason: null };
+  }
+
+  // R13-B: innesca il feedback VISIBILE (flash rosso ~400ms) su un insieme di nodi dopo un
+  // rifiuto di spostamento/copia di gruppo -- prima SOLO console.warn (warnMoveRejected),
+  // invisibile durante un drag reale (Ismail: "ci sbatto contro spesso"). Guardie typeof
+  // per restare sicura in ambienti senza DOM/timer (harness headless). Il flash e' un
+  // nicety: un suo eventuale errore non deve MAI impedire il rifiuto stesso.
+  function triggerRejectFlash(memberIndices) {
+    if (!memberIndices) return;
+    try {
+      _bfRejectFlashMembers = (memberIndices instanceof Set) ? memberIndices : new Set(memberIndices);
+      _bfRejectFlashUntil = Date.now() + 400;
+      if (typeof draw === 'function' && typeof nodi !== 'undefined' && nodi) draw(nodi);
+      if (typeof setTimeout === 'function') {
+        setTimeout(function () {
+          _bfRejectFlashMembers = null;
+          _bfRejectFlashUntil = 0;
+          if (typeof draw === 'function' && typeof nodi !== 'undefined' && nodi) draw(nodi);
+        }, 400);
+      }
+    } catch (e) { /* non bloccante */ }
+  }
+
+  // ============================================================================
+  // R13-H (Ismail 2026-07-12): Ctrl+Shift+click -- selezione a RANGE fra l'ancora
+  // (_multiSelAnchor, state.js: radice dell'ULTIMA unita' aggiunta) e l'unita' appena
+  // cliccata, ESTREMI INCLUSI. Riusa _unitInfo/_predecessorsOf (gia' in questo file, R12-G/
+  // R13-B) -- NESSUN nuovo walker della struttura logica: si cammina per RADICI di unita'
+  // consecutive (mai per indici grezzi), esattamente come validateSelectionUnitsSameLevel
+  // valida una selezione di gruppo, ma qui in ENTRAMBE le direzioni (il target puo' stare
+  // prima O dopo l'ancora nel flusso) fino a raggiungere un'unita' che CONTIENE il nodo
+  // cliccato (se il click e' su un nodo annidato dentro una sorella, l'INTERA unita' sorella
+  // entra nel range -- if/cicli restano sempre unita' intere, mai mezzi blocchi).
+  // ============================================================================
+
+  // Estende `chain` (array di _unitInfo, in ordine) in AVANTI a partire dall'ULTIMA unita',
+  // finche' non trova un'unita' che contiene targetIdx fra i suoi membri, oppure si ferma
+  // (ritorna null) se il prossimo passo non esiste, e' start/end, o il punto di giuntura e'
+  // CONDIVISO con qualcosa fuori dalla catena finora accumulata (stesso identico criterio di
+  // validateSelectionUnitsSameLevel -- mai attraversare un confine di annidamento).
+  function _extendChainForward(chain, targetIdx) {
+    const accumulated = new Set();
+    chain.forEach(function (u) { u.members.forEach(function (m) { accumulated.add(m); }); });
+    let guard = 0;
+    while (guard++ < 5000) {
+      const last = chain[chain.length - 1];
+      const nextRoot = last.exit;
+      if (nextRoot === null || nextRoot === undefined || !flow.nodes[nextRoot]) return null;
+      const nextNode = flow.nodes[nextRoot];
+      if (nextNode.type === 'start' || nextNode.type === 'end') return null;
+      const preds = _predecessorsOf(last.exit);
+      for (let p = 0; p < preds.length; p++) { if (!accumulated.has(preds[p])) return null; }
+      const nextUnit = _unitInfo(nextRoot);
+      if (!nextUnit) return null;
+      chain.push(nextUnit);
+      nextUnit.members.forEach(function (m) { accumulated.add(m); });
+      if (nextUnit.members.has(targetIdx)) return nextUnit;
+    }
+    return null; // guard di sicurezza: non dovrebbe mai scattare su un grafo ben formato
+  }
+
+  // Simmetrico di _extendChainForward, ma all'INDIETRO a partire dalla PRIMA unita' della
+  // catena: cerca un predecessore la cui unita' copra esattamente fino a chain[0].blockStart
+  // E il cui insieme di membri contenga TUTTI i predecessori del punto di giuntura (stesso
+  // criterio "nessun confine di annidamento attraversato", specchiato).
+  function _extendChainBackward(chain, targetIdx) {
+    let guard = 0;
+    while (guard++ < 5000) {
+      const first = chain[0];
+      const preds = _predecessorsOf(first.blockStart);
+      if (!preds.length) return null;
+      let found = null;
+      for (let k = 0; k < preds.length; k++) {
+        const candRoot = preds[k];
+        const candUnit = _unitInfo(candRoot);
+        if (!candUnit || candUnit.blockEnd !== first.blockStart) continue;
+        if (preds.every(function (pr) { return candUnit.members.has(pr); })) { found = candUnit; break; }
+      }
+      if (!found) return null;
+      chain.unshift(found);
+      if (found.members.has(targetIdx)) return found;
+    }
+    return null;
+  }
+
+  // Punto di ingresso, chiamato da clickNodo su Ctrl(+Cmd)+Shift+click. Senza un'ancora
+  // valida si comporta come un Ctrl+click semplice (nessun range possibile: promuove/imposta
+  // solo l'ancora). Range non raggiungibile (livelli diversi) -> rifiuto pulito con lo stesso
+  // feedback visibile di R13-B (flash rosso), MAI una selezione parziale o scorretta.
+  function rangeSelectTo(targetIdx) {
+    if (typeof flow === 'undefined' || !flow.nodes[targetIdx]) return;
+    if (_multiSelAnchor === null || _multiSelAnchor === undefined || !flow.nodes[_multiSelAnchor]) {
+      if (typeof toggleMultiSelect === 'function') toggleMultiSelect(targetIdx);
+      _multiSelAnchor = targetIdx;
+      return;
+    }
+    const anchorUnit = _unitInfo(_multiSelAnchor);
+    if (!anchorUnit) { _multiSelAnchor = null; return; }
+    const chain = [anchorUnit];
+    let matched = anchorUnit.members.has(targetIdx) ? anchorUnit : null;
+    if (!matched) matched = _extendChainForward(chain, targetIdx) || _extendChainBackward(chain, targetIdx);
+    if (!matched) {
+      const flat = new Set(anchorUnit.members);
+      flat.add(targetIdx);
+      const targetSelfUnit = _unitInfo(targetIdx);
+      if (targetSelfUnit) targetSelfUnit.members.forEach(function (m) { flat.add(m); });
+      if (typeof warnMoveRejected === 'function') warnMoveRejected('rangeSelectTo', "ancora e destinazione non sono sullo stesso livello (Ctrl+Shift+click)", { anchor: _multiSelAnchor, target: targetIdx });
+      if (typeof triggerRejectFlash === 'function') triggerRejectFlash(flat);
+      return;
+    }
+    multiSelected = chain.map(function (u) { return u.root; });
+    selectedNodeIdx = -1;
+    _multiSelAnchor = matched.root; // l'unita' appena raggiunta diventa la nuova ancora
+    draw(nodi);
+  }
+
   // FIX BUG 1 (segnalato da Ismail 2026-07-05 sera, "quando elimini un if si devono
   // eliminare a cascata tutti i nodi interni, stessa roba per i cicli"): cancella un
   // intero BLOCCO branching (IF o ciclo) -- se stesso + tutto il contenuto dei suoi
@@ -1471,7 +1899,12 @@ function inserisciNodo(tipo) {
     // estesa): nicety UX, Undo/Redo restano comunque disponibili in ogni caso.
     const blockSize = blockEnd - blockStart;
     const performDelete = function () {
-    pushHistory(); // snapshot per Undo (prima della cancellazione)
+    // R12-G/Fase1 (Ismail 2026-07-12): skipHistory -- un'eliminazione di GRUPPO (piu'
+    // unita' insieme) fa UN SOLO pushHistory condiviso nel chiamante (deleteSelectionGroup),
+    // non uno per unita' (altrimenti Undo dovrebbe essere premuto N volte per un'azione
+    // che l'utente percepisce come UNA sola). Default invariato: senza l'opzione esplicita
+    // pushHistory() scatta qui come sempre.
+    if (!opts.skipHistory) pushHistory(); // snapshot per Undo (prima della cancellazione)
 
     // STEP A (identica a moveIfBlock/moveLoopBlock, senza fase di reinserimento):
     // qualunque puntatore ESTERNO che punta esattamente a blockStart (l'ingresso del
@@ -1496,6 +1929,8 @@ function inserisciNodo(tipo) {
     }
 
     nodoSelected = -1;
+    selectedNodeIdx = -1; // C4 (round 11): azzera anche il bordo di selezione
+    multiSelected = []; // R12-G: indici shiftati dalla cancellazione -- azzera anche la selezione multipla
     saved = false;
     calcoloY(nodi);
     draw(nodi);
@@ -1531,7 +1966,9 @@ function inserisciNodo(tipo) {
       return;
     }
 
-    pushHistory(); // snapshot per Undo (prima della cancellazione)
+    // R12-G/Fase1: stesso skipHistory di deleteBlock sopra, stesso motivo (eliminazione di
+    // gruppo con UN solo pushHistory condiviso). Default invariato.
+    if (!opts.skipHistory) pushHistory(); // snapshot per Undo (prima della cancellazione)
 
     // BUG storico (trovato da Ismail: cancellare l'ultimo nodo di un ramo IF quando
     // un ALTRO ramo/contenuto lo segue subito nell'array corrompeva la struttura,
@@ -1573,9 +2010,50 @@ function inserisciNodo(tipo) {
 
     nodi.splice(nodoSelected,1); // Rimuove il nodo visuale
     nodoSelected = -1; // Deseleziona
+    selectedNodeIdx = -1; // C4 (round 11): azzera anche il bordo di selezione
+    multiSelected = []; // R12-G: indici shiftati dalla cancellazione -- azzera anche la selezione multipla
     calcoloY(nodi); // Ricalcola le Y
     draw(nodi); // Ridisegna
     chiudiEditPopup(); // Chiude l'eventuale popup di modifica
+  }
+
+  // R12-G/Fase1 (Ismail 2026-07-12): elimina TUTTE le unita' della selezione multipla
+  // (Ctrl+click) -- funziona anche su selezioni SPARSE (a differenza di copia/sposta, che
+  // richiedono contiguita': l'elimina-gruppo opera "unita' per unita'", non ha bisogno che
+  // formino un blocco compatto). UNA conferma stilizzata + UN pushHistory per l'intera
+  // operazione (skipHistory=true su ogni chiamata a deleteBlock/deleteNode sotto), ordine
+  // di rimozione DECRESCENTE per indice radice: rimuovendo prima le unita' con indice piu'
+  // alto, gli indici (ancora da processare) delle unita' con indice piu' basso non
+  // cambiano mai (deleteBlock/deleteNode toccano solo indici >= la propria blockStart).
+  function deleteSelectionGroup() {
+    const units = getSelectionUnits();
+    if (!units.length) return;
+    const doDelete = function () {
+      pushHistory(); // R12-G: UN SOLO snapshot per l'intera eliminazione di gruppo
+      const sorted = units.slice().sort(function (a, b) { return b.root - a.root; });
+      sorted.forEach(function (u) {
+        const node = flow.nodes[u.root];
+        if (!node) return; // difesa: non dovrebbe accadere data la rimozione decrescente
+        if (isBranchingNodeType(node.type)) {
+          deleteBlock(u.root, { skipConfirm: true, skipHistory: true });
+        } else {
+          nodoSelected = u.root; // stesso pattern gia' usato da cutNode() per un delete "programmatico"
+          deleteNode({ skipHistory: true });
+        }
+      });
+      multiSelected = [];
+      selectedNodeIdx = -1;
+      saved = false;
+      if (typeof calcoloY === 'function') calcoloY(nodi);
+      if (typeof draw === 'function') draw(nodi);
+    };
+    const tmpl = (typeof i18nText === 'function' && i18nText('del_group_confirm')) || 'Eliminare {n} blocchi?';
+    const msg = tmpl.replace('{n}', units.length);
+    if (typeof showStyledConfirm === 'function') {
+      showStyledConfirm(msg, doDelete, { danger: true, okLabel: (typeof i18nText === 'function' ? i18nText('delete') : 'Delete') });
+    } else {
+      doDelete();
+    }
   }
 
 // ============================================================================
@@ -1589,8 +2067,11 @@ function duplicaNodo(idx) {
   const n = flow.nodes[idx];
   if (n.type === 'start' || n.type === 'end') return false;
   if (typeof n.next !== 'string') {
-    if (typeof printMessage === 'function') printMessage('Duplica: i blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.', 'debug');
-    else if (typeof alert === 'function') alert('I blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.');
+    const dupMsg = (typeof i18nText === 'function' && i18nText('dup_branch_unsupported')) || 'I blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.';
+    if (typeof printMessage === 'function') printMessage('Duplica: ' + dupMsg, 'debug');
+    // B1 (round 11): modale stilizzata invece di alert() nativo.
+    else if (typeof showStyledAlert === 'function') showStyledAlert(dupMsg);
+    else if (typeof alert === 'function') alert(dupMsg);
     return false;
   }
   // trova l'arco uscente CLICCABILE del nodo (verso il nodo successivo)
@@ -1622,6 +2103,14 @@ function duplicaNodo(idx) {
 //               - per un nodo semplice: un OFFSET numerico interno al blocco, oppure 'EXIT'
 //               - per un nodo a rami:   { true:<offset|'EXIT'>, false:<offset|'EXIT'> }
 //               - null (solo teoricamente per end, mai copiato)
+//           | { kind:'multi', size, nodes:[ {type,info,next} ...] } -- R12-G/Fase1
+//               (Ismail 2026-07-12): STESSA identica codifica di 'tree' (offset relativo/
+//               'EXIT'), ma nodes[] copre l'intero RANGE fisico di piu' UNITA' contigue
+//               della selezione multipla (copySelectionGroup), non un singolo if/ciclo.
+//               nodes[0].type puo' essere QUALUNQUE tipo (anche un nodo semplice, se la
+//               prima unita' selezionata lo e'), a differenza di 'tree' dove la radice e'
+//               sempre un if/ciclo (rootType). pasteMultiAtSelectedArc() generalizza
+//               pasteTreeAtSelectedArc() per questo caso.
 // L'offset e' relativo a blockStart; 'EXIT' = il successore del blocco (dove punta l'uscita).
 // ============================================================================
 let blockClipboard = null;
@@ -1652,7 +2141,7 @@ function arcIdAtEvent(event) {
   const cy = (event.clientY - rect.top) * (h / _rh);
   for (let i = frecce.length - 1; i >= 0; i--) {
     const f = frecce[i]; if (!f) continue;
-    if (typeof arcHitTest === 'function' ? arcHitTest(f, cx, cy, 8)
+    if (typeof arcHitTest === 'function' ? arcHitTest(f, cx, cy, ARC_TOL)
         : isPointNearAnyLineSegment(cx, cy, f.inzioX, f.inzioY, f.fineX, f.fineY, 10)) return f.id;
   }
   return -1;
@@ -1667,16 +2156,18 @@ function openNodeEditor(idx) {
     const pop = document.getElementById('edit-node-popup'); const ov = document.getElementById('overlay');
     if (pop) pop.classList.add('active'); if (ov) ov.classList.add('active');
     const title = document.getElementById('edit-node-title'); if (title) title.innerHTML = (typeof i18nText === 'function' && i18nText('edit_title')) || ('Edit ' + n.type + ' node');
-    const inp = document.getElementById('edit-node-input');
-    if (inp) { inp.value = n.info || ''; inp.placeholder = (n.type === 'for') ? 'es. i=0;i<10;i++' : ''; }
+    // A1+A4 (round 11): stesso helper condiviso di clickNodo() -- vedi popups.js.
+    if (typeof _bfSetupEditFields === 'function') _bfSetupEditFields(n);
+    // R13-F (Ismail 2026-07-12): registra l'apertura nello stack condiviso Esc (popups.js).
+    if (typeof _bfPushOverlay === 'function') _bfPushOverlay('edit-node-popup');
   }
 }
 
 // --- Serializzazione di un blocco (semplice o a rami, con sottoalbero completo) ---
 function copyNode(idx) {
   const n = flow.nodes && flow.nodes[idx]; if (!n) return false;
-  if (n.type === 'start' || n.type === 'end') { _clipMsg('Start/End non si copiano.'); return false; }
-  if (typeof n.next === 'string') { blockClipboard = { kind: 'simple', type: n.type, info: n.info }; _clipMsg('Copiato: ' + n.type); return true; }
+  if (n.type === 'start' || n.type === 'end') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_start_end_uncopyable')) || 'Start/End non si copiano.'); return false; }
+  if (typeof n.next === 'string') { blockClipboard = { kind: 'simple', type: n.type, info: n.info }; _clipMsg((typeof i18nFormat === 'function' && i18nFormat('clip_copied', { type: n.type })) || ('Copiato: ' + n.type)); return true; }
   // blocco a rami (if/ciclo): copia PROFONDA del sottoalbero
   return copySubtree(idx);
 }
@@ -1685,7 +2176,7 @@ function copySubtree(idx) {
   if (!root || !isBranchingNodeType(root.type)) return false;
   const isIf = root.type === 'if';
   const info = isIf ? collectFullIfSubtreeMembers(idx) : collectFullLoopSubtreeMembers(idx);
-  if (!info || !info.contiguous) { _clipMsg('Copia: struttura del blocco non riconosciuta.'); return false; }
+  if (!info || !info.contiguous) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_copy_struct_err')) || 'Copia: struttura del blocco non riconosciuta.'); return false; }
   const bs = info.blockStart, be = info.blockEnd;
   const exit = isIf ? info.joinIndex : info.exitIndex;
   const size = be - bs;
@@ -1701,19 +2192,69 @@ function copySubtree(idx) {
     const nd = flow.nodes[k]; let next;
     if (typeof nd.next === 'object' && nd.next !== null) {
       const t = relOf(nd.next.true), f = relOf(nd.next.false);
-      if (t === '__EXT__' || f === '__EXT__') { _clipMsg('Copia: il blocco ha collegamenti esterni non gestiti.'); return false; }
+      if (t === '__EXT__' || f === '__EXT__') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_copy_ext_err')) || 'Copia: il blocco ha collegamenti esterni non gestiti.'); return false; }
       next = { true: t, false: f };
     } else {
       const p = relOf(nd.next);
-      if (p === '__EXT__') { _clipMsg('Copia: il blocco ha collegamenti esterni non gestiti.'); return false; }
+      if (p === '__EXT__') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_copy_ext_err')) || 'Copia: il blocco ha collegamenti esterni non gestiti.'); return false; }
       next = p;
     }
     nodesRel.push({ type: nd.type, info: nd.info, next: next });
   }
   blockClipboard = { kind: 'tree', size: size, rootType: root.type, nodes: nodesRel };
-  _clipMsg('Copiato blocco ' + root.type + ' (' + size + ' nodi)');
+  _clipMsg((typeof i18nFormat === 'function' && i18nFormat('clip_copied_block', { type: root.type, n: size })) || ('Copiato blocco ' + root.type + ' (' + size + ' nodi)'));
   return true;
 }
+
+// R12-G/Fase1 (Ismail 2026-07-12): copia l'INTERA selezione multipla (Ctrl+click) sugli
+// appunti, kind:'multi'. Riusa la STESSA codifica relativa di copySubtree (interno ->
+// offset, uscita -> 'EXIT') ma applicata al RANGE fisico dell'insieme di unita' (deduplicate
+// via getSelectionUnits), non a un singolo if/ciclo. Richiede CONTIGUITA' (il piano la
+// impone esplicitamente per le operazioni di gruppo, a differenza di elimina-gruppo che
+// funziona anche su selezioni sparse): ogni unita' deve incastrarsi esattamente dove
+// l'uscita della precedente la porta, sia fisicamente (blockEnd===blockStart successivo)
+// sia logicamente (exit===blockStart successivo) -- altrimenti rifiuto con messaggio chiaro.
+function copySelectionGroup() {
+  const units = getSelectionUnits();
+  if (!units.length) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_group_none_selected')) || 'Copia selezione: nessun blocco selezionato.'); return false; }
+  // R13-B: stessa validazione rinforzata di moveSelectionGroup -- una selezione
+  // cross-annidamento non e' un blocco copiabile in modo coerente (il suo "confine"
+  // numerico non corrisponde a un vero limite di ramo/contenitore).
+  const check = validateSelectionUnitsSameLevel(units);
+  if (!check.valid) {
+    _clipMsg((typeof i18nText === 'function' && i18nText('clip_group_noncontig')) || 'Copia: la selezione non e\' un blocco contiguo.');
+    triggerRejectFlash(_multiSelectMemberSet());
+    return false;
+  }
+  const bs = units[0].blockStart, be = units[units.length - 1].blockEnd;
+  const exit = units[units.length - 1].exit;
+  const size = be - bs;
+  const relOf = (pStr) => {
+    if (pStr === null || pStr === undefined) return null;
+    const pi = parseInt(pStr, 10); if (isNaN(pi)) return null;
+    if (pi >= bs && pi < be) return pi - bs;
+    if (pi === exit) return 'EXIT';
+    return '__EXT__';
+  };
+  const nodesRel = [];
+  for (let k = bs; k < be; k++) {
+    const nd = flow.nodes[k]; let next;
+    if (typeof nd.next === 'object' && nd.next !== null) {
+      const t = relOf(nd.next.true), f = relOf(nd.next.false);
+      if (t === '__EXT__' || f === '__EXT__') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_group_ext_err')) || 'Copia: il gruppo ha collegamenti esterni non gestiti.'); return false; }
+      next = { true: t, false: f };
+    } else {
+      const p = relOf(nd.next);
+      if (p === '__EXT__') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_group_ext_err')) || 'Copia: il gruppo ha collegamenti esterni non gestiti.'); return false; }
+      next = p;
+    }
+    nodesRel.push({ type: nd.type, info: nd.info, next: next });
+  }
+  blockClipboard = { kind: 'multi', size: size, nodes: nodesRel };
+  _clipMsg((typeof i18nFormat === 'function' && i18nFormat('clip_copied_group', { units: units.length, n: size })) || ('Copiata selezione (' + units.length + ' unita\', ' + size + ' nodi)'));
+  return true;
+}
+
 function cutNode(idx) {
   if (!copyNode(idx)) return false;
   nodoSelected = idx;
@@ -1732,8 +2273,8 @@ function _shiftNextPtrs(n, threshold, delta) {
 
 // Incolla il contenuto degli appunti sull'arco attualmente selezionato (frecceSelected).
 function pasteAtSelectedArc() {
-  if (!blockClipboard) { _clipMsg('Niente da incollare.'); return false; }
-  if (frecceSelected < 0 || !frecce[frecceSelected]) { _clipMsg('Seleziona un arco/blocco dove incollare.'); return false; }
+  if (!blockClipboard) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_empty')) || 'Niente da incollare.'); return false; }
+  if (frecceSelected < 0 || !frecce[frecceSelected]) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_select_target')) || 'Seleziona un arco/blocco dove incollare.'); return false; }
   if (blockClipboard.kind === 'simple') {
     const arc = frecce[frecceSelected];
     const parent = arc.fromNodeIndex, target = arc.toNodeIndex;
@@ -1742,6 +2283,9 @@ function pasteAtSelectedArc() {
     if (flow.nodes[R]) { flow.nodes[R].info = blockClipboard.info; if (typeof calcoloY === 'function') calcoloY(nodi); if (typeof draw === 'function') draw(nodi); nodoSelected = R; return true; }
     return false;
   }
+  // R12-G/Fase1: kind === 'multi' (selezione di gruppo copiata) -- generalizzazione di
+  // pasteTreeAtSelectedArc, vedi pasteMultiAtSelectedArc sotto.
+  if (blockClipboard.kind === 'multi') return pasteMultiAtSelectedArc();
   // kind === 'tree'
   return pasteTreeAtSelectedArc();
 }
@@ -1752,7 +2296,7 @@ function pasteTreeAtSelectedArc() {
   const R = (target <= parent) ? parent + 1 : target;   // indice di inserimento della radice (come inserisciNodo)
   inserisciNodo(clip.rootType);                          // inserisce la radice VUOTA, gia' cablata al successore
   const root = flow.nodes[R];
-  if (!root || root.type !== clip.rootType || typeof root.next !== 'object') { _clipMsg('Incolla: inserimento della radice fallito.'); return false; }
+  if (!root || root.type !== clip.rootType || typeof root.next !== 'object') { _clipMsg((typeof i18nText === 'function' && i18nText('clip_paste_root_fail')) || 'Incolla: inserimento della radice fallito.'); return false; }
   // Successore del blocco appena creato (dove punta l'uscita della radice vuota).
   const S = (clip.rootType === 'if') ? parseInt(root.next.true, 10) : parseInt(root.next.false, 10);
   root.info = clip.nodes[0].info;
@@ -1783,16 +2327,75 @@ function pasteTreeAtSelectedArc() {
   return true;
 }
 
+// R12-G/Fase1 (Ismail 2026-07-12): incolla un blockClipboard kind:'multi' (selezione di
+// gruppo copiata) sull'arco selezionato. Generalizza pasteTreeAtSelectedArc riga per riga:
+// la fase _shiftNextPtrs+splice+mapRel e' IDENTICA (gia' generale, indipendente dal
+// contenuto), cambia solo il "cablaggio dell'ingresso" -- qui il primo nodo del gruppo puo'
+// essere QUALUNQUE tipo (anche semplice, non solo if/ciclo come in 'tree'), quindi si passa
+// inserisciNodo(clip.nodes[0].type) invece di inserisciNodo(clip.rootType) fisso, e il
+// calcolo del successore S/il remap di root.next si adattano al caso "next e' una stringa"
+// oltre che "next e' un oggetto {true,false}" (inserisciNodo crea l'uno o l'altro a seconda
+// che il tipo sia a rami o no -- STESSA funzione riusata, MAI un walker nuovo, MAI splice
+// manuale del punto di ingresso: e' inserisciNodo stesso, con il suo switch su arrowType
+// gia' testato, a cablare correttamente il genitore qualunque sia il tipo di arco cliccato).
+function pasteMultiAtSelectedArc() {
+  const clip = blockClipboard;
+  const arc = frecce[frecceSelected];
+  const parent = arc.fromNodeIndex, target = arc.toNodeIndex;
+  const R = (target <= parent) ? parent + 1 : target;
+  const firstType = clip.nodes[0].type;
+  inserisciNodo(firstType); // inserisce un placeholder VUOTO del tipo del PRIMO nodo del gruppo, gia' cablato al successore
+  const root = flow.nodes[R];
+  if (!root || root.type !== firstType) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_paste_group_fail')) || 'Incolla: inserimento del gruppo fallito.'); return false; }
+  // Successore del placeholder appena creato (dove punta la sua uscita "vuota"): per un
+  // tipo a rami e' next.true ('if', entrambi i rami uguali) o next.false (ciclo, per
+  // evitare il self-loop del corpo vuoto); per un tipo semplice next e' gia' una stringa.
+  const S = (typeof root.next === 'object' && root.next !== null)
+    ? ((firstType === 'if') ? parseInt(root.next.true, 10) : parseInt(root.next.false, 10))
+    : parseInt(root.next, 10);
+  root.info = clip.nodes[0].info;
+  const d = clip.size - 1;
+  if (d > 0) {
+    for (let i = 0; i < flow.nodes.length; i++) _shiftNextPtrs(flow.nodes[i], R + 1, d); // fai spazio ai discendenti
+    const Sp = (S >= R + 1) ? S + d : S;
+    const mapRel = function (rel) { return rel === 'EXIT' ? Sp : (R + rel); };
+    const cr = clip.nodes[0];
+    if (typeof cr.next === 'object' && cr.next !== null) {
+      root.next = { true: String(mapRel(cr.next.true)), false: String(mapRel(cr.next.false)) };
+    } else {
+      root.next = String(mapRel(cr.next));
+    }
+    const newLogic = [], newVis = [];
+    for (let ci = 1; ci < clip.size; ci++) {
+      const cn = clip.nodes[ci]; let next;
+      if (typeof cn.next === 'object' && cn.next !== null) next = { true: String(mapRel(cn.next.true)), false: String(mapRel(cn.next.false)) };
+      else next = (cn.next === null || cn.next === undefined) ? null : String(mapRel(cn.next));
+      newLogic.push({ type: cn.type, info: cn.info, next: next });
+      newVis.push({ relX: 0.5, relY: 0, width: 100, height: NODE_BASE_HEIGHT_PX, color: 'white', text: (typeof nodeText === 'function' ? nodeText(cn.type) : cn.type.charAt(0).toUpperCase() + cn.type.slice(1)) });
+    }
+    flow.nodes.splice(R + 1, 0, ...newLogic);
+    nodi.splice(R + 1, 0, ...newVis);
+  }
+  // d===0 (gruppo di un solo nodo semplice, caso degenere): root.next e' gia' quello giusto,
+  // creato da inserisciNodo stesso -- nessun discendente da rimappare/spostare.
+  saved = false;
+  if (typeof calcoloY === 'function') calcoloY(nodi);
+  if (typeof draw === 'function') draw(nodi);
+  nodoSelected = R;
+  multiSelected = []; // R12-G: il gruppo incollato non eredita automaticamente la selezione multipla
+  return true;
+}
+
 // Incolla DOPO un nodo (usato dal menu contestuale sul nodo e da Ctrl+V): trova un arco
 // uscente adatto e delega a pasteAtSelectedArc.
 function pasteNode(targetIdx) {
-  if (!blockClipboard) { _clipMsg('Niente da incollare.'); return false; }
+  if (!blockClipboard) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_empty')) || 'Niente da incollare.'); return false; }
   const idx = (typeof targetIdx === 'number' && targetIdx >= 0) ? targetIdx : nodoSelected;
-  if (idx < 0 || !flow.nodes[idx]) { _clipMsg('Seleziona un blocco dopo cui incollare.'); return false; }
+  if (idx < 0 || !flow.nodes[idx]) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_select_after')) || 'Seleziona un blocco dopo cui incollare.'); return false; }
   const arc = (typeof frecce !== 'undefined') ? frecce.find(function (f) {
     return f && f.fromNodeIndex === idx && (f.type === 'normal' || f.type === 'loop_body_end' || f.type === 'if_join' || f.type === 'loop_exit');
   }) : null;
-  if (!arc) { _clipMsg('Impossibile incollare qui.'); return false; }
+  if (!arc) { _clipMsg((typeof i18nText === 'function' && i18nText('clip_paste_impossible')) || 'Impossibile incollare qui.'); return false; }
   frecceSelected = arc.id;
   return pasteAtSelectedArc();
 }
@@ -1807,6 +2410,9 @@ function showContextMenu(event) {
     const t = flow.nodes[idx] && flow.nodes[idx].type;
     if (t === 'start' || t === 'end') { hideContextMenu(); return; }
     ctxMenuNodeIdx = idx; nodoSelected = idx; onNode = true;
+    // C4 (round 11): il click destro su un nodo lo SELEZIONA anche visivamente (bordo
+    // colorato), cosi' click destro diretto e "click destro dopo selezione" convergono.
+    if (typeof selectedNodeIdx !== 'undefined') { selectedNodeIdx = idx; draw(nodi); }
   } else {
     const aid = arcIdAtEvent(event);
     if (aid >= 0) { ctxMenuArcId = aid; onArc = true; }
@@ -1815,9 +2421,36 @@ function showContextMenu(event) {
   event.preventDefault();
   // Mostra/nasconde le voci a seconda del contesto (nodo: tutte; arco: solo Incolla).
   const setShown = function (act, on) { const b = menu.querySelector('[data-act="' + act + '"]'); if (b) b.style.display = on ? '' : 'none'; };
+  // R12-G/Fase1 (Ismail 2026-07-12): se il nodo cliccato fa parte di un'unita' della
+  // selezione multipla (dopo dedupe -- unita' esterna vince, getSelectionUnits), il menu
+  // passa in modalita' GRUPPO: SOLO le due voci di gruppo, il resto (edit/taglia/copia/
+  // incolla/elimina singolo) si nasconde -- "dentro la selezione multipla -> voci di
+  // gruppo; fuori -> menu attuale" (piano).
+  const groupUnits = (onNode && typeof getSelectionUnits === 'function') ? getSelectionUnits() : [];
+  const inGroup = onNode && groupUnits.some(function (u) { return u.members.has(idx); });
+  if (inGroup) {
+    setShown('edit', false); setShown('cut', false); setShown('copy', false); setShown('paste', false); setShown('delete', false);
+    setShown('copy-selection', true); setShown('delete-selection', true);
+    const setCount = function (act) { const el = menu.querySelector('[data-act="' + act + '"] .ctx-sel-count'); if (el) el.textContent = ' (' + groupUnits.length + ')'; };
+    setCount('copy-selection'); setCount('delete-selection');
+    const sep = menu.querySelector('.ctx-sep'); if (sep) sep.style.display = '';
+    menu.hidden = false;
+    const mw = menu.offsetWidth || 160, mh = menu.offsetHeight || 200;
+    const vw = (typeof window !== 'undefined' ? window.innerWidth : 1200), vh = (typeof window !== 'undefined' ? window.innerHeight : 800);
+    let gx = event.clientX, gy = event.clientY;
+    if (gx + mw > vw) gx = vw - mw - 6; if (gy + mh > vh) gy = vh - mh - 6;
+    menu.style.left = Math.max(4, gx) + 'px'; menu.style.top = Math.max(4, gy) + 'px';
+    return;
+  }
+  setShown('copy-selection', false); setShown('delete-selection', false);
   const hasClip = !!blockClipboard;
   setShown('edit', onNode); setShown('cut', onNode); setShown('copy', onNode);
-  setShown('paste', hasClip); // incolla disponibile sia su nodo sia su arco, se c'e' qualcosa
+  // C5 (round 11): Incolla resta SEMPRE visibile su nodo/arco (mai piu' nascosta), ma
+  // disabilitata (attributo reale sul <button>, non solo CSS) se la clipboard e' vuota --
+  // cosi' l'utente vede l'azione esistere anche quando non e' disponibile.
+  setShown('paste', onNode || onArc);
+  const pasteBtn = menu.querySelector('[data-act="paste"]');
+  if (pasteBtn) pasteBtn.disabled = !hasClip;
   setShown('delete', onNode);
   const sep = menu.querySelector('.ctx-sep'); if (sep) sep.style.display = onNode ? '' : 'none';
   menu.hidden = false;
@@ -1832,10 +2465,18 @@ function ctxAction(action) {
   const nodeIdx = ctxMenuNodeIdx, arcId = ctxMenuArcId;
   hideContextMenu();
   if (action === 'paste') {
+    // C5 (round 11): difesa in profondita' -- il bottone e' disabled via attributo reale
+    // quando la clipboard e' vuota (pointer-events:none in CSS), ma un'attivazione via
+    // tastiera/programmatica non passa dal click del mouse: controllo esplicito qui.
+    if (!blockClipboard) return;
     if (arcId >= 0) { frecceSelected = arcId; pasteAtSelectedArc(); }
     else if (nodeIdx >= 0) pasteNode(nodeIdx);
     return;
   }
+  // R12-G/Fase1: azioni di GRUPPO -- non richiedono nodeIdx singolo (operano su
+  // multiSelected/getSelectionUnits), quindi vanno PRIMA del guard "nodeIdx valido" sotto.
+  if (action === 'copy-selection') { if (typeof copySelectionGroup === 'function') copySelectionGroup(); return; }
+  if (action === 'delete-selection') { if (typeof deleteSelectionGroup === 'function') deleteSelectionGroup(); return; }
   if (nodeIdx < 0 || !flow.nodes[nodeIdx]) return;
   if (action === 'edit') openNodeEditor(nodeIdx);
   else if (action === 'copy') copyNode(nodeIdx);

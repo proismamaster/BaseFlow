@@ -4,6 +4,11 @@
   --surface: #ede7f6;
   --accent: #b39ddb;
   --border: #d1c4e9;
+  /* FIX (Ismail 2026-07-10, editor temi): sfondo pagina e colore testo, prima fissi
+     nel CSS (#f4f4f9 / #333, mai variabili) -> l'editor tema personalizzato non poteva
+     toccarli. Ora sono variabili come le altre, editabili dall'utente. */
+  --bg: #f4f4f9;
+  --text: #333;
 }
 
 html, body {
@@ -13,8 +18,8 @@ html, body {
   display: flex;
   flex-direction: column;
   font-family: Arial, sans-serif;
-  background-color: #f4f4f9;
-  color: #333;
+  background-color: var(--bg, #f4f4f9);
+  color: var(--text, #333);
   box-sizing: border-box;
   /* Rimuovi overflow: hidden qui */
 }
@@ -23,7 +28,7 @@ html, body {
     flex-grow: 1; /* Permette al contenitore del canvas di espandersi orizzontalmente */
     position: relative; /* Importante per il corretto posizionamento dei popup al suo interno */
     /* Potresti anche voler aggiungere per sicurezza, anche se flex-grow:1 dovrebbe bastare: */
-    width: 100%; /* O un min-width: 0; in alcuni casi complessi di flexbox */
+    width: auto; /* FIX #22 (Ismail 2026-07-10): NON 100%. Con width:100% + margin-right, il margine diventava solo OVERFLOW (la box restava larga tutta la traccia) -> scrollbar orizzontale sotto il terminale e thumb non proporzionale. Con width:auto la griglia estende il contenitore e margin-right lo RESTRINGE davvero a (traccia - larghezza terminale): la barra si ferma al bordo del terminale e il thumb nativo si adatta. */
     /* FIX (Ismail 2026-07-08, "non vedo la barra per scorrere orizzontalmente"):
        #canvas-container e' un elemento del GRID #main. Senza min-width:0 un figlio di
        grid/flex ha min-width:auto (= larghezza del contenuto) -> con un canvas piu' largo
@@ -97,8 +102,39 @@ canvas {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   border-bottom: 2px solid var(--primary-dark);
 }
-#toolbar #logo { height: 2.3rem; width: auto; margin-right: 1.7rem; vertical-align: middle; } /* rilievo 25: logo piu' grande + piu' distante dai pulsanti */
+/* R12-A2 (Ismail 2026-07-11): il logo aveva margin-right:1.7rem per tenere le distanze dal
+   PRIMO PULSANTE -- ma #unsaved-indicator (il puntino "non salvato") sta nel markup PROPRIO
+   fra logo e pulsanti (index.html), quindi ne ereditava la distanza ed appariva staccato dal
+   logo invece che appiccicato. Il logo ora si affida al solo gap del flex #toolbar (~4.5px,
+   dentro il target 4-6px chiesto): la separazione grossa verso i pulsanti si sposta su
+   #new-btn qui sotto, cosi' resta identica SIA col puntino visibile SIA nascosto (il caso
+   comune: #unsaved-indicator e' hidden quasi sempre). */
+#toolbar #logo { height: 2.3rem; width: auto; margin-right: 0; vertical-align: middle; }
+#toolbar #new-btn { margin-left: 1.7rem; } /* rilievo 25: distanza fissa dal logo/puntino ai pulsanti */
 /* (rimosso #toolbar #theme-select: il tema ora vive nel popup Impostazioni, non in toolbar) */
+/* R13-D (Ismail 2026-07-12): identita' del progetto (nome + autore) -- spinta a FINE riga della
+   toolbar con margin-inline-start:auto (consuma tutto lo spazio residuo del flex, RTL-safe: in
+   arabo "fine riga" e' comunque il lato opposto all'inizio del testo, nessuna regola speculare
+   necessaria). Tipografia discreta (piu' piccola/leggera dei pulsanti, che sono il focus primario
+   della toolbar), UNA riga con ellipsis se il nome+autore non ci stanno (niente a capo che
+   alzerebbe l'altezza della toolbar). */
+#project-identity {
+  margin-inline-start: auto;
+  display: flex; align-items: center; gap: 0.3rem;
+  /* R14-B.1 (Ismail 2026-07-13): max-width in ch (non piu' vw) -- limite leggibile fisso
+     legato alla lunghezza del testo, non alla larghezza dello schermo (su schermi larghi
+     34vw lasciava troppo spazio, su schermi stretti tagliava troppo presto). Il nome
+     COMPLETO resta comunque disponibile nel tooltip istantaneo (vedi ux.js, #bf-tip). */
+  max-width: 30ch; min-width: 0;
+  /* R14-B.1: leggermente piu' leggibile (era 0.78rem) restando comunque piu' discreto dei
+     pulsanti, che sono il focus primario della toolbar. */
+  font-size: 0.88rem; font-weight: 500; opacity: 0.92;
+  color: #fff; cursor: default;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#project-identity-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.theme-contrast #project-identity { color: #ffd400; }
+@media (max-width: 900px) { #project-identity { display: none; } } /* niente spazio su schermi stretti: header gia' affollato */
 
 #toolbar button {
   background-color: #fff;
@@ -218,9 +254,15 @@ canvas {
 }
 
 #console-output p.error {
-  color: #ff5252;
+  /* R12-E/E4 (Ismail 2026-07-11): --console-error-color, non piu' un rosso fisso. Nessun
+     override per tema/dark-mode/bw: #console-output ha sfondo scuro FISSO in ogni tema
+     (scelta di design pre-esistente, il terminale non segue il tema dell'app -- vedi la
+     regola #console-output qui sopra, mai toccata da body.theme-*), quindi il rosso resta
+     leggibile ovunque senza bisogno di varianti (anche in bw: "bianco/nero" per il terminale
+     significa restare leggibili sullo sfondo scuro esistente, non diventare nero su nero). */
+  color: var(--console-error-color, #ff5252);
   background: #2d1a1a;
-  border-left: 4px solid #ff5252;
+  border-left: 4px solid var(--console-error-color, #ff5252);
   padding: 0.3em 0.8em;
   margin: 0.2em 0;
   font-weight: bold;
@@ -309,6 +351,17 @@ body.no-scroll {
 body.no-scroll #canvas-container {
   overflow: hidden;
 }
+/* D3 (round 11, impostazioni Prestazioni): "Riduci animazioni" -- disattiva TUTTE le
+   transizioni/animazioni CSS dell'app (sidebar, console, popup, hover, ecc.) rendendole
+   istantanee. La logica JS che usa setTimeout(...,240) per "aspettare la fine" di una
+   transizione CSS resta invariata e innocua: con le transizioni a 0 lo stato finale e' gia'
+   raggiunto molto prima del timeout, quindi il richiamo tardivo non cambia nulla. */
+body.perf-reduced *,
+body.perf-reduced *::before,
+body.perf-reduced *::after {
+  transition: none !important;
+  animation: none !important;
+}
 /* Popup di export unificato: un solo popup per tutti i formati
    (Python, JavaScript, C, C++, Java, PNG, JPG, PDF). */
 #export-popup {
@@ -343,6 +396,18 @@ body.no-scroll #canvas-container {
   text-align: center;
 }
 
+/* D2 (round 11): riga label+select del formato -- allineata a sinistra e a piena
+   larghezza (il popup e' un flex column centrato: senza align-self:stretch la riga
+   erediterebbe solo la larghezza del suo contenuto e la label non farebbe da titolo). */
+.export-format-row { align-self: stretch; text-align: left; }
+.export-format-row label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
 #export-format {
   margin-bottom: 0.5rem;
   padding: 0.35rem 0.6rem;
@@ -353,12 +418,15 @@ body.no-scroll #canvas-container {
   color: #23213a;
 }
 
+/* D2: max-height in vh (non piu' un px fisso) + overflow:auto -- lo scroll resta
+   DENTRO al popup su finestre basse, cosi' il popup stesso non esce mai dallo schermo. */
 #export-code {
   width: 100%;
   min-width: 320px;
   max-width: 600px;
   min-height: 280px;
-  max-height: 400px;
+  max-height: 50vh;
+  overflow: auto;
   font-family: 'Fira Mono', 'Consolas', monospace;
   font-size: 1rem;
   background: #f7f5ff;
@@ -374,7 +442,8 @@ body.no-scroll #canvas-container {
 #export-preview {
   width: 100%;
   max-width: 600px;
-  max-height: 400px;
+  max-height: 50vh;
+  overflow: auto;
   object-fit: contain;
   border: 1.5px solid #b39ddb;
   border-radius: 0.3rem;
@@ -382,111 +451,59 @@ body.no-scroll #canvas-container {
   margin-bottom: 1rem;
 }
 
-#export-popup div {
+/* D2 (round 11): contenitore dedicato ai pulsanti (era un <div> anonimo, selettore
+   generico "#export-popup div"). Pattern coerente con .bf-modal-actions/.bf-modal-btn
+   (stessi raggi/padding/hover): azione neutra (Close) a SINISTRA via order+margin-right:auto,
+   azioni primarie (Copy/Download) a destra -- .bf-modal-actions non usa "order" perche' li'
+   i pulsanti sono paritari (Annulla/OK), ma il meccanismo margin-right:auto e' lo stesso. */
+.export-actions {
   display: flex;
-  gap: 0.7rem;
-  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  align-self: stretch;
+  margin-top: 0.3rem;
 }
 
 #export-popup button {
   background: var(--primary);
   color: #fff;
   border: none;
-  border-radius: 0.3rem;
-  padding: 0.5rem 1.3rem;
-  font-size: 1rem;
+  border-radius: 10px;
+  padding: 0.62rem 1rem;
+  font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: transform 0.12s ease, filter 0.15s ease, background 0.15s ease;
   box-shadow: 0 1px 2px rgba(98,0,234,0.06);
 }
 
 #export-popup button:hover {
-  background: var(--primary-dark);
-  color: #fff;
+  transform: translateY(-1px);
+  filter: brightness(1.06);
 }
+#export-popup button:active { transform: translateY(0); }
 
 #export-popup button:disabled {
   background: #cfcfcf;
   color: #777;
   cursor: default;
   box-shadow: none;
+  transform: none;
+  filter: none;
 }
 
 #export-popup #close-export-btn {
   background: #ede7f6;
   color: var(--primary);
   border: 1px solid #b39ddb;
-  margin-left: 0.5rem;
-  transition: background 0.2s, color 0.2s;
+  order: -1;
+  margin-right: auto;
 }
 
 #export-popup #close-export-btn:hover {
   background: #d1c4e9;
   color: var(--primary-dark);
-}
-
-#new-popup {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  min-width: 320px;
-  max-width: 90vw;
-  background: #fff;
-  border: 2px solid var(--primary);
-  border-radius: 0.5rem;
-  box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
-  padding: 2rem 2.5rem 1.5rem 2.5rem;
-  z-index: 1300;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.2rem;
-}
-
-#new-popup.active {
-  display: flex;
-}
-
-#new-popup p {
-  margin: 0 0 1.2rem 0;
-  color: var(--primary);
-  font-size: 1.1rem;
-  font-weight: 500;
-  text-align: center;
-}
-
-#new-popup button {
-  margin: 0 0.5rem;
-  padding: 0.5rem 1.3rem;
-  border: none;
-  border-radius: 0.3rem;
-  background: #ede7f6;
-  color: var(--primary);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-  box-shadow: 0 1px 2px rgba(98,0,234,0.06);
-  border: 1px solid #b39ddb;
-}
-
-#new-popup button:hover {
-  background: #d1c4e9;
-  color: var(--primary-dark);
-}
-
-#new-popup #save-btn {
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  margin-left: 0.5rem;
-  transition: background 0.2s;
-}
-
-#new-popup #save-btn:hover {
-  background: var(--primary-dark);
 }
 
 #save-popup {
@@ -498,7 +515,10 @@ body.no-scroll #canvas-container {
   max-width: 90vw;
   background: #fff;
   border: 2px solid var(--primary);
-  border-radius: 0.5rem;
+  /* R14-C (Ismail 2026-07-13): 1rem (era 0.5rem) -- piu' coerente col raggio 16px di
+     .bf-modal-box (famiglia showStyledConfirm/showUnsavedDialog a cui questo popup e' stato
+     riallineato visivamente: icona floppy, titolo, pulsanti primario/ghost, X -- vedi sotto). */
+  border-radius: 1rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
   padding: 2rem 2.5rem 1.5rem 2.5rem;
   z-index: 1200;
@@ -506,20 +526,19 @@ body.no-scroll #canvas-container {
   flex-direction: column;
   align-items: center;
   gap: 1.2rem;
+  text-align: center;
 }
 
 #save-popup.active {
   display: flex;
 }
 
-#save-popup h3 {
-  margin: 0 0 1rem 0;
-  color: var(--primary);
-  font-size: 1.3rem;
-  font-weight: bold;
-  letter-spacing: 0.02em;
-  text-align: center;
-}
+/* R14-C: il vecchio <h3> bespoke (colore/dimensione propri) e' sostituito dalla classe
+   condivisa .bf-modal-title (stessa taglia/colore di showStyledConfirm/showUnsavedDialog,
+   tema+dark-mode gia' generici, nessuna regola nuova necessaria qui). */
+/* R14-C: X di chiusura in alto a destra -- stesso pattern di #bf-modal .x-close (fissa a
+   destra anche in RTL, mai specchiata: convenzione consolidata di TUTTI gli altri popup). */
+#save-popup .x-close { position: absolute; top: 0.7rem; right: 0.7rem; }
 
 #save-popup label {
   color: #333;
@@ -547,37 +566,23 @@ body.no-scroll #canvas-container {
   outline: none;
 }
 
-#save-popup button {
-  margin: 0 0.5rem;
-  padding: 0.5rem 1.3rem;
-  border: none;
-  border-radius: 0.3rem;
-  background: #ede7f6;
-  color: var(--primary);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-  box-shadow: 0 1px 2px rgba(98,0,234,0.06);
-  border: 1px solid #b39ddb;
-}
-
-#save-popup button:hover {
-  background: #d1c4e9;
-  color: var(--primary-dark);
-}
-
-#save-popup #save-cancel-btn {
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  margin-left: 0.5rem;
-  transition: background 0.2s;
-}
-
-#save-popup #save-cancel-btn:hover {
-  background: var(--primary-dark);
-}
+/* R14-C (Ismail 2026-07-13): le vecchie regole bespoke #save-popup button/:hover e
+   #save-popup #save-cancel-btn/:hover sono RIMOSSE -- i due pulsanti ora usano le classi
+   condivise .bf-modal-btn + .bf-modal-ok (Salva, pieno)/.bf-modal-btn-ghost (Annulla,
+   contorno), le stesse di showStyledConfirm/showUnsavedDialog: gia' temate/dark-mode/RTL
+   generiche (nessuna nuova regola necessaria), e finalmente semanticamente corrette --
+   prima #save-cancel-btn (Annulla) aveva lo sfondo PIENO/primario e #save-confirm-btn
+   (Salva, l'azione vera) quello secondario: invertito rispetto al resto dell'app.
+   #save-popup e' un componente a parte da .bf-modal (overlay/#overlay e logica di apertura
+   in popups.js INVARIATI, solo l'aspetto e' allineato) -- i pulsanti restano SIMMETRICI
+   (flex-basis 0, stesso principio del fix R13-F) tramite #save-popup-actions sotto. */
+/* R14-B.3: stesso motivo di .bf-modal-msg -- il nome (gia' troncato da truncateName() in
+   saveFileAs(), popups.js) potrebbe comunque essere un token unico senza spazi piu' largo
+   del popup. */
+#save-popup-current { font-size: 0.85rem; color: #6a5c8f; margin: -0.6rem 0 0.2rem; text-align: center; overflow-wrap: anywhere; }
+body.dark-mode #save-popup-current { color: #b39ddb; }
+#save-popup-actions { display: flex; gap: 0.6rem; width: 100%; justify-content: center; }
+#save-popup-actions button { flex: 1 1 0; min-width: 100px; margin: 0; }
 
 #edit-node-popup {
   position: fixed;
@@ -629,6 +634,38 @@ body.no-scroll #canvas-container {
   border-color: var(--primary);
   outline: none;
 }
+
+/* A1 (round 11): campo Assegna su 2 righe (Variabile / Valore) invece di un input unico. */
+#assign-fields { width: 100%; max-width: 350px; margin-bottom: 1rem; }
+.assign-row { display: block; margin-bottom: 0.6rem; }
+.assign-row:last-child { margin-bottom: 0; }
+.assign-row label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--primary); font-weight: 600; }
+.assign-row input {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: 1.5px solid #b39ddb;
+  border-radius: 0.3rem;
+  font-size: 1rem;
+  background: #f7f5ff;
+  color: #333;
+  transition: border 0.2s;
+  box-sizing: border-box;
+}
+.assign-row input:focus { border-color: var(--primary); outline: none; }
+
+/* A4 (round 11): checkbox "a capo dopo la stampa" nel dialog dell'Output. */
+#out-newline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 350px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--primary);
+  cursor: pointer;
+}
+#out-newline-row input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
 
 
 #edit-node-popup button {
@@ -713,6 +750,11 @@ body.no-scroll #canvas-container {
     flex-direction: column;
     min-width: 320px;
     padding: 1rem;
+    /* D4 (round 11): su schermi bassi/stretti (telefono) la palette con tutte le
+       categorie puo' sforare l'altezza della viewport -- scroll interno invece di
+       uscire dallo schermo (il popup e' comunque centrato via transform, non si sposta). */
+    max-height: 90vh;
+    overflow-y: auto;
   }
   #popup-window .section {
     max-width: 100%;
@@ -836,7 +878,8 @@ body.no-scroll #canvas-container {
 
 #tableContainer {
   width: 100%;
-  overflow-x: auto; 
+  overflow-x: auto;
+  position: relative; /* R13-L: contesto di ancoraggio per #var-value-popover (position:absolute) */
 }
 
 table {
@@ -916,6 +959,16 @@ th {
   color: #e0e0e0;
   font-size: 0.95em;
 }
+
+/* Riga di link legali/esterni del footer (Ismail 2026-07-10): stessa palette del
+   footer (var(--primary) di sfondo, testo bianco) cosi' resta coerente su tutti i temi. */
+#footer-links {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 0.5rem; margin-top: 0.7rem; font-size: 0.85rem;
+}
+#footer-links a { color: #fff; text-decoration: none; opacity: 0.85; }
+#footer-links a:hover { text-decoration: underline; opacity: 1; color: #fff; }
+#footer-links .footer-dot { color: #fff; opacity: 0.5; }
 /* Permetti lo scroll verticale globale per vedere il #credits-section */
 
 
@@ -1422,7 +1475,6 @@ body.dark-mode .error-message {
 /* ---- Popup generici (edit-node, save, new, export, popup-window) ---- */
 body.dark-mode #edit-node-popup,
 body.dark-mode #save-popup,
-body.dark-mode #new-popup,
 body.dark-mode #export-popup,
 body.dark-mode #popup-window {
   background: #1e1a2e;
@@ -1431,10 +1483,8 @@ body.dark-mode #popup-window {
 }
 
 body.dark-mode #edit-node-popup h3,
-body.dark-mode #save-popup h3,
 body.dark-mode #export-popup h3,
 body.dark-mode #popup-window .section h3,
-body.dark-mode #new-popup p,
 body.dark-mode #save-popup label {
   color: #c9a9fa;
 }
@@ -1444,10 +1494,18 @@ body.dark-mode #edit-node-input,
 body.dark-mode #filename-input,
 body.dark-mode #export-code,
 body.dark-mode #export-format,
-body.dark-mode #console-input {
+body.dark-mode #console-input,
+body.dark-mode #assign-var-input,
+body.dark-mode #assign-val-input {
   background: #121212;
   color: #e8e6f0;
   border-color: #6a4fb3;
+}
+/* A1+A4 (round 11): label del campo Assegna e checkbox newline dell'Output, dark mode. */
+body.dark-mode .assign-row label,
+body.dark-mode #out-newline-row,
+body.dark-mode .export-format-row label {
+  color: #c9a9fa;
 }
 body.dark-mode #export-preview {
   background: #1a1a1a;
@@ -1455,14 +1513,14 @@ body.dark-mode #export-preview {
 }
 body.dark-mode #edit-node-input:focus,
 body.dark-mode #filename-input:focus,
-body.dark-mode #console-input:focus {
+body.dark-mode #console-input:focus,
+body.dark-mode #assign-var-input:focus,
+body.dark-mode #assign-val-input:focus {
   border-color: #b39ddb;
 }
 
 /* Pulsanti "secondari" (sfondo chiaro lavanda + testo viola nel tema chiaro):
    in dark mode diventano sfondo viola scuro + testo lavanda, stesso contrasto. */
-body.dark-mode #new-popup button,
-body.dark-mode #save-popup button,
 body.dark-mode #edit-node-popup button,
 body.dark-mode #popup-window .section button,
 body.dark-mode #export-popup #close-export-btn,
@@ -1473,8 +1531,6 @@ body.dark-mode #run-speed {
   color: #c9a9fa;
   border-color: #6a4fb3;
 }
-body.dark-mode #new-popup button:hover,
-body.dark-mode #save-popup button:hover,
 body.dark-mode #edit-node-popup button:hover,
 body.dark-mode #popup-window .section button:hover,
 body.dark-mode #export-popup #close-export-btn:hover,
@@ -1602,16 +1658,24 @@ body.dark-mode #theme-select { background-color: #2a2444; color: #c9a9fa; }
 #console-buttons button:active { transform: translateY(1px); box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
 #console-exe { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; }
 #console-exe:hover { background: var(--primary-dark) !important; }
-#console-stop { color: #c62828 !important; border-color: #e6a3a3 !important; }
-#console-stop:hover { background: #fdeaea !important; color: #a51919 !important; }
+/* R12-E/E2 (Ismail 2026-07-11): Stop era rosso FISSO -- ora segue --stop-btn-color (dark-mode
+   e bw lo ridefiniscono, vedi override tema piu' sotto nel file). Il bordo/hover restano tinte
+   derivate dalla stessa var via color-mix, cosi' seguono automaticamente qualunque colore
+   scelga l'utente nell'editor tema, senza bisogno di var separate per ogni sfumatura. */
+#console-stop { color: var(--stop-btn-color, #c62828) !important; border-color: color-mix(in srgb, var(--stop-btn-color, #c62828) 55%, transparent) !important; }
+#console-stop:hover { background: color-mix(in srgb, var(--stop-btn-color, #c62828) 12%, transparent) !important; color: var(--stop-btn-color, #c62828) !important; filter: brightness(0.85); }
 #run-speed {
   border-radius: 0.45rem; border: 1px solid var(--border);
   font-weight: 600; color: var(--primary); background: #fff;
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
-/* pulsanti piccoli (zoom carattere / save log): stessa famiglia, un filo piu' compatti */
-#console-font-dec, #console-font-inc { font-weight: 700; min-width: 40px; }
-#console-download { min-width: 78px; }
+/* FIX (Ismail 2026-07-10): questi min-width erano residui di un vecchio design coi
+   pulsanti a ETICHETTA testuale ("Scarica log" ecc.) — ora sono icone piccole, ma il
+   min-width restava e forzava il riquadro reale MOLTO piu' largo (78px/40px) di
+   qualunque width si impostasse altrove per queste stesse icone (min-width vince
+   sempre su un width piu' piccolo). Rimossi: la dimensione ora la decide solo
+   #console-cardbar .term-badge / #console-zoom button. */
+#console-font-dec, #console-font-inc { font-weight: 700; }
 body.dark-mode #console-buttons button { background: #241f38; color: #c9a9fa; border-color: #4a4066; }
 body.dark-mode #console-buttons button:hover { background: #322a52; }
 body.dark-mode #run-speed { background: #241f38; color: #c9a9fa; border-color: #4a4066; }
@@ -1641,7 +1705,8 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
   #container { min-width: 0; }
   #toolbar { padding: 0.35rem 0.5rem; gap: 0.28rem; }
   #toolbar button, #theme-select { padding: 0.34rem 0.55rem; font-size: 0.76rem; }
-  #toolbar #logo { height: 1.55rem; margin-right: 0.2rem; }
+  #toolbar #logo { height: 1.55rem; margin-right: 0; }
+  #toolbar #new-btn { margin-left: 0.2rem; }
   /* console agganciata: su schermi stretti usa piu' larghezza ma lascia un margine
      (il tetto desktop 100vw - sidebar - 320 diventerebbe troppo piccolo qui). */
   #console-popup.docked { width: min(86vw, 360px); max-width: 92vw; }
@@ -1726,6 +1791,11 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
   #popup-window .palette-grid { gap: 0.5rem; }
   #popup-window .palette-grid .section { min-width: 96px; }
   .blk { min-width: 84px; min-height: 40px; font-size: 0.8rem; padding: 0.4rem 0.7rem; }
+  /* D2 (round 11): sotto i 640px i pulsanti del dialog Export vanno a colonna piena
+     larghezza (piu' facili da toccare, niente pulsanti stretti affiancati). */
+  .export-actions { flex-direction: column; }
+  .export-actions button { width: 100%; }
+  #export-popup #close-export-btn { margin-right: 0; order: 2; }
 }
 
 
@@ -1773,13 +1843,33 @@ body.theme-neon #canvas { filter: saturate(1.15) brightness(1.03); }
    con i pulsanti che vanno a capo puliti.
    ============================================================ */
 #console-popup:not(.docked) {
+  /* FIX (Ismail 2026-07-10): altezza ESPLICITA (non piu' "auto") -- senza, il popup
+     cresceva da solo seguendo l'output (piu' righe stampate = finestra sempre piu'
+     alta). Ora ha una dimensione di default fissa e un tetto vero (max-width/height,
+     coerenti col limite 1100px del resize a 8 maniglie): il log scorre AL SUO INTERNO
+     (overflow-y sul suo elemento) invece di spingere in basso la finestra. */
   width: min(600px, 94vw);
-  max-width: 94vw;
-  max-height: 88vh;
-  overflow: auto;
+  height: min(420px, 78vh);
+  min-width: 320px;
+  min-height: 220px;
+  max-width: min(1100px, 96vw);
+  max-height: min(1100px, 92vh);
+  /* "overflow:auto" QUI tagliava le maniglie di resize inferiore/destra (posizionate
+     con bottom:-3px/right:-3px, quindi fuori dal bordo): essendo fuori dall'area
+     visibile senza scroll, il click ci "passava attraverso" e faceva partire il drag
+     dell'intera finestra invece del resize. Il log ha gia' il proprio overflow-y:auto
+     (#console-output), quindi il popup stesso non deve piu' tagliare/scrollare il
+     proprio contenuto. */
+  overflow: visible;
 }
+/* FIX (Ismail 2026-07-10): un max-height fisso qui impediva al log di seguire il
+   ridimensionamento verticale manuale oltre una certa soglia -- una volta raggiunto il
+   tetto, allungare ulteriormente la finestra faceva crescere solo lo spazio bianco sotto
+   (outwrap), lasciando barra input e pulsanti "incollati" piu' in alto invece di seguire
+   il nuovo bordo inferiore. Come nel terminale agganciato (nessun cap), il log ora si
+   espande/comprime SEMPRE con flex:1 in base allo spazio reale disponibile. */
 #console-popup:not(.docked) #console-output {
-  max-height: 46vh;
+  max-height: none;
 }
 @media (max-width: 640px) {
   #console-popup:not(.docked) {
@@ -1788,7 +1878,6 @@ body.theme-neon #canvas { filter: saturate(1.15) brightness(1.03); }
   #console-popup:not(.docked) #console-buttons { gap: 0.35rem; }
   #console-popup:not(.docked) #console-buttons button,
   #console-popup:not(.docked) #console-buttons select { flex: 1 1 auto; min-width: 64px; font-size: 0.8rem; padding: 0.34rem 0.5rem; }
-  #console-popup:not(.docked) #console-output { max-height: 40vh; }
   #console-popup:not(.docked) #console-input-section { flex-wrap: wrap; gap: 0.4rem; }
   #console-popup:not(.docked) #console-input { flex: 1 1 100%; }
 }
@@ -1812,7 +1901,16 @@ body.dark-mode #lang-select { background-color: #2a2444; color: #c9a9fa; }
   --if-false-color: #c62828;
   --arc-hover-color: #e53935;
   --arc-drag-color: #1e88e5;
+  --node-selected-color: #1e88e5; /* C4 (round 11): bordo di selezione a click singolo */
   --exec-error-color: #e53935; /* riempimento blocco con contenuto invalido */
+  /* R12-E (Ismail 2026-07-11): var "danger" condivisa da modali/menu contestuale/pulsante
+     Stop -- prima ognuno aveva il proprio rosso fisso (audit E4). --console-error-color e'
+     SEPARATA e apposta SENZA override per tema/dark-mode: lo sfondo di #console-output e'
+     sempre scuro in OGNI tema (scelta di design pre-esistente, il terminale non segue il
+     tema dell'app), quindi il suo rosso resta leggibile ovunque senza bisogno di varianti. */
+  --bf-danger: #e53935;
+  --stop-btn-color: #c62828;
+  --console-error-color: #ff5252;
   /* MIGLIORIA #43: colori dei NODI centralizzati (l'editor di tema li puo' ridefinire). */
   --node-start: #66bb6a; --node-end: #ef5350;
   --node-input: #b0bec5; --node-read: #b0bec5;
@@ -1822,12 +1920,27 @@ body.dark-mode #lang-select { background-color: #2a2444; color: #c9a9fa; }
   --node-comment: #fafafa; --node-pause: #f48fb1;
   --node-forward: #a5d6a7; --node-turn: #ffe082; --node-home: #ffd54f; --node-pen: #80deea; --node-gclear: #cfd8dc;
 }
-body.dark-mode  { --arc-hover-color: #ff5252; --canvas-line-color: #e6e6e6; }
-body.theme-ocean { --arc-hover-color: #0277bd; --if-true-color: #00695c; --if-false-color: #c62828; --arc-drag-color: #01579b; }
-body.theme-contrast { --if-true-color: #006400; --if-false-color: #b30000; --arc-hover-color: #000000; --arc-drag-color: #000000; --canvas-line-color: #000000; }
-body.theme-chalk { --if-true-color: #b9f6ca; --if-false-color: #ff8a80; --arc-hover-color: #ffd54f; --arc-drag-color: #80cbc4; --exec-node-color: #ffd54f; --exec-edge-color: #ffd54f; --canvas-line-color: #e8f0ea; }
-body.theme-neon  { --if-true-color: #5dffa0; --if-false-color: #ff6b9d; --arc-hover-color: #ff2e97; --arc-drag-color: #00e5ff; --exec-node-color: #ffe14d; --exec-edge-color: #ffe14d; --canvas-line-color: #b9a8ff; }
+body.dark-mode  { --arc-hover-color: #ff5252; --canvas-line-color: #e6e6e6;
+  /* R12-E/E4 (Ismail 2026-07-11): --if-false-color non aveva un override dark-mode --
+     restava il rosso scuro #c62828 di :root, poco leggibile su sfondo scuro (era per questo
+     che .var-del aveva un patch hardcoded a parte, vedi sotto: ora ridondante, rimosso). Con
+     questo override anche l'etichetta "False"/"Done" dei rami sul canvas guadagna contrasto.
+     --stop-btn-color riusa l'accento viola chiaro gia' usato dai controlli in dark-mode
+     (#toolbar button/#theme-select, vedi sopra nel file) invece di restare rosso (E2: "niente
+     rosso nel tema scuro"). --bf-danger riusa lo stesso rosso chiaro gia' affermato altrove
+     in dark-mode (chalk if-false, ctx-danger hover, bf-modal-title). */
+  --if-false-color: #ff8a80; --stop-btn-color: #c9a9fa; --bf-danger: #ff8a80; }
+body.theme-ocean { --arc-hover-color: #0277bd; --if-true-color: #00695c; --if-false-color: #c62828; --arc-drag-color: #01579b; --node-selected-color: #01579b; }
+body.theme-contrast { --if-true-color: #006400; --if-false-color: #b30000; --arc-hover-color: #000000; --arc-drag-color: #000000; --canvas-line-color: #000000; --node-selected-color: #000000; }
+body.theme-chalk { --if-true-color: #b9f6ca; --if-false-color: #ff8a80; --arc-hover-color: #ffd54f; --arc-drag-color: #80cbc4; --exec-node-color: #ffd54f; --exec-edge-color: #ffd54f; --canvas-line-color: #e8f0ea; --node-selected-color: #80cbc4; }
+body.theme-neon  { --if-true-color: #5dffa0; --if-false-color: #ff6b9d; --arc-hover-color: #ff2e97; --arc-drag-color: #00e5ff; --exec-node-color: #ffe14d; --exec-edge-color: #ffe14d; --canvas-line-color: #b9a8ff; --node-selected-color: #00e5ff; }
 body.theme-retro { --if-true-color: #5b7a2e; --if-false-color: #a8431b; --arc-hover-color: #c0622a; }
+/* R12-E/E4 (Ismail 2026-07-11): il tema bianco/nero non ridefiniva true/false/danger -->
+   restavano verde/rosso "a colori" anche in un tema pensato per essere SENZA colore (i nodi
+   sono gia' forzati bianco/nero in rendering.js, vedi commento piu' sotto). Uniforma tutto a
+   nero: la differenza fra i rami si legge dal TESTO ("True"/"False", "V"/"F", "Next"/"Done"),
+   non dal colore -- coerente con la filosofia del tema (nessun colore, solo forma/testo). */
+body.theme-bw { --if-true-color: #000000; --if-false-color: #000000; --stop-btn-color: #000000; --bf-danger: #000000; }
 
 
 /* Pulsanti di chiusura a "X" (Ismail 2026-07-07) + indicatore modifiche non salvate. */
@@ -1850,8 +1963,19 @@ body.dark-mode #console-popup.docked .console-x { color: #c9a9fa; background: rg
 /* la X della palette riusa la posizione top-right gia' definita su #close-popup */
 #popup-window #close-popup { width: 32px; height: 32px; border-radius: 50%; font-size: 1.4rem; line-height: 1; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 #unsaved-indicator {
-  color: #fff; font-size: 0.72rem; margin-right: 0.15rem; vertical-align: middle; cursor: default;
+  color: #fff; font-size: 0.72rem; margin-right: 0; vertical-align: middle;
   text-shadow: 0 0 5px rgba(255,255,255,0.7);
+  /* R12-A2: il glifo "●" a 0.72rem e' un bersaglio minuscolo per l'hover del tooltip --
+     padding invisibile allarga l'area cliccabile/sorvolabile a min ~12px senza spostare il
+     testo (display:inline-block richiesto perche' padding orizzontale abbia effetto su uno
+     span inline).
+     R14-B.2 (Ismail 2026-07-13): rimosso cursor:help -- era il "punto interrogativo" che
+     compariva subito ma senza alcun tooltip (il title nativo ha il ritardo del sistema
+     operativo, confusione segnalata da Ismail). Ora #unsaved-indicator e' agganciato al
+     tooltip istantaneo esistente (js/core/ux.js, stesso meccanismo gia' usato per i
+     pulsanti .bf-icon: mostra #bf-tip al mouseover, nessun ritardo), non serve piu' un
+     cursore-indizio separato. */
+  display: inline-block; padding: 3px; margin: -3px 0;
 }
 /* Su temi chiari (toolbar comunque colorata) il bianco va bene; su alto contrasto meglio scuro. */
 body.theme-contrast #unsaved-indicator { color: #ffd400; text-shadow: none; }
@@ -1932,6 +2056,13 @@ body.dark-mode .value-cell .assign-check { background: #1a1a1a; border-color: #4
 body.dark-mode .value-cell .assign-check:checked { background: var(--primary); border-color: var(--primary); }
 .value-cell .value-input:disabled { background: rgba(0,0,0,0.05); color: #999; cursor: not-allowed; }
 body.dark-mode .value-cell .value-input:disabled { background: rgba(255,255,255,0.06); color: #777; }
+/* R12-A0 (Ismail 2026-07-11): durante Run/Step il valore RUNTIME viene scritto anche nei
+   campi disabled (checkbox Assegna non spuntata) -- il grigio #999/#777 di sopra e' pensato
+   per un campo "a riposo" inerte, troppo tenue per un valore che cambia dal vivo. La classe
+   .live-value (aggiunta da refreshVariablesWatch/execute.js, rimossa a run fermo da
+   restoreVariablesTable) alza il contrasto col colore del tema, coerente su tutti gli 8 temi. */
+.value-cell .value-input.live-value:disabled { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary-dark, #333); cursor: not-allowed; }
+body.dark-mode .value-cell .value-input.live-value:disabled { background: rgba(201,169,250,0.14); color: #e8e6f0; }
 
 /* Dialog dedicato del ciclo For (Ismail 2026-07-07) */
 #for-popup {
@@ -1958,6 +2089,10 @@ body.dark-mode #for-popup { background: #241f38; color: #e8e6f0; }
 body.dark-mode #for-popup .for-input { background: #1a1a1a; color: #e8e6f0; border-color: #4a4066; }
 body.dark-mode #for-cancel { background: #3a3260; color: #e8e6f0; }
 @media (max-width: 520px) { #for-popup { min-width: 0; width: 92vw; } .for-grid { flex-direction: column; gap: 0.5rem; } }
+/* D4 (round 11): stesso pattern del for-popup qui sopra -- sotto i 520px il min-width:340px
+   di #edit-node-popup puo' superare la larghezza reale dello schermo (es. 320px CSS px di
+   un telefono piccolo); azzerarlo lascia vincere max-width:90vw, che resta sempre dentro. */
+@media (max-width: 520px) { #edit-node-popup { min-width: 0; width: 90vw; } }
 
 /* FIX #27 (Ismail 2026-07-08): in modalita' RTL (arabo) la console agganciata si apre a
    SINISTRA invece che a destra, coerente con l'inversione del layout. */
@@ -1965,7 +2100,7 @@ html[dir="rtl"] #console-popup.docked { right: auto; left: 0; border-left: none;
 html[dir="rtl"] #console-popup.docked #console-resize-handle { left: auto; right: -4px; }
 html[dir="rtl"] .console-x { right: auto; left: 0.6rem; }
 html[dir="rtl"] #console-popup.docked #console-buttons { padding-right: 0.35rem; padding-left: 2.1rem; }
-html[dir="rtl"] #canvas-container { padding-right: 14px; padding-left: var(--console-cover-width, 0px); }
+html[dir="rtl"] #canvas-container { padding-right: 14px; padding-left: 0; margin-right: 0; margin-left: var(--console-cover-width, 0px); } /* FIX #22: in RTL il terminale e' a SINISTRA -> riserva con margin-left (non padding, che non restringe la scrollbar) e azzera il margin-right ereditato dalla regola base. */
 /* FIX RTL (Ismail 2026-07-08): in arabo (RTL) il terminale e' agganciato a SINISTRA, quindi
    i controlli zoom vanno specchiati sul lato SINISTRO. --zoom-right (larghezza console + 18,
    aggiornata da updateZoomOffset) diventa l'offset da SINISTRA: cosi' i pulsanti si spostano
@@ -2036,6 +2171,18 @@ body.dark-mode #theme-editor #te-reset { background: #3a3260; color: #e8e6f0; }
 }
 #canvas-container::-webkit-scrollbar-thumb:hover { background: var(--primary, #6200ea); background-clip: content-box; }
 #canvas-container::-webkit-scrollbar-corner { background: transparent; }
+/* FIX #28 (Ismail 2026-07-10): il canvas si centra orizzontalmente nell'area VISIBILE anche
+   quando e' piu' STRETTO della viewport. Prima, essendo un elemento inline, restava a sinistra e
+   solo lo scroll poteva centrarlo -> con grafi piccoli non si ricentrava mai al resize del
+   terminale. margin:0 auto lo centra nel content-box del container, che GIA' esclude la console
+   (margin-right: --console-cover-width, aggiornata in tempo reale): la centratura segue quindi il
+   ridimensionamento del terminale via reflow CSS, non solo su apri/chiudi. Quando il canvas e'
+   piu' largo della viewport, margin auto collassa a 0 e resta valida la centratura via scrollLeft
+   (centerGraph), quindi i due meccanismi non confliggono. */
+/* D4 (round 11): senza touch-action:none il browser intercetta il gesto sul canvas per lo
+   scroll/pinch di sistema, impedendo il drag&drop a dito. Limitato al SOLO canvas: le aree
+   fuori dal canvas (sidebar, toolbar, popup) restano scrollabili normalmente col dito. */
+#canvas { display: block; margin: 0 auto; touch-action: none; }
 body.dark-mode #canvas-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.06); }
 body.dark-mode #canvas-container::-webkit-scrollbar-thumb { background: #55607a; background-clip: content-box; }
 
@@ -2058,13 +2205,27 @@ body.dark-mode #canvas-container::-webkit-scrollbar-thumb { background: #55607a;
    blocchi Grafica, fix scrollbar). Chiusa qui + ripristinate le regole del menu contestuale. */
 .ctx-item:hover { background: var(--surface, #ede7f6); color: var(--primary); }
 .ctx-item .ctx-ico { width: 1.1rem; text-align: center; opacity: 0.85; }
-.ctx-item.ctx-danger { color: #c62828; }
-.ctx-item.ctx-danger:hover { background: #ffebee; color: #b71c1c; }
+/* R12-A1 (Ismail 2026-07-11): Incolla/Elimina erano emoji a colori (📋 🗑), incoerenti con
+   i glifi monocromi di Modifica/Taglia/Copia -- sostituite con SVG inline stroke=currentColor,
+   stesso identico stile delle icone della toolbar (viewBox 24, stroke-width 2, fill none). Il
+   cestino riusa il path GIA' presente su #clear-btn (index.html), cosi' l'icona Elimina resta
+   visivamente identica ovunque compaia nell'app. currentColor segue .ctx-item/.ctx-danger e
+   dark-mode senza bisogno di colori dedicati. */
+.ctx-item .ctx-ico svg { width: 14px; height: 14px; display: block; vertical-align: -2px; }
+/* R12-E/E4 (Ismail 2026-07-11): riusa --if-false-color (stesso valore #c62828 che questa
+   regola aveva gia' fisso) invece di duplicare una var "danger" dedicata -- AUDIT prima,
+   niente doppioni (vedi anche .var-del, stessa var, stesso significato "azione negativa"). */
+.ctx-item.ctx-danger { color: var(--if-false-color, #c62828); }
+.ctx-item.ctx-danger:hover { background: color-mix(in srgb, var(--if-false-color, #c62828) 14%, transparent); color: var(--if-false-color, #c62828); filter: brightness(0.85); }
+/* C5 (round 11): Incolla resta visibile ma disabilitata se la clipboard e' vuota --
+   attributo reale sul <button>, non solo una classe, cosi' tastiera/screen reader lo
+   riconoscono. Nessun colore nuovo: solo opacita'/cursore, coerente su tutti gli 8 temi. */
+.ctx-item[disabled] { opacity: 0.45; cursor: default; pointer-events: none; }
 .ctx-sep { height: 1px; margin: 4px 6px; background: var(--border, #e0d7f5); }
 body.dark-mode .ctx-menu { background: #241f38; border-color: #4a4066; }
 body.dark-mode .ctx-item { color: #e8e6f0; }
 body.dark-mode .ctx-item:hover { background: #3a3260; color: #fff; }
-body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: #ff8a80; }
+body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: var(--if-false-color, #ff8a80); }
 /* ============================================================================
    RESTYLE 2026-07-08 (Ismail): modale stilizzata, barra variabili, pulsanti-icona,
    terminale mobile, gerarchia z-index dei popup, scrollbar orizzontale.
@@ -2086,7 +2247,16 @@ body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: #ff8a80;
   border: 1.5px solid var(--border, #d1c4e9); border-radius: 16px;
   box-shadow: 0 18px 54px rgba(0,0,0,0.34); max-width: 400px; width: 100%;
   padding: 1.5rem 1.6rem 1.25rem; text-align: center; animation: bfModalPop 0.16s ease-out;
+  /* R12-B: ancora per la X di chiusura (posizionata assoluta, solo showUnsavedDialog la mostra). */
+  position: relative;
 }
+/* R12-B (Ismail 2026-07-11): X di chiusura del bf-modal -- SOLO showUnsavedDialog la mostra
+   (le altre due funzioni la tengono hidden, vedi popups.js). Riusa .x-close (pattern gia'
+   ovunque nell'app): resta fissa in alto a DESTRA anche in RTL, MAI specchiata -- e' la
+   convenzione consolidata e gia' verificata in WP-D6 per ogni altro popup (edit-node/for/
+   draw/settings/block-help), quindi nessuna regola html[dir="rtl"] qui: comportamento
+   intenzionalmente identico in tutte e 4 le lingue. */
+#bf-modal .x-close { position: absolute; top: 0.7rem; right: 0.7rem; }
 @keyframes bfModalPop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .bf-modal-icon {
   width: 54px; height: 54px; margin: 0 auto 0.85rem; border-radius: 50%;
@@ -2094,11 +2264,22 @@ body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: #ff8a80;
   color: var(--primary); border: 2px solid var(--primary); background: rgba(98,0,234,0.06);
 }
 .bf-modal-icon svg { width: 30px; height: 30px; display: block; }
-.bf-modal-icon.danger { color: #e53935; border-color: #e53935; background: rgba(229,57,53,0.09); }
-.bf-modal-msg { font-size: 0.98rem; line-height: 1.5; margin-bottom: 1.25rem; }
+/* R12-E/E4 (Ismail 2026-07-11): --bf-danger, var condivisa da tutti gli accenti "pericolo"
+   della modale stilizzata (icona/pulsante pieno/pulsante ghost/titolo) -- prima ognuno aveva
+   il proprio #e53935/#ff8a80 fisso, incluso .bf-modal-btn-ghost-danger di R12-B. */
+.bf-modal-icon.danger { color: var(--bf-danger, #e53935); border-color: var(--bf-danger, #e53935); background: color-mix(in srgb, var(--bf-danger, #e53935) 9%, transparent); }
+/* R14-B.3 (Ismail 2026-07-13): overflow-wrap:anywhere -- rete di sicurezza per un nome file
+   lunghissimo (100+ caratteri) iniettato in {file}/{name} (vedi truncateName() in popups.js,
+   che tronca a 40 caratteri PRIMA di arrivare qui: le due misure si sommano, non si escludono). */
+.bf-modal-msg { font-size: 0.98rem; line-height: 1.5; margin-bottom: 1.25rem; white-space: pre-line; overflow-wrap: anywhere; }
 .bf-modal-actions { display: flex; gap: 0.6rem; justify-content: center; }
 .bf-modal-btn {
-  flex: 1 1 auto; min-width: 100px; padding: 0.62rem 1rem; border-radius: 10px; border: none;
+  /* R13-F (Ismail 2026-07-12): flex-basis "auto" (prima) partiva dalla larghezza del TESTO,
+     quindi con flex-grow uguale i due pulsanti crescevano della STESSA quantita' ma restavano
+     diversi (es. "Annulla" piu' largo di "Si'/OK") -- soprattutto evidente in arabo, dove le
+     lunghezze cambiano. flex-basis:0 fa ripartire da zero: a parita' di flex-grow(1) i due
+     pulsanti finiscono sempre della STESSA larghezza, min-width resta il pavimento comune. */
+  flex: 1 1 0; min-width: 100px; padding: 0.62rem 1rem; border-radius: 10px; border: none;
   font-size: 0.92rem; font-weight: 600; cursor: pointer;
   transition: transform 0.12s ease, filter 0.15s ease, background 0.15s ease;
 }
@@ -2106,19 +2287,112 @@ body.dark-mode .ctx-item.ctx-danger:hover { background: #4a2020; color: #ff8a80;
 .bf-modal-btn:active { transform: translateY(0); }
 .bf-modal-cancel { background: var(--border, #e0e0e0); color: var(--primary-dark, #333); }
 .bf-modal-ok { background: var(--primary); color: #fff; }
-.bf-modal-danger { background: #e53935; color: #fff; }
+.bf-modal-danger { background: var(--bf-danger, #e53935); color: #fff; }
 body.dark-mode .bf-modal-box { background: #241f38; color: #e8e6f0; border-color: #4a4066; }
 body.dark-mode .bf-modal-cancel { background: #3a3260; color: #e8e6f0; }
 body.dark-mode .bf-modal-icon { background: rgba(179,157,219,0.12); }
 
+/* ============================================================================
+   R12-B (Ismail 2026-07-11): redesign SOLO di showUnsavedDialog -- gerarchia verticale
+   (pattern VS Code/macOS), Salva primario a tutta larghezza sopra, Non salvare/Annulla
+   "ghost" affiancati sotto. Le altre bf-modal (showStyledConfirm/showStyledAlert) restano
+   su .bf-modal-actions, INVARIATA.
+   RTL: lo stack e' flex-direction:column -- l'asse block non si specchia MAI con dir="rtl"
+   (solo l'asse inline/riga lo fa), quindi "Salva sopra, ghost sotto" resta identico in
+   arabo, nessuna regola scoped necessaria. La riga ghost sotto e' un flex-row NORMALE senza
+   alcun trucco order/margine-auto (a differenza di .export-actions in WP-D6): si specchia
+   da sola esattamente come .bf-modal-actions, gia' verificato in WP-D6 (ordine visivo
+   invertito in RTL, coerente con le convenzioni della piattaforma) -- nessun fix necessario.
+   L'icona nel pulsante primario e' un flex-row icona+testo: si specchia da sola allo stesso
+   modo (icona e testo scambiano lato in RTL), comportamento idiomatico per bottoni icona+
+   label, nessun fix necessario.
+   ============================================================================ */
+.bf-modal-actions-stack { display: flex; flex-direction: column; gap: 0.55rem; }
+.bf-modal-actions-stack .bf-modal-btn-primary {
+  width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+}
+.bf-modal-btn-primary svg { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
+.bf-modal-ghost-row { display: flex; gap: 0.55rem; }
+.bf-modal-btn-ghost, .bf-modal-btn-ghost-danger { background: transparent; border: 1.5px solid var(--border, #d1c4e9); }
+.bf-modal-btn-ghost { color: var(--primary-dark, #333); }
+.bf-modal-btn-ghost:hover { background: rgba(98,0,234,0.07); }
+.bf-modal-btn-ghost-danger { color: var(--bf-danger, #e53935); border-color: color-mix(in srgb, var(--bf-danger, #e53935) 40%, transparent); }
+.bf-modal-btn-ghost-danger:hover { background: color-mix(in srgb, var(--bf-danger, #e53935) 8%, transparent); }
+body.dark-mode .bf-modal-btn-ghost { color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode .bf-modal-btn-ghost:hover { background: rgba(255,255,255,0.07); }
+/* R12-E/E4 (Ismail 2026-07-11): niente piu' override dark-mode dedicato qui -- --bf-danger
+   e' gia' ridefinita a #ff8a80 per body.dark-mode (vedi vicino a :root, sopra nel file), la
+   regola base .bf-modal-btn-ghost-danger la eredita automaticamente. Stesso principio gia'
+   applicato a .var-del (rimosso il suo override dark-mode duplicato). */
+body.dark-mode .bf-modal-btn-ghost-danger:hover { background: color-mix(in srgb, var(--bf-danger, #ff8a80) 10%, transparent); }
+
+/* ---- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay a schermo pieno con iframe
+   same-origin verso manual.html (prima: window.open in una nuova scheda). z-index sopra i
+   popup "normali" (edit-node/for/save/export, fino a 1480) e sopra le finestre "a schermo"
+   (console/palette/disegno, ux.js, fino a ~1478) ma SOTTO il menu contestuale (2200) e le
+   bf-modal di conferma/errore (2300): un errore runtime deve poter comparire sopra il
+   manuale aperto, coerente con la gerarchia z-index gia' esistente. */
+#manual-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(28, 14, 52, 0.55); backdrop-filter: blur(2px);
+  padding: 2.5vh 2.5vw;
+}
+#manual-overlay.active { display: flex; }
+#manual-overlay-box {
+  display: flex; flex-direction: column;
+  width: 100%; height: 100%; max-width: 1400px;
+  background: #fff; border-radius: 1rem; overflow: hidden;
+  box-shadow: 0 18px 54px rgba(0,0,0,0.34);
+}
+/* Barra sottile SOLO per la X (vedi commento in index.html: una X assoluta sopra l'iframe
+   avrebbe coperto il selettore lingua del manuale, gia' in alto a destra in .man-topbar).
+   Stesso sfondo/bordo dei popup generici (coerenza visiva), sempre chiara: il manuale
+   gestisce da solo il proprio tema INTERNO all'iframe, questa barra e' fuori dall'iframe. */
+#manual-overlay-bar {
+  display: flex; justify-content: flex-end; align-items: center;
+  padding: 0.4rem 0.5rem; background: #ede7f6; border-bottom: 1px solid #d1c4e9;
+  flex: 0 0 auto;
+}
+body.dark-mode #manual-overlay-bar { background: #241f38; border-color: #4a4066; color: #e8e6f0; }
+#manual-overlay-box iframe { flex: 1 1 auto; width: 100%; border: none; display: block; }
+
 /* ---- TASK 8: i popup del canvas devono stare SOPRA il terminale (mobile e agganciato) ---- */
 #overlay { z-index: 1450 !important; }
 #popup-window { z-index: 1462; }  /* finestra non-modale; il focus lo alza (ux.js) */
-#edit-node-popup, #save-popup, #new-popup, #export-popup, #for-popup { z-index: 1480 !important; }
+#edit-node-popup, #save-popup, #export-popup, #for-popup { z-index: 1480 !important; }
 #theme-editor { z-index: 1600 !important; }
 .ctx-menu { z-index: 2200 !important; }
 /* Il terminale (mobile/floating) resta sotto i popup ma sopra il canvas. */
 #console-popup { z-index: 1460; }  /* finestra; il focus lo alza (ux.js) */
+
+/* ---- Shepherd block-help (round 11): tooltip del "?" guida-blocco (startBlockTutorial,
+   js/tutorial.js). Sostituisce lo stile Shepherd di default (da CDN, non coerente coi temi)
+   con lo stesso schema colore/bordo dei popup dell'app (#edit-node-popup ecc.). z-index SOPRA
+   ai popup canvas (1480) e alla console (1460), SOTTO al menu contestuale (2200) e ai toast. */
+.shepherd-element {
+  max-width: 340px;
+  z-index: 2000;
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 0.5rem;
+  box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
+}
+.shepherd-text { font-size: .95rem; line-height: 1.45; color: var(--text, #333); }
+.shepherd-header { background: transparent; padding-top: 0.9rem; }
+.shepherd-title { color: var(--primary); font-weight: bold; }
+.shepherd-footer .shepherd-button {
+  background: var(--primary);
+  color: #fff;
+  border-radius: 0.3rem;
+  border: none;
+}
+.shepherd-footer .shepherd-button:hover { background: var(--primary-dark); }
+.shepherd-cancel-icon { color: var(--primary); }
+body.dark-mode .shepherd-element { background: #1e1a2e; border-color: #6a4fb3; }
+body.dark-mode .shepherd-text { color: #e8e6f0; }
+body.dark-mode .shepherd-title { color: #c9a9fa; }
+body.dark-mode .shepherd-cancel-icon { color: #c9a9fa; }
 
 /* ---- TASK 4: barra delle variabili, moderna e coerente col tema ---- */
 #sidebar {
@@ -2314,8 +2588,21 @@ body.dark-mode #draw-cancel { background: #3a3260; color: #e8e6f0; }
   background: var(--primary); color: #fff; font-weight: 600; font-size: 0.85rem;
 }
 #draw-output-title { flex: 1 1 auto; }
-#draw-output-head .x-close { background: rgba(255,255,255,0.18); color: #fff; }
-#draw-output-head .x-close:hover { background: rgba(255,255,255,0.34); color: #fff; }
+/* FIX (Ismail 2026-07-10): la scritta "Grafica tartaruga" scala insieme ai pulsanti
+   dell'header (stessa variabile --tg-head-btn, gia' aggiornata in draw.js/_tgResizeCanvases
+   in base alla larghezza del pannello) invece di restare a dimensione fissa. */
+#draw-output-title { font-size: calc(var(--tg-head-btn, 26px) * 0.5); }
+/* FIX (Ismail 2026-07-10): pulsanti dell'header tartaruga nello STESSO stile dei pulsanti
+   della toolbar principale (#toolbar button) — stessa forma (quadrato arrotondato 0.45rem,
+   non piu' cerchio) e stesso sfondo (bianco pieno, non overlay traslucido). */
+#draw-output-head .x-close {
+  background: #fff; color: var(--primary); border-radius: 0.45rem;
+}
+#draw-output-head .x-close:hover {
+  background: #f1ecff; color: var(--primary); box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+body.dark-mode #draw-output-head .x-close { background: #2a2444; color: #c9a9fa; }
+body.dark-mode #draw-output-head .x-close:hover { background: #3a3260; color: #e8e6f0; }
 #draw-canvas { display: block; background: #fff; }
 body.dark-mode #draw-output-panel { background: #241f38; border-color: #7c3aed; }
 html[dir="rtl"] #draw-output-panel { left: auto; right: 18px; }
@@ -2435,6 +2722,19 @@ body.dark-mode #console-popup .console-x { color: #c9a9fa; background: rgba(201,
 /* ---- Dialog di modifica nodo: layout coerente (× in alto a destra + riga azioni) ---- */
 /* (rimosso #edit-node-popup{position:relative}: sovrascriveva il position:fixed che centra il modale -> popup in fondo alla pagina. Il position:fixed base fa gia' da ancora per la .x-close absolute.) */
 #edit-node-popup .x-close { position: absolute !important; top: 0.5rem; right: 0.6rem; width: 30px !important; height: 30px !important; flex: 0 0 auto; align-self: flex-end; }
+/* il pulsante "?" eredita da #edit-node-popup button (width:100%, display:flex, ecc.) e diventa una barra piena
+   invece del cerchietto: stessa causa del bug gia' risolto sopra per .x-close, stesso rimedio con !important. */
+#edit-node-popup .blk-help-btn {
+  position: absolute !important; top: 0.55rem !important; left: 0.6rem !important; right: auto !important;
+  width: 30px !important; height: 30px !important; margin: 0 !important; padding: 0 !important;
+  border-radius: 50% !important; border: none !important; box-shadow: none !important;
+  display: inline-flex !important; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--primary) 14%, transparent) !important; color: var(--primary) !important;
+  font-size: 1.05rem !important; font-weight: 800 !important;
+}
+#edit-node-popup .blk-help-btn:hover { background: var(--primary) !important; color: #fff !important; }
+body.dark-mode #edit-node-popup .blk-help-btn { background: rgba(201,169,250,0.18) !important; color: #c9a9fa !important; }
+body.dark-mode #edit-node-popup .blk-help-btn:hover { background: #7c3aed !important; color: #fff !important; }
 #edit-node-popup h3 { margin-right: 1.6rem; }
 .edit-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
 .edit-actions button { flex: 1 1 auto; }
@@ -2444,7 +2744,10 @@ body.dark-mode #console-popup .console-x { color: #c9a9fa; background: rgba(201,
 
 /* ---- Maniglia di resize a tutta altezza della barra VARIABILI (Ismail 2026-07-08) ---- */
 #sidebar { resize: none; }  /* niente piu' angolino nativo: si usa l'handle verticale sotto */
-#sidebar { min-width: 190px; }  /* rilievo 15: floor di sicurezza */
+/* FIX (Ismail 2026-07-10): 190px non bastava a garantire nome+tipo+valore+X SEMPRE
+   visibili insieme (la X di elimina finiva tagliata). Con Type sempre abbreviato
+   (Int/Flo/Str, vedi variables.js) 230px e' il floor minimo che li fa stare tutti. */
+#sidebar { min-width: 230px; }  /* rilievo 15: floor di sicurezza (X elimina sempre visibile) */
 #sidebar-resize-handle {
   position: fixed; width: 8px; z-index: 860; cursor: ew-resize; display: none;
   background: transparent; transition: background 0.15s ease;
@@ -2459,9 +2762,17 @@ body.dark-mode #sidebar-resize-handle::after { background: #4a4066; }
 body.dark-mode #sidebar-resize-handle:hover::after,
 body.dark-mode #sidebar-resize-handle.dragging::after { background: #7c3aed; }
 
-/* ---- Titolo della modale (usato dall'errore di runtime) ---- */
-.bf-modal-title { font-size: 1.02rem; font-weight: 700; margin-bottom: 0.5rem; color: #e53935; }
-body.dark-mode .bf-modal-title { color: #ff8a80; }
+/* ---- Titolo della modale ---- */
+/* R12-E/E4 (Ismail 2026-07-11): BUG trovato durante l'audit -- questa regola era SEMPRE
+   rossa (pensata solo per l'errore di runtime, che e' l'UNICO caso storico con un titolo),
+   ma showUnsavedDialog (R12-B) mostra SEMPRE un titolo neutro ("Modifiche non salvate", non
+   un pericolo) ereditando lo stesso rosso per errore. Fix: colore NEUTRO di default, rosso
+   SOLO con la classe .danger, aggiunta in JS (popups.js) solo quando opts.danger e' vero
+   (showStyledConfirm/showStyledAlert) -- showUnsavedDialog non la aggiunge mai, resta neutro. */
+.bf-modal-title { font-size: 1.02rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--primary-dark, #333); }
+.bf-modal-title.danger { color: var(--bf-danger, #e53935); }
+body.dark-mode .bf-modal-title { color: #e8e6f0; }
+body.dark-mode .bf-modal-title.danger { color: var(--bf-danger, #ff8a80); }
 
 /* ---- Pannello tartaruga: spostabile + ridimensionabile + salva/nascondi (Ismail 2026-07-08) ---- */
 #draw-output-panel { position: fixed; min-width: 170px; }
@@ -2490,10 +2801,23 @@ body.dark-mode .bf-modal-title { color: #ff8a80; }
 .tg-rz[data-dir="nw"] { top: -3px;    left: -3px;  width: 15px; height: 15px; cursor: nwse-resize; }
 .tg-rz[data-dir="se"] { bottom: -3px; right: -3px; width: 15px; height: 15px; cursor: nwse-resize; }
 .tg-rz[data-dir="sw"] { bottom: -3px; left: -3px;  width: 15px; height: 15px; cursor: nesw-resize; }
+/* D4 (round 11): su pointer coarse (touch) le maniglie dritte (n/s/e/w) sono strette (8px) --
+   un dito le manca facilmente. Le maniglie d'angolo (15px) restano invariate. Stesso
+   selettore .tg-rz condiviso da pannello tartaruga E terminale mobile (vedi sotto): entrambi
+   beneficiano senza bisogno di regole duplicate. */
+@media (pointer: coarse) {
+  .tg-rz[data-dir="n"], .tg-rz[data-dir="s"] { height: 12px; }
+  .tg-rz[data-dir="e"], .tg-rz[data-dir="w"] { width: 12px; }
+}
 .tg-rz[data-dir="se"]::after {
   content: ''; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px;
   border-right: 2px solid var(--primary, #6200ea); border-bottom: 2px solid var(--primary, #6200ea); opacity: 0.65;
 }
+/* FIX (Ismail 2026-07-10): terminale MOBILE ridimensionabile orizz.+vert. come il pannello
+   tartaruga, riusando le stesse maniglie .tg-rz (identico stile/comportamento). Nascoste in
+   modalita' agganciata: li' c'e' gia' la maniglia laterale dedicata (solo larghezza). */
+#console-popup.docked .tg-rz { display: none; }
+#console-popup:not(.docked) .tg-rz[data-dir="se"]::after { border-color: #d9cff5; opacity: 0.8; }
 #draw-output-head .bf-icon svg { display: block; width: 15px; height: 15px; }
 #draw-output-turtle.off { opacity: 0.5; }
 
@@ -2512,6 +2836,145 @@ html[dir="rtl"] #terminal-reopen { right: auto; left: 0; border-radius: 0 10px 1
 /* quando la console e' agganciata a destra, sposta la linguetta a sinistra della console */
 body:has(#console-popup.docked.active) #terminal-reopen { right: var(--console-cover-width, 0px); }
 html[dir="rtl"] body:has(#console-popup.docked.active) #terminal-reopen { right: auto; left: var(--console-cover-width, 0px); }
+
+/* ============================================================================
+   WP-D6 (Ismail 2026-07-12): audit RTL completo (12 punti, vedi piano round 11).
+   Regole aggiuntive scoped html[dir="rtl"], stesso pattern del blocco sopra. I punti che
+   NON compaiono qui sotto sono gia' "ok" senza bisogno di fix: flex-direction:row e
+   grid-template-columns si specchiano GIA' da soli col dir="rtl" nativo di <html> (nessuna
+   proprieta' "direction" e' mai dichiarata a mano in questo file). Le regole qui sotto
+   coprono SOLO le proprieta' FISICHE (margin-left/right, border-left/right, left/right,
+   box-shadow orizzontale, text-align) che il browser NON specchia da solo.
+   ============================================================================ */
+
+/* -- Punto 1 (Toolbar): indicatore non salvato + logo -- gap fisso a destra, va spostato
+   a sinistra in RTL (altrimenti la spaziatura sparisce o resta sul lato sbagliato). */
+/* Aggiornato R12-A2 (Ismail 2026-07-11): logo e #unsaved-indicator ora si affidano al solo
+   gap del flex #toolbar (simmetrico, nessun fix RTL necessario per loro due). La distanza
+   fissa verso i pulsanti vive su #new-btn (margin-left in LTR): in RTL va specchiata su
+   margin-right, altrimenti finisce sul lato sbagliato invece che fra logo/puntino e pulsanti. */
+html[dir="rtl"] #toolbar #new-btn { margin-left: 0; margin-right: 1.7rem; }
+@media (max-width: 760px) {
+  html[dir="rtl"] #toolbar #new-btn { margin-left: 0; margin-right: 0.2rem; }
+}
+
+/* -- Punto 2 (Sidebar variabili): DECISIONE presa (specchiare, coerente con l'RTL) -- la
+   sidebar e' gia' in colonna 1 del grid #main, quindi si sposta GIA' a destra da sola in
+   RTL (il grid si specchia come il flex). Qui servono solo i fix delle proprieta' fisiche
+   che non si specchiano da sole: il bordo/ombra che "guardava" verso il canvas (destra in
+   LTR) deve guardare a sinistra in RTL, e #sidebar-reopen (position:fixed, fuori dal grid,
+   quindi non si specchia mai da solo) deve passare dal lato sinistro al destro, come gia'
+   fatto per #terminal-reopen qui sopra. */
+html[dir="rtl"] #sidebar { border-right: none; border-left: 1px solid var(--border, #d1c4e9); box-shadow: -2px 0 18px rgba(0,0,0,0.06); }
+html[dir="rtl"] body.dark-mode #sidebar { border-right-color: transparent; border-left-color: #4a4066; }
+html[dir="rtl"] #sidebar-reopen { left: auto; right: 0; border-radius: 10px 0 0 10px; box-shadow: -2px 2px 6px rgba(98,0,234,0.30); }
+/* #sidebar-resize-handle: la posizione la calcola JS da getBoundingClientRect() (init.js) e
+   quindi si adatterebbe gia' da sola alla sidebar spostata per la LARGHEZZA, ma l'ancoraggio
+   al bordo GIUSTO (quello adiacente al canvas, non sempre il bordo destro) richiede un
+   piccolo fix JS gemello in init.js (vedi place()/mousemove, gating su document.documentElement.dir). */
+
+/* -- Punto 3 (Tabella variabili): colonne/bordi gia' simmetrici (border-left/right:none sulle
+   celle), la tabella nativa si specchia da sola. Unico dettaglio fisico residuo: il pulsante elimina. */
+html[dir="rtl"] .var-del { margin-left: 0; margin-right: 0.1rem; }
+
+/* -- Punto 4 (Popup): #edit-node-popup X (destra fissa) e "?" (sinistra fissa) restano sugli
+   angoli opposti anche in RTL (nessuna regola li specchia) -> NESSUNA sovrapposizione,
+   verificato. .bf-modal-actions (Annulla/Non salvare/Salva) e' un flex semplice senza
+   order/margini-trucco: si specchia da solo correttamente. edit-node-popup usa ancora un
+   margine "a mano" per lo spazio fra due pulsanti in flusso inline: col bidi reorder di RTL
+   l'ordine VISIVO si inverte ma il margine fisico resta sul lato sbagliato (finisce sul bordo
+   esterno invece che fra i due pulsanti) -- va rispecchiato a mano. save-popup NON e' piu' in
+   questo elenco (R13-D): i suoi due pulsanti ora vivono in #save-popup-actions (flex+gap), che
+   si specchia da solo come .bf-modal-actions -- nessuna regola RTL dedicata piu' necessaria. */
+html[dir="rtl"] #edit-node-popup #close-edit-popup { margin-left: 0; margin-right: 0.5rem; }
+/* #popup-window .section: gap:2rem si specchia da solo, ma c'e' anche un margin-right extra
+   "a mano" su ogni sezione tranne l'ultima -- stesso bug di sopra (il margine fisico non
+   segue il reorder visivo): in RTL il gutter extra finiva sul bordo ESTERNO della sezione
+   piu' a destra invece che fra le sezioni. */
+html[dir="rtl"] #popup-window .section { margin-right: 0; margin-left: 1.5rem; }
+html[dir="rtl"] #popup-window .section:last-child,
+html[dir="rtl"] #popup-window .sections-row .section:last-child { margin-left: 0; }
+/* export-format-row (D2, markup nuovo): text-align:left esplicito, non e' un allineamento
+   automatico -- va specchiato a destra in RTL. */
+html[dir="rtl"] .export-format-row { text-align: right; }
+/* export-actions #close-export-btn (D2): order:-1 + margin-right:auto isola Close sul lato
+   "start" (sinistra in LTR). In RTL "start" diventa destra: order:-1 lo mette gia' per primo
+   nel flusso (che ora parte da destra), ma il margine "auto" va spostato a sinistra
+   (margin-left:auto) -- altrimenti lo spazio libero si accumula nel punto sbagliato e Close
+   finisce appiccicato agli altri due pulsanti invece di restare isolato. */
+html[dir="rtl"] .export-actions #close-export-btn { margin-right: 0; margin-left: auto; }
+@media (max-width: 640px) {
+  /* sotto i 640px .export-actions diventa flex-direction:column (impilato): l'asse
+     principale e' verticale e NON si specchia mai con dir="rtl" (solo l'asse inline lo fa),
+     quindi qui il trucco margin/auto va disattivato come nella regola mobile LTR gia'
+     esistente (riga ~1770), altrimenti margin-left:auto sopra disallineerebbe il pulsante
+     sull'asse trasversale invece di lasciarlo a larghezza piena. */
+  html[dir="rtl"] #export-popup #close-export-btn { margin-left: 0; order: 2; }
+}
+
+/* -- Punto 5 (Menu contestuale): le scorciatoie da tastiera (margin-left:auto) citate nel
+   piano NON risultano implementate in .ctx-item (nessun elemento scorciatoia nel
+   markup/JS, verificato in interaction.js/showContextMenu) -- punto non applicabile cosi'
+   com'e' descritto. Trovato pero' un problema fisico reale: text-align:left esplicito su
+   ogni voce del menu (icona+testo), da specchiare per l'arabo. */
+html[dir="rtl"] .ctx-item { text-align: right; }
+
+/* -- Punto 6 (Console): agganciata gia' ok (fix precedenti qui sopra). Novita': il bordo
+   dell'errore nel log (accento decorativo) e il gap fra titolo e X nella titlebar mobile
+   (stesso bug di margine fisico dei punti sopra). Maniglie .tg-rz e barre
+   cardbar/bottombar sono gia' flex/simmetriche: si specchiano da sole, verificato. */
+html[dir="rtl"] #console-output p.error { border-left: none; border-right: 4px solid var(--console-error-color, #ff5252); }
+html[dir="rtl"] #console-popup:not(.docked) #console-titlebar .console-x { margin-left: 0; margin-right: 0.5rem; }
+
+/* -- Punto 7 (Zoom controls): gia' corretto (fix esistente qui sopra) sia lato CSS
+   (html[dir="rtl"] #zoom-controls) sia lato JS -- updateZoomOffset() in execute.js calcola
+   solo una LARGHEZZA (agnostica rispetto alla direzione), riusata identica da entrambi i
+   lati via --zoom-right. Verificato, nessun fix aggiuntivo necessario. */
+
+/* -- Punto 8 (Canvas): il GRAFO resta volutamente LTR anche in arabo (i diagrammi di
+   flusso non si specchiano) -- SCELTA CONFERMATA e ora imposta esplicitamente, non solo
+   "per assenza di regole": senza questa dichiarazione #canvas-container erediterebbe
+   direction:rtl da <html dir="rtl">, e layout.js/centerGraph() fa
+   Math.max(0, Math.min(maxScroll, newScrollLeft)) assumendo la semantica standard
+   scrollLeft 0..maxScroll -- con direction:rtl ereditato, scrollLeft in Chrome/Firefox parte
+   invece da 0 e scende fino a -maxScroll, il che avrebbe rotto silenziosamente il
+   centraggio/pan del grafo in arabo. Risolve anche il Punto 11 (scrollbar orizzontale del
+   canvas): la barra resta ancorata alla stessa semantica LTR indipendentemente dalla lingua.
+   Le etichette V/F e True/False (rendering.js, LOOP_LABELS) sono lettere latine fisse, MAI
+   tradotte: nessun problema di leggibilita' in arabo. */
+#canvas-container, #canvas { direction: ltr; }
+
+/* -- Punto 9 (Shepherd): i placement (on:'left'/'right'/...) passati a Shepherd/Floating-UI
+   sono fisici e NON vengono ri-orientati automaticamente da dir="rtl". Il caso piu' a
+   rischio e' lo step 'run' del tour principale (tutorial.js: attachTo su #terminal-reopen
+   con on:'left') -- in arabo #terminal-reopen si sposta gia' sul bordo sinistro reale dello
+   schermo (fix Punto 2/6 preesistente), quindi il tooltip potrebbe provare ad aprirsi
+   ULTERIORMENTE a sinistra e uscire dalla viewport. Floating-UI (motore di Shepherd) ha il
+   middleware "flip" attivo di default che dovrebbe auto-correggere a runtime, ma non e'
+   verificabile staticamente (dipende dallo spazio libero a video) -- RIMANDATO, richiede una
+   prova visiva in arabo (vedi checklist "da provare a mano"). Se la prova mostra overflow, il
+   fix e' un cambio JS mirato (gating document.documentElement.dir==='rtl' su quello step
+   specifico), non CSS. */
+
+/* -- Punto 10 (Footer/privacy/cookies/manual): #credits-section/#footer-links sono
+   centrati/simmetrici (text-align:center, justify-content:center): nessun fix necessario.
+   privacy.html e cookies.html sono pagine STATICHE standalone (lang="en" fisso, verificato:
+   nessun meccanismo applyLanguage/dir al loro interno) -- non seguono MAI la lingua
+   dell'app, quindi l'RTL non si applica per costruzione (N/A, non e' un bug). manual.html
+   non esiste ancora (WP-D5 non eseguito) -- punto RIMANDATO, da riverificare dopo WP-D5. */
+
+/* -- Punto 11 (Scrollbar orizzontale custom del canvas): risolto dal fix del Punto 8
+   (direction:ltr esplicito su #canvas-container) -- lo stile ::-webkit-scrollbar resta
+   invariato (e' solo estetica), cio' che andava fissato era la SEMANTICA (quale bordo e' lo
+   zero, verso dove scorre) che ora e' sempre LTR indipendentemente dalla lingua. */
+
+/* -- Punto 12 (Overflow/ellipsis testi arabi): nessuna regola text-overflow/ellipsis in
+   tutto il file (verificato) -- pulsanti/etichette usano larghezza flessibile o vanno a capo
+   naturalmente, nessun testo puo' finire tagliato invisibilmente. I pulsanti della palette
+   con forma SVG decorativa (blk-diamond/blk-hex/blk-parallelogram) hanno padding tarato
+   sulla forma: con etichette arabe piu' lunghe potrebbero apparire piu' "stretti" (non
+   tagliati, solo meno ariosi) -- da controllare a vista, aggiunto alla checklist manuale;
+   nessuna regola CSS da correggere identificata. */
 
 /* ---- Pulsanti SOLO-icona di toolbar e terminale (Ismail 2026-07-09) ---- */
 #toolbar .tb-icon {
@@ -2622,7 +3085,7 @@ body.dark-mode .term-btn { background: rgba(201,169,250,0.14); color: #c9a9fa; b
 body.dark-mode .term-btn:hover, body.dark-mode .term-btn.is-mobile { background: #7c3aed; color: #fff; }
 
 /* Zoom carattere: STESSO stile tondo del canvas, ma ORIZZONTALE e SENZA contenitore colorato */
-#console-zoom { display: inline-flex; flex-direction: row; gap: 6px; background: none; padding: 0; }
+#console-zoom { display: inline-flex; flex-direction: row; gap: 1px; background: none; padding: 0; }
 #console-zoom button {
   width: 34px; height: 34px; border: none; border-radius: 50%;
   background: var(--primary); color: #fff; font-size: 0.95rem; font-weight: 700; line-height: 1;
@@ -2658,14 +3121,14 @@ body.dark-mode .term-icon.is-mobile { background: #7c3aed; color: #fff; }
 }
 #block-help-popup.active { display: flex; }
 .bh-head { display: flex; align-items: center; gap: 0.6rem; }
-.bh-head h3 { margin: 0; flex: 1 1 auto; color: var(--primary); font-size: 1.1rem; }
+.bh-head h3 { margin: 0; flex: 1 1 auto; color: var(--primary); font-size: 1.1rem; overflow-wrap: break-word; }
 .bh-head .x-close { position: static; flex: 0 0 auto; }
 .bh-qmark {
   flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--primary); color: #fff; font-weight: 800; font-size: 1.05rem;
 }
-#block-help-desc { margin: 0.2rem 0 0; font-size: 0.94rem; line-height: 1.55; }
+#block-help-desc { margin: 0.2rem 0 0; font-size: 0.94rem; line-height: 1.55; overflow-wrap: break-word; }
 body.dark-mode #block-help-popup { background: #241f38; color: #e8e6f0; border-color: #7c3aed; }
 body.dark-mode .bh-head h3 { color: #c9a9fa; }
 
@@ -2714,7 +3177,10 @@ body.dark-mode #variabiliLabel { background: rgba(201,169,250,0.1); border-color
 .var-del:active { transform: scale(0.9); }
 /* la riga template vuota (ultima) non mostra il pulsante elimina */
 #tabVariabili tr:last-child .var-del { visibility: hidden; }
-body.dark-mode .var-del { color: #ff8a80; }
+/* R12-E/E4 (Ismail 2026-07-11): override dark-mode rimosso -- era un patch a #ff8a80 per
+   sopperire a --if-false-color senza variante dark-mode (bassa leggibilita' su sfondo scuro).
+   Ora body.dark-mode ridefinisce --if-false-color direttamente (vedi vicino a :root, sopra
+   nel file): questa regola la eredita gia' correttamente da var(--if-false-color) sopra. */
 
 /* Rilievo 14: rimuovi la scrollbar della tabella variabili (resta scrollabile a rotellina) */
 #sidebar { scrollbar-width: none; }
@@ -2732,7 +3198,8 @@ body.dark-mode .var-del { color: #ff8a80; }
   box-shadow: 0 16px 44px rgba(0,0,0,0.3);
 }
 #draw-output-head { border-radius: 12px 12px 0 0; }
-#draw-output-head .x-close { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
+#draw-output-head .x-close { width: var(--tg-head-btn, 26px); height: var(--tg-head-btn, 26px); display: inline-flex; align-items: center; justify-content: center; } /* FIX #35: scala col pannello */
+#draw-output-head .x-close svg { width: calc(var(--tg-head-btn, 26px) * 0.58); height: calc(var(--tg-head-btn, 26px) * 0.58); }
 #draw-output-head .x-close svg { display: block; }
 /* area scrollabile della tela: overflow auto -> scrollbar V + H come nel canvas principale */
 #draw-scroll {
@@ -2743,7 +3210,7 @@ body.dark-mode .var-del { color: #ff8a80; }
 #draw-scroll::-webkit-scrollbar-track { background: color-mix(in srgb, var(--primary) 10%, transparent); border-radius: 6px; }
 #draw-scroll::-webkit-scrollbar-thumb { background: var(--primary, #6200ea); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; min-width: 26px; min-height: 26px; }
 #draw-scroll::-webkit-scrollbar-thumb:hover { background: var(--primary-dark, #3700b3); background-clip: content-box; }
-#draw-canvas-stack { margin: 0; }
+#draw-canvas-stack { margin: 0 auto; } /* FIX #27: centrato come il canvas principale quando piu' piccolo dell'area scrollabile */
 body.dark-mode #draw-scroll { background: #14111f; scrollbar-color: #7c3aed rgba(255,255,255,0.08); }
 body.dark-mode #draw-scroll::-webkit-scrollbar-thumb { background: #7c3aed; background-clip: content-box; }
 /* controlli zoom del disegno: stessi tondi del canvas principale, in basso a destra */
@@ -2821,6 +3288,53 @@ body.dark-mode .settings-themebtn { color: #c9a9fa; border-color: #4a4066; }
 .value-cell .var-del { flex: 0 0 auto; }
 #tabVariabili td { min-width: 0; }
 
+/* FIX v2 (Ismail 2026-07-10): la tabella e' table-layout:fixed con th/td a 33.333% fissi
+   (vedi regola base "th, td"), quindi NON si adattano da soli quando il testo del Tipo si
+   abbrevia (table-layout:fixed ignora il contenuto). Quando la sidebar e' stretta, JS
+   aggiunge .tab-narrow su #tabVariabili (vedi updateVarTypeOptions in variables.js): qui si
+   ridistribuiscono le colonne, togliendo spazio a Tipo (che ora mostra solo Int/Flo/Str) e
+   dandolo a Valore, cosi' il campo valore + la X restano leggibili e cliccabili. */
+#tabVariabili.tab-narrow th:nth-child(1), #tabVariabili.tab-narrow td:nth-child(1) { width: 30%; }
+#tabVariabili.tab-narrow th:nth-child(2), #tabVariabili.tab-narrow td:nth-child(2) { width: 20%; }
+#tabVariabili.tab-narrow th:nth-child(3), #tabVariabili.tab-narrow td:nth-child(3) { width: 50%; }
+
+/* ============================================================================
+   R13-L (Ismail 2026-07-12): popover di editing per valori LUNGHI (pensato per String, ma
+   funziona per ogni tipo) -- doppio click sulla cella Valore lo apre (variables.js). UN
+   elemento condiviso (mai uno per riga), ancorato SOPRA la riga cliccata (JS: top calcolato
+   da getBoundingClientRect), larghezza piena del contenitore tabella = larghezza sidebar.
+   Proprieta' LOGICHE (inset-inline, non left/right fisici): gia' RTL-safe by construction,
+   a differenza del codice preesistente del terminale mobile (vedi R13-I sopra, che lavora
+   in proprieta' fisiche e per quello ha bisogno di regole dir=rtl gemelle) -- qui non serve.
+   ============================================================================ */
+#var-value-popover {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 40;
+  background: var(--surface, #fff);
+  border: 1.5px solid var(--primary, #6200ea);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+  padding: 0.6rem 0.7rem 0.5rem;
+  box-sizing: border-box;
+}
+#var-value-popover[hidden] { display: none; }
+#var-value-popover-textarea {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow-y: auto;
+  min-height: 2.4rem; max-height: 240px;
+  font-family: inherit; font-size: 0.86rem; line-height: 1.4;
+  border: 1px solid var(--border, #d1c4e9); border-radius: 7px;
+  padding: 0.4rem 0.55rem; color: var(--text, #2c2338); background: #fff;
+}
+#var-value-popover-textarea:focus { outline: none; border-color: var(--primary, #6200ea); }
+#var-value-popover-textarea[readonly] { background: color-mix(in srgb, var(--primary) 6%, #fff); cursor: default; }
+.var-value-popover-hint { margin-top: 0.35rem; font-size: 0.7rem; color: var(--text, #2c2338); opacity: 0.6; }
+body.dark-mode #var-value-popover { background: #241f38; border-color: #7c3aed; }
+body.dark-mode #var-value-popover-textarea { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+body.dark-mode #var-value-popover-textarea[readonly] { background: rgba(255,255,255,0.05); }
+body.dark-mode .var-value-popover-hint { color: #e8e6f0; }
+
 
 /* ============================================================================
    Console stile "scheda" (schizzo Ismail, 2026-07-09g): output come CARD bianca su pannello
@@ -2847,3 +3361,416 @@ body.dark-mode .term-badge { background: #241f38; color: #c9a9fa; }
 body.dark-mode .term-badge:hover { background: #7c3aed; color: #fff; }
 /* pannello leggermente piu' ariato attorno alla card */
 #console-popup.docked { padding: 0.7rem 0.8rem 1.1rem 0.8rem; }
+/* ============================================================================
+   FIX #23 + #29 (Ismail 2026-07-10): controlli del terminale MINIMALI (nessun contenitore
+   colorato attorno alle icone) e header "Console" con lo STESSO stile della testata della
+   tabella VARIABLES (#variabiliLabel, 2140). In fondo al file: vincono per ordine sorgente.
+   ============================================================================ */
+/* -- 29: header Console = testata VARIABLES (testo primario uppercase, bordo sotto, no barra piena) -- */
+#console-titlebar {
+  background: transparent; color: var(--primary);
+  border-bottom: 1px solid var(--border, #d1c4e9);
+  border-radius: 0; padding: 0.15rem 0.2rem 0.5rem;
+}
+#console-popup.docked #console-titlebar,
+#console-popup:not(.docked) #console-titlebar { margin: 0 0 0.5rem 0; }
+#console-title { color: var(--primary); font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+#console-titlebar .console-x { position: static; background: transparent; color: var(--primary); box-shadow: none; }
+#console-titlebar .console-x:hover { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+body.dark-mode #console-titlebar { background: transparent; color: #c9a9fa; border-bottom-color: #4a4066; }
+body.dark-mode #console-title { color: #c9a9fa; }
+body.dark-mode #console-titlebar .console-x { color: #c9a9fa; }
+body.dark-mode #console-titlebar .console-x:hover { background: rgba(201,169,250,0.18); }
+
+/* -- MOBILE (Ismail 2026-07-10): titlebar = solo testo "Console" + X dedicata a destra.
+   Niente caret (ha senso solo per il pannello agganciato "a fisarmonica"); l'intera barra
+   NON chiude piu' al click (si trascina per spostare la finestra), solo la X lo fa --
+   vedi onConsoleTitlebarClick() in execute.js. -- */
+#console-popup:not(.docked) #console-titlebar { display: flex; align-items: center; justify-content: space-between; }
+#console-popup:not(.docked) #console-titlebar .console-caret { display: none; }
+#console-popup:not(.docked) #console-titlebar .console-x { position: static; margin-left: 0.5rem; }
+#console-popup.docked #console-titlebar .console-x { display: none; }
+
+/* R13-I (Ismail 2026-07-12): titlebar mobile SENZA la riga sotto (ha senso solo nel pannello
+   docked, dove imita la testata di #variabiliLabel -- qui e' una finestra flottante autonoma,
+   quella riga era un residuo del clone di stile). Titolo/X leggermente piu' in basso, piu'
+   vicini al contenuto sotto (meno margine in fondo alla barra). Scoped a :not(.docked): il
+   docked (border-bottom + padding di riga 3316-3317) resta invariato. */
+#console-popup:not(.docked) #console-titlebar {
+  border-bottom: none;
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
+  margin-bottom: 0.35rem;
+}
+
+/* -- 23: badge ? e scarica-log MINIMALI (niente cerchio colorato ne' ombra) -- */
+.term-badge {
+  background: transparent; border: none; box-shadow: none; color: var(--primary);
+  border-radius: 8px; opacity: 0.75;
+}
+.term-badge:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); opacity: 1; }
+body.dark-mode .term-badge { background: transparent; color: #c9a9fa; }
+body.dark-mode .term-badge:hover { background: rgba(201,169,250,0.18); color: #c9a9fa; }
+
+/* -- 23: zoom carattere +/-/reset MINIMALI (niente cerchio pieno viola ne' ombra) -- */
+#console-zoom button {
+  background: transparent; color: var(--primary); border: none; box-shadow: none;
+  border-radius: 8px; box-sizing: border-box; padding: 0; margin: 0;
+  width: 30px; height: 30px; opacity: 0.8;
+}
+#console-zoom button:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); transform: none; opacity: 1; }
+#console-zoom button:active { transform: scale(0.92); }
+body.dark-mode #console-zoom button { color: #c9a9fa; }
+body.dark-mode #console-zoom button:hover { background: rgba(201,169,250,0.18); color: #c9a9fa; }
+
+/* -- 23: mobile toggle (doppia freccia) coerente, senza ombra -- */
+.term-icon { box-shadow: none; }
+/* FIX (Ismail 2026-07-10): il tasto "torna a colonna" (#console-mobile-toggle) deve avere lo
+   STESSO colore fisso e la STESSA dimensione dei tasti zoom (niente contorno, niente sfondo
+   "acceso" quando attivo/is-mobile -- quello e' proprio cio' che rendeva il colore "variabile"
+   invece che fisso). Specificita' da ID: vince su .term-icon/.is-mobile qui sopra. */
+#console-mobile-toggle {
+  background: transparent !important; border: none !important; box-shadow: none !important;
+  border-radius: 8px; width: 30px; height: 30px; color: var(--primary); opacity: 0.8;
+}
+#console-mobile-toggle:hover { background: color-mix(in srgb, var(--primary) 12%, transparent) !important; color: var(--primary); opacity: 1; }
+#console-mobile-toggle:active { transform: scale(0.92); }
+body.dark-mode #console-mobile-toggle { color: #c9a9fa; }
+body.dark-mode #console-mobile-toggle:hover { background: rgba(201,169,250,0.18) !important; color: #c9a9fa; }
+
+/* ============================================================================
+   Terminale — riorganizzazione + restyle (Ismail 2026-07-10)
+   - "cancella contenuto" accanto al download (cluster badge in alto a destra);
+   - zoom carattere + toggle mobile su una BARRA BIANCA in fondo (parte bianca);
+   - ripulita estetica: superfici coerenti (var --surface/--border), raggi uniformi.
+   Usa le variabili di tema -> resta coerente su tutti gli 8 temi + dark mode.
+   ============================================================================ */
+/* cluster in alto a destra: download + cancella-contenuto, in fila */
+.term-badges-right { position: absolute; top: 8px; right: 8px; z-index: 3; display: inline-flex; gap: 6px; }
+.term-badges-right .term-badge { position: static; top: auto; right: auto; left: auto; }
+
+/* barra inferiore = footer BIANCO (parte bianca in fondo) con zoom + toggle mobile */
+#console-popup.docked #console-bottombar {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e6e1f5);
+  border-radius: 11px;
+  padding: 5px 8px;
+  margin-top: 0.55rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+body.dark-mode #console-popup.docked #console-bottombar { background: #17131f; border-color: #332b52; }
+
+/* superfici coerenti: output card e input con lo stesso linguaggio del footer */
+#console-popup.docked #console-output { border: 1px solid var(--border, #e6e1f5); border-radius: 12px; }
+#console-popup.docked #console-input { border-radius: 9px; }
+#console-popup.docked #console-send { border-radius: 9px; }
+#console-popup.docked #console-input-section { margin-top: 0.45rem; }
+#console-popup.docked { gap: 0.5rem; }
+
+/* ============================================================================
+   Terminale — REDESIGN v2 (Ismail 2026-07-10): card unica bianca (toolbar allineata
+   in cima + log), input bianco, FOOTER BIANCO in fondo con zoom + mobile. Bianco
+   ESPLICITO (#fff) come l'output, non var(--surface) che nel tema non e' bianco.
+   ============================================================================ */
+/* La card = toolbar (cardbar) + log: un unico blocco bianco, bordo e raggio uniformi */
+#console-popup.docked #console-outwrap {
+  position: relative; flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  background: #fff; border: 1px solid var(--border, #e3ddf3);
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+/* Toolbar in cima alla card: ? a sinistra, download + cancella a destra, allineati */
+#console-cardbar {
+  display: flex; align-items: center; gap: 0px; flex: 0 0 auto;
+  padding: 5px 7px; border-bottom: 1px solid var(--border, #efeaf9);
+  background: #fff;
+}
+.cardbar-spacer { flex: 1 1 auto; }
+/* Dimensione ORIGINALE 28x28 (icona invariata) — l'UNICA cosa che cambia e' che ora
+   e' in border-box con padding:0, cosi' sparisce il padding di DEFAULT del browser sui
+   <button> che si sommava SOPRA i 28px e gonfiava il riquadro/hover oltre il dichiarato.
+   L'avvicinamento fra i pulsanti lo fa SOLO il gap:0 su #console-cardbar qui sopra. */
+#console-cardbar .term-badge {
+  position: static; top: auto; right: auto; left: auto;
+  box-sizing: border-box; padding: 0; margin: 0;
+  width: 28px; height: 28px;
+}
+/* Log: dentro la card, senza bordo/ombra/radius propri e senza il vecchio padding-top per i badge */
+#console-popup.docked #console-outwrap #console-output {
+  border: none; border-radius: 0; box-shadow: none; margin: 0;
+  padding: 0.6rem 0.85rem; flex: 1 1 auto; min-height: 0; background: #fff;
+}
+/* Input: bianco, coerente */
+#console-popup.docked #console-input { background: #fff; border: 1px solid var(--border, #e3ddf3); border-radius: 9px; }
+#console-popup.docked #console-send { border-radius: 9px; }
+#console-popup.docked #console-input-section { margin-top: 0.5rem; gap: 0.45rem; }
+/* Footer BIANCO in fondo: zoom (dx) + toggle mobile (sx), appoggiati sul bianco */
+#console-popup.docked #console-bottombar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fff; border: 1px solid var(--border, #e3ddf3);
+  border-radius: 11px; padding: 4px 8px; margin-top: 0.5rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+/* Pannello: cornice piu' pulita e neutra attorno alle card bianche */
+#console-popup.docked { gap: 0.5rem; padding: 0.7rem 0.75rem 0.9rem 0.75rem; }
+
+/* Dark mode: superfici scure coerenti al posto del bianco */
+body.dark-mode #console-popup.docked #console-outwrap,
+body.dark-mode #console-cardbar,
+body.dark-mode #console-popup.docked #console-outwrap #console-output,
+body.dark-mode #console-popup.docked #console-input,
+body.dark-mode #console-popup.docked #console-bottombar { background: #17131f; border-color: #332b52; }
+body.dark-mode #console-cardbar { border-bottom-color: #332b52; }
+/* outwrap sempre in colonna (cardbar sopra, log sotto) anche da flottante */
+#console-outwrap { flex-direction: column; }
+
+/* ============================================================================
+   FIX (Ismail 2026-07-10): il terminale MOBILE (flottante, sganciato) non riceveva
+   nessuna delle regole "card" applicate al terminale agganciato (padding/gap del
+   pannello, card outwrap con bordo+raggio, footer bottombar) -- risultato: gli stessi
+   pulsanti (term-badge, zoom, mobile-toggle) finivano in posizioni/spaziature diverse
+   fra le due modalita'. Lo sfondo del popup flottante e' in realta' CHIARO (gradiente
+   lavanda chiaro, vedi "TASK 7" sopra), non scuro: qui si replica la stessa identica
+   struttura/spaziatura/palette BIANCA del terminale agganciato (le vecchie regole che
+   assumevano uno sfondo scuro per la cardbar erano scorrette e sono state rimosse).
+   ============================================================================ */
+#console-popup:not(.docked) { padding: 0.7rem 0.75rem 0.9rem 0.75rem; gap: 0.5rem; }
+#console-popup:not(.docked) #console-cardbar { background: #fff; border-bottom-color: var(--border, #e3ddf3); }
+#console-popup:not(.docked) #console-cardbar .term-badge { color: var(--primary); }
+#console-popup:not(.docked) #console-outwrap {
+  background: #fff; border: 1px solid var(--border, #e3ddf3);
+  border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+#console-popup:not(.docked) #console-outwrap #console-output {
+  border: none; border-radius: 0; box-shadow: none; margin: 0;
+  padding: 0.6rem 0.85rem; background: #fff;
+}
+#console-popup:not(.docked) #console-input { background: #fff; border-radius: 9px; }
+#console-popup:not(.docked) #console-send { border-radius: 9px; }
+/* FIX (Ismail 2026-07-10): mancava il padding orizzontale della barra input (presente nel
+   terminale agganciato): senza, la casella riempiva tutto e Invia toccava il bordo destro.
+   Col padding la casella si restringe un po' e Invia si sposta verso sinistra, coerente
+   con la barra fissa. */
+#console-popup:not(.docked) #console-input-section { margin-top: 0.5rem; gap: 0.45rem; padding: 0 9px 0; }
+#console-popup:not(.docked) #console-bottombar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fff; border: 1px solid var(--border, #e3ddf3);
+  border-radius: 11px; padding: 4px 8px; margin-top: 0.5rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+/* FIX (Ismail 2026-07-10): input e pulsanti finivano appoggiati proprio sul bordo
+   arrotondato inferiore della card bianca -- un filo di respiro in fondo alla card
+   (dopo la barra input) li fa stare "dentro" al bianco invece che a ridosso del bordo. */
+#console-popup:not(.docked) #console-outwrap { padding-bottom: 0.55rem; }
+
+/* ============================================================================
+   FIX (Ismail 2026-07-10): il terminale mobile ora ha una dimensione fissa (non piu'
+   "auto" in base all'output, vedi sopra) e si ridimensiona a mano dalle 8 maniglie.
+   Scritta "Console" e pulsanti (badge/zoom/mobile-toggle) devono scalare CON quel
+   ridimensionamento -- non restare della stessa dimensione qualunque sia la finestra
+   -- stessa idea gia' usata per il titolo del pannello tartaruga che segue lo zoom.
+   --console-scale e' impostata dal JS di resize (execute.js), 1 = dimensione di default.
+   ============================================================================ */
+#console-popup:not(.docked) #console-title { font-size: calc(0.76rem * var(--console-scale, 1)); }
+#console-popup:not(.docked) #console-titlebar .console-x { width: calc(30px * var(--console-scale, 1)); height: calc(30px * var(--console-scale, 1)); font-size: calc(1.35rem * var(--console-scale, 1)); }
+#console-popup:not(.docked) .term-badge { width: calc(28px * var(--console-scale, 1)); height: calc(28px * var(--console-scale, 1)); }
+#console-popup:not(.docked) .term-badge svg { width: calc(15px * var(--console-scale, 1)); height: calc(15px * var(--console-scale, 1)); }
+#console-popup:not(.docked) #console-zoom button { width: calc(30px * var(--console-scale, 1)); height: calc(30px * var(--console-scale, 1)); font-size: calc(1.15rem * var(--console-scale, 1)); }
+#console-popup:not(.docked) #console-mobile-toggle { width: calc(30px * var(--console-scale, 1)); height: calc(30px * var(--console-scale, 1)); }
+#console-popup:not(.docked) #console-mobile-toggle svg { width: calc(17px * var(--console-scale, 1)); height: calc(17px * var(--console-scale, 1)); }
+
+/* Bottombar ORA dentro la card bianca (in fondo, sotto il log): niente barra separata,
+   solo un bordo superiore che la stacca dal log. Sfondo trasparente -> eredita il bianco
+   della card (docked) o lo scuro (dark/flottante). Vince per specificita' (3 ID). */
+#console-popup #console-outwrap #console-bottombar {
+  background: transparent; border: none; border-top: 1px solid var(--border, #efeaf9);
+  border-radius: 0; box-shadow: none; margin: 0;
+  padding: 6px 9px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+}
+body.dark-mode #console-popup #console-outwrap #console-bottombar { border-top-color: #332b52; }
+
+/* ============================================================================
+   Terminale (Ismail 2026-07-10): chiusura a FRECCIA (come le Variabili ma verso >),
+   input+Invia PIU' GRANDI e uniti dentro la card, sopra i tasti mobile/zoom.
+   ============================================================================ */
+/* Caret di chiusura al posto della X: chevron ">" (le Variabili usano "<": lato opposto) */
+.console-caret {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--primary); font-size: 1.5rem; font-weight: 800; line-height: 1;
+  padding: 0 6px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px; transition: background 0.15s ease, transform 0.12s ease;
+}
+.console-caret:hover { background: color-mix(in srgb, var(--primary) 13%, transparent); }
+.console-caret:active { transform: scale(0.9); }
+body.dark-mode .console-caret { color: #c9a9fa; }
+body.dark-mode .console-caret:hover { background: rgba(201,169,250,0.18); }
+
+/* Input + Invia uniti nella card, piu' grandi, separati dal log da un bordo sopra */
+#console-popup.docked #console-input-section {
+  margin: 0; padding: 8px 9px; gap: 8px; flex: 0 0 auto;
+  background: transparent; border-top: 1px solid var(--border, #efeaf9);
+}
+#console-popup.docked #console-input {
+  padding: 0.62rem 0.85rem; font-size: 0.95rem; border-radius: 10px;
+  border: 1px solid var(--border, #e3ddf3);
+}
+#console-popup.docked #console-input.active { background: #fff; }
+#console-popup.docked #console-send {
+  padding: 0.62rem 1.15rem; font-size: 0.92rem; font-weight: 700; border-radius: 10px;
+}
+body.dark-mode #console-popup.docked #console-input-section { border-top-color: #332b52; }
+
+/* ============================================================================
+   Header terminale = STESSO stile/dimensioni del bar VARIABILI (#variabiliLabel):
+   pill a tutta larghezza, sfondo primary 8%, bordo primary 20%, radius 10px, testo
+   uppercase primary. Cliccabile per chiudere (come il bar Variabili). Caret ">" = lato
+   opposto rispetto al "<" delle Variabili. Ultimo nel file -> vince.
+   ============================================================================ */
+#console-popup.docked #console-titlebar {
+  display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+  width: 100%; box-sizing: border-box; cursor: pointer;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0 0 0.5rem 0;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+#console-popup.docked #console-titlebar:hover { background: color-mix(in srgb, var(--primary) 16%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+#console-popup.docked #console-title { font-weight: 700; letter-spacing: 0.06em; font-size: 0.76rem; text-transform: uppercase; color: var(--primary); }
+/* Caret come #variabili-caret: chevron piccolo, nessun contenitore */
+.console-caret { display: inline-block; font-size: 0.95em; font-weight: 800; opacity: 0.8; color: var(--primary); background: transparent; border: none; padding: 0; line-height: 1; }
+#console-popup.docked #console-titlebar:hover .console-caret { opacity: 1; }
+body.dark-mode #console-popup.docked #console-titlebar { background: rgba(201,169,250,0.1); border-color: rgba(201,169,250,0.25); }
+body.dark-mode #console-title, body.dark-mode .console-caret { color: #c9a9fa; }
+
+/* Fix header terminale (Ismail 2026-07-10): niente scrollbar del PANNELLO (spingeva la pill
+   contro il bordo destro -> margini asimmetrici); ora margini simmetrici come VARIABILI. Il log
+   scorre comunque per conto suo. Via anche la lineetta sopra zoom/mobile. */
+#console-popup.docked { overflow: hidden; }
+.console-caret { font-size: 0.9em; }
+/* niente bordo sopra la barra mobile/zoom */
+#console-popup #console-outwrap #console-bottombar { border-top: none; }
+
+/* ============================================================================
+   Header terminale = CLONE ESATTO di #variabiliLabel (stesse identiche dichiarazioni di
+   2140 + 2703), solo specchiato (caret ">" a destra). Il font sta sulla PILL e il testo lo
+   EREDITA, come nel bar Variabili -> impossibile che risultino di dimensione diversa.
+   ============================================================================ */
+#console-popup.docked #console-titlebar {
+  display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+  font-weight: 700; letter-spacing: 0.06em; font-size: 0.76rem; text-transform: uppercase;
+  color: var(--primary); text-align: center;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0 0 0.5rem 0;
+  width: 100%; box-sizing: border-box; cursor: pointer;
+}
+#console-popup.docked #console-titlebar:hover { background: color-mix(in srgb, var(--primary) 16%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+/* il testo eredita TUTTO dalla pill (come lo span dentro #variabiliLabel) */
+#console-popup.docked #console-title { font: inherit; font-size: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+/* caret identico a #variabili-caret ma verso ">" */
+#console-popup.docked .console-caret { font-size: 0.9em; opacity: 0.8; font-weight: inherit; color: inherit; background: transparent; border: none; padding: 0; display: inline-block; line-height: 1; }
+body.dark-mode #console-popup.docked #console-titlebar { background: rgba(201,169,250,0.1); border-color: rgba(201,169,250,0.25); color: #c9a9fa; }
+
+/* ============================================================================
+   FIX DEFINITIVO v3 (Ismail 2026-07-10): trovato il VERO motivo per cui Console
+   risultava piu' piccolo/meno "pesante" di Variabili nonostante 5 round di
+   tentativi precedenti (tutti #variabiliLabel {font-size:0.76rem; weight:700;
+   color:var(--primary)}): quei tentativi NON hanno MAI vinto la cascata.
+   #sidebar label (riga ~1063, specificita' 1 ID + 1 TYPE) e' PIU' specifica di
+   #variabiliLabel da solo (1 ID, 0 type) — e in CSS la specificita' vince
+   sempre sull'ordine nel file. Quindi #variabiliLabel (che e' un <label>) ha
+   SEMPRE renderizzato con i valori di #sidebar label: font-size:1.05em (~16.8px,
+   piu' grande di 0.76rem=12.16px -> Variabili piu' grande), font-weight:600
+   (meno di 700), color:var(--primary-dark), margin-bottom:0.4em. Console invece
+   (un <div>, non un <label>) prendeva davvero 0.76rem/700 -> piu' piccolo di
+   Variabili ma con peso numerico piu' alto, che a dimensione minore si PERCEPISCE
+   pero' come "meno deciso/meno grassetto". Risultato netto = esattamente il
+   mismatch segnalato.
+   FIX: #console-titlebar ora copia i valori REALI (quelli vinti da #sidebar
+   label), non quelli "sulla carta" mai applicati. #variabiliLabel resta
+   intoccato, come richiesto. Il caret e il testo Console ereditano (inherit)
+   da qui, quindi seguono a cascata senza bisogno di toccarli uno per uno.
+   Resta anche il fix box-sizing (Console era border-box, Variabili content-box
+   di default -> stessa larghezza reale ora con content-box su entrambi).
+   Ultimo blocco nel file -> vince su tutte le regole Console precedenti.
+   ============================================================================ */
+#console-popup.docked #console-titlebar {
+  box-sizing: border-box;
+  width: calc(100% + 0.75rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--primary-dark);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: 10px 0 0 10px;
+  padding: 0.5rem 0.7rem;
+  margin: 0 0 0.4em 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+#console-popup.docked #console-titlebar:hover {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+#console-popup.docked .console-caret {
+  display: inline-block;
+  font-size: 0.9em;
+  font-weight: inherit;
+  color: inherit;
+  opacity: 0.8;
+  background: transparent;
+  border: none;
+  padding: 0;
+  line-height: 1;
+}
+#console-popup.docked #console-title { font: inherit; color: inherit; }
+body.dark-mode #console-popup.docked #console-titlebar {
+  background: rgba(201,169,250,0.1);
+  border-color: rgba(201,169,250,0.25);
+  color: #c9a9fa;
+}
+
+/* R13-I (Ismail 2026-07-12): caret della console docked in RTL. Il markup e' sempre
+   [testo, caret] (index.html) -- in LTR il caret "›" appare quindi DOPO il testo, dal lato
+   giusto. In RTL restava comunque appeso al lato/verso LTR (ne' l'ordine ne' il verso si
+   invertivano): row-reverse scambia l'ordine visivo (il caret, secondo figlio nel DOM, va
+   all'inizio -- a destra, il lato di lettura in arabo -- quindi PRIMA del testo), lo scaleX
+   ribalta il glifo così punta verso il testo (diventa visivamente "‹") invece di restare
+   orientato come in LTR. Specificita' (attributo+ID+2 classi) piu' alta della regola base
+   sopra: vince a prescindere dalla posizione nel file. */
+html[dir="rtl"] #console-popup.docked #console-titlebar { flex-direction: row-reverse; }
+html[dir="rtl"] #console-popup.docked .console-caret { transform: scaleX(-1); }
+
+/* ============================================================================
+   FIX v3 (Ismail 2026-07-10, da schizzo): pillola VARIABILI a FILO col bordo
+   sinistro della sidebar (niente spazio, niente arrotondamento a sinistra) e
+   arrotondata solo a destra, con uno spazio vuoto a destra ESATTAMENTE uguale
+   a quello della pillola Console (0.75rem, il padding-right del pannello
+   console — vedi #console-popup.docked sopra).
+   NOTA: serve box-sizing:border-box qui (di default #variabiliLabel e'
+   content-box), altrimenti il calcolo della larghezza sballa perche' padding
+   e bordo della pillola si sommerebbero SOPRA al valore di width invece di
+   starci dentro. Con border-box: width = 100% (contenuto sidebar) + 1.7rem
+   (i due padding da 0.85rem della sidebar, ora "recuperati" spostando la
+   pillola a filo a sinistra) - 0.75rem (lo spazio vuoto voluto a destra).
+   ============================================================================ */
+#variabiliLabel {
+  box-sizing: border-box;
+  margin-left: -0.85rem;
+  width: calc(100% + 0.95rem);
+  border-radius: 0 10px 10px 0;
+}
+

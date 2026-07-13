@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual — BaseFlow</title>
+<link rel="stylesheet" href="style.css?v=20260713f">
+<link rel="icon" type="image/png" href="img/icon.png">
+<script>
+  // Eredita tema/dark-mode E lingua/direzione dall'app, PRIMA che il DOM sia pronto (niente
+  // flash di contenuto nel tema/lingua sbagliati) -- stesse chiavi localStorage di theme.js/
+  // i18n.js (baseflow-theme, baseflow-lang / I18N_STORAGE_KEY), stesso meccanismo "eredita
+  // senza importare i moduli dell'app" gia' usato da privacy.html/cookies.html (WP-D5, piano
+  // round 11: "Leggi privacy.html PRIMA di iniziare e replica il meccanismo").
+  (function () {
+    try {
+      var t = localStorage.getItem('baseflow-theme') || 'light';
+      var lang = localStorage.getItem('baseflow-lang') || 'it'; // 'it' = default REALE di i18n.js (currentLang)
+      if (['it', 'en', 'ar', 'zh'].indexOf(lang) === -1) lang = 'it';
+      document.documentElement.setAttribute('lang', lang);
+      document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+      // R14-D (Ismail 2026-07-13): manuale IN-APP -- quando questa pagina e' dentro l'iframe
+      // #manual-iframe (index.html, apertura da #manual-btn), il link "torna a BaseFlow" non ha
+      // senso: navigherebbe l'IFRAME stesso via da manual.html, non l'app -- si chiude l'overlay
+      // con la X/Esc (closeManualOverlay, popups.js), non con questo link. Sincrono (prima di
+      // DOMContentLoaded, come lang/dir sopra) cosi' non c'e' un flash del link visibile prima
+      // che venga nascosto. window.self !== window.top e' il test standard, robusto anche per
+      // iframe innestati piu' volte (qui non serve, ma resta corretto).
+      try {
+        if (window.self !== window.top) document.documentElement.classList.add('in-iframe');
+      } catch (e) { /* accesso a window.top negato (cross-origin): qui e' same-origin, non capita */ }
+      document.addEventListener('DOMContentLoaded', function () {
+        var b = document.body.classList;
+        b.toggle('dark-mode', t === 'dark' || t === 'chalk' || t === 'neon');
+        ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (name) {
+          b.toggle('theme-' + name, t === name);
+        });
+      });
+    } catch (e) { /* localStorage non disponibile: restano i default (light, it) */ }
+  })();
+</script>
+<style>
+  /* WP-D5: layout dedicato del manuale. SOLO proprieta' LOGICHE (inline-start/end, non
+     left/right) cosi' la pagina e' RTL-corretta di natura, senza bisogno di un blocco
+     separato html[dir="rtl"] { ... } come nel resto dell'app (pattern piu' semplice,
+     possibile perche' qui il layout e' tutto nuovo -- vedi nota nel report). */
+  .man-wrap { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; color: var(--text, #2c2338); }
+  .man-topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    flex-wrap: wrap; margin-block-end: 1.5rem; padding-block-end: 1rem;
+    border-block-end: 1px solid var(--border, #d1c4e9);
+  }
+  .man-back {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    color: var(--primary); text-decoration: none; font-weight: 600; font-size: 0.92rem;
+  }
+  .man-back:hover { text-decoration: underline; }
+  .man-back .arrow::before { content: "\2190"; }
+  html[dir="rtl"] .man-back .arrow::before { content: "\2192"; }
+  /* R14-D (Ismail 2026-07-13): in-iframe aggiunta SINCRONA (script sopra, prima di
+     DOMContentLoaded) quando la pagina e' dentro #manual-iframe (index.html) -- il link
+     "torna a BaseFlow" viene nascosto, si chiude l'overlay con X/Esc invece. */
+  html.in-iframe .man-back { display: none; }
+  .man-title h1 { color: var(--primary-dark, var(--primary)); font-size: 1.6rem; margin: 0 0 0.15rem; }
+  .man-title p { margin: 0; font-size: 0.9rem; color: #6b6580; }
+  body.dark-mode .man-title p { color: #a89fc4; }
+  .man-lang { display: flex; align-items: center; gap: 0.5rem; }
+  .man-lang select {
+    padding: 0.35rem 0.6rem; border-radius: 0.4rem; border: 1px solid var(--border, #d1c4e9);
+    background: var(--surface, #fff); color: var(--text, #2c2338); font-size: 0.88rem;
+  }
+  .man-body { display: flex; gap: 2.5rem; align-items: flex-start; }
+  .man-toc {
+    flex: 0 0 220px; position: sticky; top: 1.25rem;
+    border-inline-start: 3px solid var(--border, #d1c4e9); padding-inline-start: 0.9rem;
+    font-size: 0.88rem;
+  }
+  .man-toc h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b6580; margin: 0 0 0.6rem; }
+  body.dark-mode .man-toc h2 { color: #a89fc4; }
+  .man-toc ol { list-style: none; margin: 0; padding: 0; counter-reset: none; }
+  .man-toc li { margin-block-end: 0.45rem; }
+  .man-toc a {
+    display: flex; align-items: baseline; gap: 0.5rem; color: var(--text, #2c2338);
+    text-decoration: none; padding: 0.2rem 0.3rem; border-radius: 0.35rem;
+  }
+  .man-toc a:hover { color: var(--primary); text-decoration: underline; }
+  .man-toc a.active { color: var(--primary); font-weight: 700; background: color-mix(in srgb, var(--primary) 9%, transparent); }
+  .man-toc .toc-num { opacity: 0.5; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .man-content { flex: 1 1 auto; min-width: 0; }
+  .man-chapter-hidden { display: none; }
+  .man-content section { margin-block-end: 1rem; scroll-margin-top: 1rem; }
+  .man-content h2 {
+    color: var(--primary); font-size: 1.3rem; margin: 0 0 0.9rem;
+    padding-block-end: 0.4rem; border-block-end: 1px solid var(--border, #d1c4e9);
+  }
+  .man-content h3 { font-size: 1.05rem; margin: 1.6rem 0 0.5rem; color: var(--primary-dark, var(--primary)); }
+  .man-content p { line-height: 1.65; font-size: 0.96rem; }
+  .man-content code {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border: 1px solid var(--border, #d1c4e9); border-radius: 0.3rem;
+    padding: 0.05rem 0.35rem; font-size: 0.88em; direction: ltr; unicode-bidi: isolate;
+  }
+  .man-content ul, .man-content ol.man-steps { padding-inline-start: 1.4rem; line-height: 1.65; font-size: 0.96rem; }
+  .man-steps li { margin-block-end: 0.5rem; }
+  table.man-table { border-collapse: collapse; width: 100%; margin: 0.7rem 0 1.1rem; font-size: 0.9rem; }
+  table.man-table th, table.man-table td {
+    border: 1px solid var(--border, #d1c4e9); padding: 0.5rem 0.65rem;
+    text-align: start; vertical-align: top;
+  }
+  table.man-table th { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary-dark, var(--primary)); }
+  .man-lbl-sub { display: block; font-weight: 400; opacity: 0.7; font-size: 0.85em; margin-block-start: 0.15em; }
+  .man-block { border: 1px solid var(--border, #d1c4e9); border-radius: 0.5rem; padding: 1rem 1.15rem; margin-block-end: 1.1rem; }
+  .man-block-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-block-end: 0.3rem; }
+  .man-block-head h3 { margin: 0; }
+  .man-callout {
+    border-inline-start: 3px solid var(--if-false-color, #c62828); background: color-mix(in srgb, var(--if-false-color, #c62828) 8%, transparent);
+    border-radius: 0.35rem; padding: 0.6rem 0.8rem; margin-block-start: 0.5rem; font-size: 0.92rem;
+  }
+  .man-note {
+    border-inline-start: 3px solid var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent);
+    border-radius: 0.35rem; padding: 0.6rem 0.8rem; margin-block-start: 0.5rem; font-size: 0.92rem;
+  }
+  .man-result {
+    border-inline-start: 3px solid #2e7d32; background: color-mix(in srgb, #2e7d32 8%, transparent);
+    border-radius: 0.35rem; padding: 0.6rem 0.8rem; margin-block-start: 0.8rem; font-size: 0.92rem;
+  }
+  .man-lbl { font-weight: 600; }
+  /* Paginazione capitoli (R13-K) */
+  .man-pager {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    margin-block-start: 2.2rem; padding-block-start: 1rem; border-block-start: 1px solid var(--border, #d1c4e9);
+  }
+  .man-pager button {
+    display: inline-flex; align-items: center; gap: 0.4rem; background: transparent;
+    border: 1px solid var(--border, #d1c4e9); border-radius: 0.5rem; padding: 0.5rem 0.9rem;
+    font-size: 0.88rem; color: var(--text, #2c2338); cursor: pointer; font-family: inherit;
+  }
+  .man-pager button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  .man-pager button:disabled { opacity: 0.35; cursor: default; }
+  .man-pager .arrow-prev::before { content: "\2190"; }
+  .man-pager .arrow-next::after { content: "\2192"; }
+  html[dir="rtl"] .man-pager .arrow-prev::before { content: "\2192"; }
+  html[dir="rtl"] .man-pager .arrow-next::after { content: "\2190"; }
+  #man-pager-count { font-size: 0.82rem; opacity: 0.6; }
+  @media (max-width: 820px) {
+    .man-body { flex-direction: column; }
+    .man-toc { position: static; border-inline-start: none; border-block-start: 3px solid var(--border, #d1c4e9); padding-inline-start: 0; padding-block-start: 0.8rem; width: 100%; }
+    .man-toc ol { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; }
+    .man-toc li { margin-block-end: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="man-wrap">
+  <div class="man-topbar">
+    <a class="man-back" href="index.html"><span class="arrow"></span> <span data-mi="back_label">BaseFlow</span></a>
+    <div class="man-title">
+      <h1 data-mi="page_h1">Manual</h1>
+      <p data-mi="page_subtitle">Block syntax, math functions, and editor guide</p>
+    </div>
+    <div class="man-lang">
+      <label for="man-lang-select" data-mi="lang_label">Language</label>
+      <select id="man-lang-select">
+        <option value="it">Italiano</option>
+        <option value="en">English</option>
+        <option value="ar">العربية</option>
+        <option value="zh">中文</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="man-body">
+    <nav class="man-toc">
+      <h2 data-mi="toc_h">Contents</h2>
+      <ol>
+        <li><a href="#intro"><span class="toc-num">1.</span> <span data-mi="toc_intro">First steps</span></a></li>
+        <li><a href="#blocks"><span class="toc-num">2.</span> <span data-mi="toc_blocks">Blocks</span></a></li>
+        <li><a href="#syntax"><span class="toc-num">3.</span> <span data-mi="toc_syntax">Expression syntax</span></a></li>
+        <li><a href="#math"><span class="toc-num">4.</span> <span data-mi="toc_math">Math functions</span></a></li>
+        <li><a href="#run"><span class="toc-num">5.</span> <span data-mi="toc_run">Execution &amp; debugging</span></a></li>
+        <li><a href="#editor"><span class="toc-num">6.</span> <span data-mi="toc_editor">Editor &amp; selection</span></a></li>
+        <li><a href="#errors"><span class="toc-num">7.</span> <span data-mi="toc_errors">Common errors</span></a></li>
+      </ol>
+    </nav>
+
+    <main class="man-content">
+
+      <section id="intro" class="man-chapter">
+        <h2 data-mi="toc_intro">First steps</h2>
+        <p data-mi="intro_p1">BaseFlow intro.</p>
+        <p data-mi="intro_p2">BaseFlow intro 2.</p>
+
+        <h3 data-mi="ch1_quickstart_title">Example: sum of two numbers</h3>
+        <ol class="man-steps">
+          <li data-mi="ch1_step1"></li>
+          <li data-mi="ch1_step2"></li>
+          <li data-mi="ch1_step3"></li>
+          <li data-mi="ch1_step4"></li>
+          <li data-mi="ch1_step5"></li>
+        </ol>
+        <div class="man-result"><span class="man-lbl" data-mi="ch1_step_result_lbl">Expected result</span>: <span data-mi="ch1_step_result"></span></div>
+        <p data-mi="ch1_next_p"></p>
+      </section>
+
+      <section id="blocks" class="man-chapter">
+        <h2 data-mi="toc_blocks">Blocks</h2>
+        <table class="man-table">
+          <thead>
+            <tr>
+              <th data-mi="th_block">Block</th>
+              <th data-mi="th_category">Category</th>
+              <th data-mi="th_shape">Shape</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="#blk-input" data-mi="blk_input">Input</a></td><td data-mi="cat_interaction">Interaction</td><td data-mi="shape_parallelogram">Parallelogram</td></tr>
+            <tr><td><a href="#blk-output" data-mi="blk_output">Output</a></td><td data-mi="cat_interaction">Interaction</td><td data-mi="shape_parallelogram">Parallelogram</td></tr>
+            <tr><td><a href="#blk-assign" data-mi="blk_assign">Assign</a></td><td data-mi="cat_math">Math</td><td data-mi="shape_rect">Rectangle</td></tr>
+            <tr><td><a href="#blk-if" data-mi="blk_if">If</a></td><td data-mi="cat_selection">Selection</td><td data-mi="shape_diamond">Diamond</td></tr>
+            <tr><td><a href="#blk-while" data-mi="blk_while">While</a></td><td data-mi="cat_loops">Loops</td><td data-mi="shape_hexagon">Hexagon</td></tr>
+            <tr><td><a href="#blk-dowhile" data-mi="blk_dowhile">Do-While</a></td><td data-mi="cat_loops">Loops</td><td data-mi="shape_hexagon">Hexagon</td></tr>
+            <tr><td><a href="#blk-for" data-mi="blk_for">For</a></td><td data-mi="cat_loops">Loops</td><td data-mi="shape_hexagon">Hexagon</td></tr>
+            <tr><td><a href="#blk-comment" data-mi="blk_comment">Comment</a></td><td data-mi="cat_tools">Tools</td><td data-mi="shape_dashed_rect">Dashed rectangle</td></tr>
+            <tr><td><a href="#blk-pause" data-mi="blk_pause">Pause</a></td><td data-mi="cat_tools">Tools</td><td data-mi="shape_hexagon_pink">Hexagon (pink)</td></tr>
+            <tr><td><a href="#blk-forward" data-mi="blk_forward">Move/Draw</a></td><td data-mi="cat_graphics">Graphics</td><td data-mi="shape_turtle_icon">Dedicated icon</td></tr>
+            <tr><td><a href="#blk-turn" data-mi="blk_turn">Turn</a></td><td data-mi="cat_graphics">Graphics</td><td data-mi="shape_turtle_arrow">Curved arrow</td></tr>
+            <tr><td><a href="#blk-home" data-mi="blk_home">Home</a></td><td data-mi="cat_graphics">Graphics</td><td data-mi="shape_turtle_icon">Dedicated icon</td></tr>
+            <tr><td><a href="#blk-pen" data-mi="blk_pen">Pen</a></td><td data-mi="cat_graphics">Graphics</td><td data-mi="shape_rect">Rectangle</td></tr>
+            <tr><td><a href="#blk-clear" data-mi="blk_clearscreen">Clear</a></td><td data-mi="cat_graphics">Graphics</td><td data-mi="shape_rect">Rectangle</td></tr>
+          </tbody>
+        </table>
+
+        <div class="man-block" id="blk-input">
+          <div class="man-block-head"><h3 data-mi="blk_input">Input</h3></div>
+          <p data-mi="tut_edit_input"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_input"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>eta</code>, <code>n1</code>, <code>risultato</code></p>
+          <div class="man-callout"><span class="man-lbl" data-mi="lbl_typical_error">Typical error</span>: <span data-mi="err_input"></span> <code>x + 1</code></div>
+        </div>
+
+        <div class="man-block" id="blk-output">
+          <div class="man-block-head"><h3 data-mi="blk_output">Output</h3></div>
+          <p data-mi="tut_edit_print"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_output"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>'Ciao, mondo!'</code>, <code>'Il valore di x e\' ' + x</code>, <code>'Somma: ' + a+b</code></p>
+          <div class="man-callout"><span data-mi="err_output"></span></div>
+          <div class="man-note"><span class="man-lbl" data-mi="lbl_note">Note</span>: <span data-mi="note_output_newline"></span></div>
+        </div>
+
+        <div class="man-block" id="blk-assign">
+          <div class="man-block-head"><h3 data-mi="blk_assign">Assign</h3></div>
+          <p data-mi="tut_edit_assign"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_assign"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>y = x * 2 + 1</code>, <code>area = Math.PI * r * r</code>, <code>pari = (x % 2 == 0) ? 1 : 0</code>, <code>saluto = 'Ciao ' + nome</code></p>
+        </div>
+
+        <div class="man-block" id="blk-if">
+          <div class="man-block-head"><h3 data-mi="blk_if">If</h3></div>
+          <p data-mi="tut_edit_if"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="ch2_cond_ref"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>x > 5</code>, <code>eta >= 18</code>, <code>(saldo - spesa) > 0</code>, <code>x > 0 &amp;&amp; y > 0</code></p>
+        </div>
+
+        <div class="man-block" id="blk-while">
+          <div class="man-block-head"><h3 data-mi="blk_while">While</h3></div>
+          <p data-mi="tut_edit_while"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="ch2_cond_ref"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>i &lt; 10</code>, <code>n != 0</code></p>
+        </div>
+
+        <div class="man-block" id="blk-dowhile">
+          <div class="man-block-head"><h3 data-mi="blk_dowhile">Do-While</h3></div>
+          <p data-mi="tut_edit_do"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="ch2_cond_ref"></span></p>
+        </div>
+
+        <div class="man-block" id="blk-for">
+          <div class="man-block-head"><h3 data-mi="blk_for">For</h3></div>
+          <p data-mi="tut_edit_for"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_for"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>i = 0; i &lt;= 10; i += 1</code>, <code>i = 10; i &gt;= 0; i -= 1</code></p>
+          <div class="man-callout"><span data-mi="err_for"></span></div>
+        </div>
+
+        <div class="man-block" id="blk-comment">
+          <div class="man-block-head"><h3 data-mi="blk_comment">Comment</h3></div>
+          <p data-mi="tut_edit_comment"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_comment"></span></p>
+        </div>
+
+        <div class="man-block" id="blk-pause">
+          <div class="man-block-head"><h3 data-mi="blk_pause">Pause</h3></div>
+          <p data-mi="desc_pause"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_pause"></span></p>
+        </div>
+
+        <div class="man-block" id="blk-forward">
+          <div class="man-block-head"><h3 data-mi="blk_forward">Move/Draw</h3></div>
+          <p data-mi="tut_edit_forward"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_forward"></span></p>
+          <p><span class="man-lbl" data-mi="lbl_valid_examples">Valid examples</span>: <code>100</code>, <code>passo * 2</code>, <code>Math.sqrt(distanza)</code></p>
+        </div>
+
+        <div class="man-block" id="blk-turn">
+          <div class="man-block-head"><h3 data-mi="blk_turn">Turn</h3></div>
+          <p data-mi="tut_edit_turn"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_turn"></span></p>
+          <div class="man-note"><span class="man-lbl" data-mi="lbl_note">Note</span>: <span data-mi="note_turn_shape"></span></div>
+        </div>
+
+        <div class="man-block" id="blk-home">
+          <div class="man-block-head"><h3 data-mi="blk_home">Home</h3></div>
+          <p data-mi="tut_edit_home"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_none"></span></p>
+        </div>
+
+        <div class="man-block" id="blk-pen">
+          <div class="man-block-head"><h3 data-mi="blk_pen">Pen</h3></div>
+          <p data-mi="tut_edit_pen"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_pen"></span></p>
+        </div>
+
+        <div class="man-block" id="blk-clear">
+          <div class="man-block-head"><h3 data-mi="blk_clearscreen">Clear</h3></div>
+          <p data-mi="tut_edit_gclear"></p>
+          <p><span class="man-lbl" data-mi="lbl_syntax">Field syntax</span>: <span data-mi="syn_none"></span></p>
+        </div>
+      </section>
+
+      <section id="syntax" class="man-chapter">
+        <h2 data-mi="toc_syntax">Expression syntax</h2>
+        <p data-mi="ch3_p1"></p>
+        <p data-mi="ch3_supported_p"></p>
+
+        <h3 data-mi="ch3_example_title">Concrete example</h3>
+        <p data-mi="ch3_example_p"></p>
+
+        <h3 data-mi="ch3_string_lbl">String variables in expressions</h3>
+        <p data-mi="ch3_string_p"></p>
+      </section>
+
+      <section id="math" class="man-chapter">
+        <h2 data-mi="toc_math">Math functions</h2>
+        <p data-mi="math_intro"></p>
+        <table class="man-table">
+          <thead><tr><th data-mi="th_function">Function</th><th data-mi="th_description">Description</th><th data-mi="th_example">Example</th></tr></thead>
+          <tbody id="math-table-body"></tbody>
+        </table>
+        <div class="man-note"><span class="man-lbl" data-mi="lbl_note">Note</span>: <span data-mi="math_note"></span></div>
+      </section>
+
+      <section id="run" class="man-chapter">
+        <h2 data-mi="toc_run">Execution &amp; debugging</h2>
+        <p data-mi="ch5_p1"></p>
+        <p data-mi="ch5_p2"></p>
+        <p data-mi="errors_p2"></p>
+        <p data-mi="errors_p3"></p>
+      </section>
+
+      <section id="editor" class="man-chapter">
+        <h2 data-mi="toc_editor">Editor &amp; selection</h2>
+        <p data-mi="editor_p1"></p>
+        <p data-mi="editor_p2"></p>
+        <p data-mi="ch6_range_p"></p>
+        <p data-mi="editor_p3"></p>
+        <p data-mi="editor_p4"></p>
+      </section>
+
+      <section id="errors" class="man-chapter">
+        <h2 data-mi="toc_errors">Common errors</h2>
+        <p data-mi="errors_p1"></p>
+        <p data-mi="ch7_seealso_run"></p>
+        <p><span class="man-lbl" data-mi="errors_p4_lbl"></span> <span data-mi="errors_known_limit_p"></span></p>
+      </section>
+
+      <div class="man-pager">
+        <button id="man-prev" type="button"><span class="arrow-prev"></span> <span data-mi="nav_prev">Previous chapter</span></button>
+        <span id="man-pager-count">1 / 7</span>
+        <button id="man-next" type="button"><span data-mi="nav_next">Next chapter</span> <span class="arrow-next"></span></button>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  var MI18N_LANGS = ['it', 'en', 'ar', 'zh'];
+
+  // R13-K (Ismail 2026-07-12): elenco dei capitoli in ordine di lettura -- ogni voce e'
+  // l'id della SEZIONE .man-chapter corrispondente (che e' anche lo slug usato nell'URL
+  // hash, es. #syntax) + la chiave i18n del titolo (riusata sia per il link in sidebar sia
+  // per l'intestazione <h2> del capitolo -- un solo posto da tradurre per entrambi).
+  var CHAPTERS = [
+    { id: 'intro',  key: 'toc_intro'  },
+    { id: 'blocks', key: 'toc_blocks' },
+    { id: 'syntax', key: 'toc_syntax' },
+    { id: 'math',   key: 'toc_math'   },
+    { id: 'run',    key: 'toc_run'    },
+    { id: 'editor', key: 'toc_editor' },
+    { id: 'errors', key: 'toc_errors' }
+  ];
+  var currentChapter = 0;
+
+  // Dizionario i18n INTERNO alla pagina (WP-D5, piano round 11: "TUTTO il testo in un
+  // dizionario i18n INTERNO alla pagina (4 lingue)"). Chiave: [it, en, ar, zh]. Il codice
+  // (nomi di variabili, sintassi, esempi in <code>) NON e' qui dentro: resta identico in
+  // ogni lingua, e' gia' scritto direttamente nel markup sopra.
+  var MI = {
+    back_label: ['BaseFlow', 'BaseFlow', 'BaseFlow', 'BaseFlow'],
+    page_h1: ['Manuale di BaseFlow', 'BaseFlow Manual', 'دليل BaseFlow', 'BaseFlow 手册'],
+    page_subtitle: ['Sintassi dei blocchi, funzioni matematiche e guida all\'editor', 'Block syntax, math functions, and editor guide', 'صياغة الكتل والدوال الرياضية ودليل المحرر', '方块语法、数学函数与编辑器指南'],
+    lang_label: ['Lingua', 'Language', 'اللغة', '语言'],
+
+    toc_h: ['Indice', 'Contents', 'الفهرس', '目录'],
+    toc_intro: ['Primi passi', 'First steps', 'الخطوات الأولى', '入门'],
+    toc_blocks: ['Blocchi', 'Blocks', 'الكتل', '方块'],
+    toc_syntax: ['Sintassi delle espressioni', 'Expression syntax', 'صياغة التعبيرات', '表达式语法'],
+    toc_math: ['Funzioni matematiche', 'Math functions', 'الدوال الرياضية', '数学函数'],
+    toc_run: ['Esecuzione e debug', 'Execution & debugging', 'التنفيذ وتصحيح الأخطاء', '执行与调试'],
+    toc_editor: ['Editor e selezione', 'Editor & selection', 'المحرر والتحديد', '编辑器与选择'],
+    toc_errors: ['Errori comuni', 'Common errors', 'الأخطاء الشائعة', '常见错误'],
+
+    nav_prev: ['Capitolo precedente', 'Previous chapter', 'الفصل السابق', '上一章'],
+    nav_next: ['Capitolo successivo', 'Next chapter', 'الفصل التالي', '下一章'],
+
+    intro_p1: [
+      'BaseFlow è un editor di flowchart eseguibili in stile Flowgorithm: crei un diagramma con la palette a sinistra, colleghi le frecce, e il pulsante Esegui lo interpreta passo per passo mostrando output ed errori nel terminale in basso.',
+      'BaseFlow is an executable flowchart editor in the Flowgorithm style: you build a diagram with the palette on the left, connect the arrows, and the Run button interprets it step by step, showing output and errors in the terminal below.',
+      'BaseFlow محرر مخططات انسيابية قابلة للتنفيذ على غرار Flowgorithm: تبني مخططًا باستخدام لوحة الكتل على اليسار، وتصل الأسهم، ثم يفسّره زر التشغيل خطوة بخطوة، معروضًا المخرجات والأخطاء في الطرفية أسفله.',
+      'BaseFlow 是一款 Flowgorithm 风格的可执行流程图编辑器：通过左侧的方块面板搭建图表、连接箭头，点击"执行"逐步解释运行，并在下方终端显示输出与错误。'
+    ],
+    intro_p2: [
+      'Questa pagina documenta la sintassi ESATTA accettata da ogni blocco, così com\'è nel codice dell\'interprete — non un\'approssimazione. Dove il parser ha un limite sorprendente, è segnalato con un esempio che NON funziona, non solo con quelli che funzionano.',
+      'This page documents the EXACT syntax each block accepts, as implemented in the interpreter — not an approximation. Where the parser has a surprising limit, it is flagged with an example that does NOT work, not just the ones that do.',
+      'توثّق هذه الصفحة الصياغة الدقيقة التي تقبلها كل كتلة كما هي مطبقة فعليًا في المفسِّر، وليست تقريبًا. وحيثما يوجد حد مفاجئ في المحلل، يُشار إليه بمثال لا يعمل، وليس فقط بالأمثلة التي تعمل.',
+      '本页记录的是解释器中每个方块实际接受的精确语法，而非近似说明。若解析器存在出人意料的限制，会用一个不生效的示例明确标出，而不只列出可行的例子。'
+    ],
+
+    ch1_quickstart_title: ['Esempio: somma di due numeri', 'Example: sum of two numbers', 'مثال: مجموع رقمين', '示例：两数之和'],
+    ch1_step1: ['Nella tabella <strong>Variabili</strong> dichiara <code>a</code> e <code>b</code> (tipo Integer, senza spuntare "Assegna").', 'In the <strong>Variables</strong> table declare <code>a</code> and <code>b</code> (Integer type, without checking "Assign").', 'في جدول <strong>المتغيرات</strong> أعلن <code>a</code> و<code>b</code> (نوع Integer، دون تحديد "إسناد").', '在<strong>变量</strong>表中声明 <code>a</code> 和 <code>b</code>（Integer 类型，不勾选"赋值"）。'],
+    ch1_step2: ['Trascina due blocchi <strong>Ingresso</strong> dalla palette e collegali in sequenza: campo <code>a</code>, poi campo <code>b</code>.', 'Drag two <strong>Input</strong> blocks from the palette and chain them: field <code>a</code>, then field <code>b</code>.', 'اسحب كتلتي <strong>إدخال</strong> من اللوحة وسلسلهما: الحقل <code>a</code>، ثم الحقل <code>b</code>.', '从方块面板拖出两个<strong>输入</strong>方块并依次连接：字段 <code>a</code>，然后字段 <code>b</code>。'],
+    ch1_step3: ['Aggiungi un blocco <strong>Assegna</strong>: <code>somma = a + b</code>.', 'Add an <strong>Assign</strong> block: <code>somma = a + b</code>.', 'أضف كتلة <strong>إسناد</strong>: <code>somma = a + b</code>.', '添加一个<strong>赋值</strong>方块：<code>somma = a + b</code>。'],
+    ch1_step4: ['Aggiungi un blocco <strong>Uscita</strong>: <code>\'Somma: \' + somma</code>.', 'Add an <strong>Output</strong> block: <code>\'Somma: \' + somma</code>.', 'أضف كتلة <strong>إخراج</strong>: <code>\'Somma: \' + somma</code>.', '添加一个<strong>输出</strong>方块：<code>\'Somma: \' + somma</code>。'],
+    ch1_step5: ['Premi <strong>Esegui</strong>. Il terminale chiede i due valori: digita <code>3</code> e poi <code>5</code>.', 'Press <strong>Run</strong>. The terminal asks for the two values: type <code>3</code>, then <code>5</code>.', 'اضغط <strong>تشغيل</strong>. تطلب الطرفية القيمتين: اكتب <code>3</code> ثم <code>5</code>.', '点击<strong>执行</strong>。终端会要求输入两个值：先输入 <code>3</code>，再输入 <code>5</code>。'],
+    ch1_step_result_lbl: ['Risultato atteso', 'Expected result', 'النتيجة المتوقعة', '预期结果'],
+    ch1_step_result: ['<code>Somma: 8</code> stampato nel terminale.', '<code>Somma: 8</code> printed in the terminal.', 'طباعة <code>Somma: 8</code> في الطرفية.', '终端中打印出 <code>Somma: 8</code>。'],
+    ch1_next_p: ['Il capitolo 2 elenca ogni blocco con la sua sintassi esatta; il capitolo 3 spiega perché alcune espressioni funzionano in un campo e non in un altro.', 'Chapter 2 lists every block with its exact syntax; chapter 3 explains why some expressions work in one field but not another.', 'يسرد الفصل 2 كل كتلة بصياغتها الدقيقة؛ ويشرح الفصل 3 سبب عمل بعض التعبيرات في حقل دون آخر.', '第 2 章列出了每个方块的精确语法；第 3 章解释了为什么某些表达式在一个字段中有效而在另一个字段中无效。'],
+
+    th_block: ['Blocco', 'Block', 'الكتلة', '方块'],
+    th_category: ['Categoria', 'Category', 'الفئة', '类别'],
+    th_shape: ['Forma', 'Shape', 'الشكل', '形状'],
+    th_function: ['Funzione', 'Function', 'الدالة', '函数'],
+    th_description: ['Descrizione', 'Description', 'الوصف', '描述'],
+    th_example: ['Esempio', 'Example', 'مثال', '示例'],
+
+    cat_interaction: ['Interazione', 'Interaction', 'تفاعل', '交互'],
+    cat_math: ['Matematica', 'Math', 'رياضيات', '数学'],
+    cat_selection: ['Selezione', 'Selection', 'تحديد', '选择'],
+    cat_loops: ['Cicli', 'Loops', 'حلقات', '循环'],
+    cat_tools: ['Strumenti', 'Tools', 'أدوات', '工具'],
+    cat_graphics: ['Grafica', 'Graphics', 'رسومات', '图形'],
+
+    blk_input: ['Ingresso', 'Input', 'إدخال', '输入'],
+    blk_output: ['Uscita', 'Output', 'إخراج', '输出'],
+    blk_assign: ['Assegna', 'Assign', 'إسناد', '赋值'],
+    blk_if: ['Se', 'If', 'إذا', '如果'],
+    blk_dowhile: ['Ripeti-Mentre', 'Do-While', 'كرر-طالما', '重复-当'],
+    blk_while: ['Mentre', 'While', 'طالما', '当循环'],
+    blk_for: ['Per', 'For', 'لأجل', '计数循环'],
+    blk_comment: ['Commento', 'Comment', 'تعليق', '注释'],
+    blk_pause: ['Pausa', 'Pause', 'إيقاف مؤقت', '暂停'],
+    blk_forward: ['Muovi/Disegna', 'Move/Draw', 'تحرك/ارسم', '移动/绘制'],
+    blk_turn: ['Ruota', 'Turn', 'استدر', '转向'],
+    blk_home: ['Casa', 'Home', 'البداية', '起点'],
+    blk_pen: ['Penna', 'Pen', 'القلم', '画笔'],
+    blk_clearscreen: ['Pulisci', 'Clear', 'مسح', '清屏'],
+
+    shape_parallelogram: ['Parallelogramma', 'Parallelogram', 'متوازي أضلاع', '平行四边形'],
+    shape_rect: ['Rettangolo', 'Rectangle', 'مستطيل', '矩形'],
+    shape_diamond: ['Rombo', 'Diamond', 'معين', '菱形'],
+    shape_hexagon: ['Esagono', 'Hexagon', 'سداسي', '六边形'],
+    shape_hexagon_pink: ['Esagono (rosa)', 'Hexagon (pink)', 'سداسي (وردي)', '六边形（粉色）'],
+    shape_dashed_rect: ['Rettangolo tratteggiato', 'Dashed rectangle', 'مستطيل متقطع الحواف', '虚线矩形'],
+    shape_turtle_icon: ['Icona dedicata', 'Dedicated icon', 'أيقونة مخصصة', '专用图标'],
+    shape_turtle_arrow: ['Freccia curva', 'Curved arrow', 'سهم منحنٍ', '弯曲箭头'],
+
+    lbl_syntax: ['Sintassi del campo', 'Field syntax', 'صياغة الحقل', '字段语法'],
+    lbl_valid_examples: ['Esempi validi', 'Valid examples', 'أمثلة صالحة', '有效示例'],
+    lbl_typical_error: ['Errore tipico', 'Typical error', 'خطأ شائع', '常见错误'],
+    lbl_note: ['Nota', 'Note', 'ملاحظة', '注意'],
+
+    ch2_cond_ref: ['Condizione booleana — grammatica completa nel capitolo 3.', 'Boolean condition — full grammar in chapter 3.', 'شرط منطقي — القواعد الكاملة في الفصل 3.', '布尔条件——完整语法见第 3 章。'],
+
+    tut_edit_input: ['Nei nodi Input inserisci il nome della variabile da leggere (deve essere già dichiarata).', 'In Input nodes enter the name of the variable to read (it must already be declared).', 'في عقد الإدخال أدخل اسم المتغير المراد قراءته (يجب أن يكون معلنًا).', '在输入节点中填写要读取的变量名（须已声明）。'],
+    syn_input: ['Solo il NOME di una variabile già dichiarata (lettera iniziale, poi lettere e numeri; niente spazi o underscore).', 'Only the NAME of an already-declared variable (starts with a letter, then letters and digits only; no spaces or underscores).', 'اسم متغير معلن مسبقًا فقط (يبدأ بحرف، ثم أحرف وأرقام فقط؛ بلا مسافات أو شرطات سفلية).', '仅限已声明变量的名称（以字母开头，之后只能是字母和数字，不能有空格或下划线）。'],
+    err_input: ['Un\'espressione o un nome non dichiarato invece di un nome semplice — il campo Input accetta SOLO un nome di variabile: l\'esecuzione si interrompe con "…non è stata dichiarata", ad es.', 'An expression or an undeclared name instead of a plain name — the Input field accepts ONLY a variable name: execution stops with "…has not been declared", e.g.', 'تعبير أو اسم غير معلن بدلًا من اسم بسيط — يقبل حقل الإدخال اسم متغير فقط: يتوقف التنفيذ برسالة "…لم يتم تعريفه"، مثل', '用表达式或未声明的名称代替普通名称——输入字段只接受变量名：执行会因"…尚未声明"而停止，例如'],
+
+    tut_edit_print: ['Nei nodi Output scrivi il testo da mostrare. Usa apici per il testo e + per unire testo e variabili, es: "Risultato: " + x', 'In Output nodes type the text to display. Use quotes for text and + to join text and variables, e.g. "Result: " + x', 'في عقد الإخراج اكتب النص المراد عرضه. استخدم علامات الاقتباس للنص و+ لدمج النص والمتغيرات، مثال: "النتيجة: " + x', '在输出节点中输入要显示的文本。文本用引号，用 + 连接文本与变量，例如："结果：" + x'],
+    syn_output: ['Testo fra apici (singoli o doppi) unito con <code>+</code> a variabili o numeri INTERI/DECIMALI. Niente parentesi; i numeri scritti a mano vanno interi (es. <code>5</code>, non <code>3.14</code>) — un decimale letterale rompe il parsing.', 'Quoted text (single or double) joined with <code>+</code> to INTEGER/FLOAT variables or numbers. No parentheses; hand-written numbers must be whole (e.g. <code>5</code>, not <code>3.14</code>) — a literal decimal breaks parsing.', 'نص بين علامتي اقتباس (مفردة أو مزدوجة) يُدمج بـ <code>+</code> مع متغيرات أو أرقام صحيحة/عشرية. بلا أقواس؛ الأرقام المكتوبة يدويًا يجب أن تكون صحيحة (مثل <code>5</code> وليس <code>3.14</code>) — الرقم العشري الحرفي يكسر التحليل.', '带引号（单引号或双引号）的文本用 <code>+</code> 与整数/浮点数变量或数字连接。不支持括号；手写的数字必须是整数（如 <code>5</code>，不能是 <code>3.14</code>）——直接写小数会导致解析失败。'],
+    err_output: ['<code>\'Nome: \' + nome</code> con <code>nome</code> di tipo String — le variabili String non possono comparire FUORI dagli apici (solo Integer/Float): l\'esecuzione si interrompe con "nome non è stata dichiarata". Oggi non c\'è un modo diretto per stampare il VALORE di una variabile String nel blocco Output (limite noto dell\'interprete, verificato col codice).', '<code>\'Name: \' + name</code> where <code>name</code> is a String — String variables cannot appear OUTSIDE quotes (only Integer/Float can): execution stops with "name has not been declared". There is currently no direct way to print the VALUE of a String variable from the Output block (a known interpreter limitation, verified against the code).', '<code>\'الاسم: \' + name</code> حيث <code>name</code> من نوع String — لا يمكن أن تظهر متغيرات String خارج علامات الاقتباس (فقط Integer/Float): يتوقف التنفيذ برسالة "لم يتم تعريفه". لا توجد حاليًا طريقة مباشرة لطباعة قيمة متغير من نوع String من كتلة الإخراج (قيد معروف في المفسِّر، تم التحقق منه في الكود).', '<code>\'姓名：\' + name</code>，其中 <code>name</code> 是 String 类型——String 变量不能出现在引号之外（只有 Integer/Float 可以）：执行会因"未声明"而停止。目前没有办法在 Output 方块中直接打印 String 变量的值（这是已在代码中核实的解释器限制）。'],
+    note_output_newline: ['"A capo dopo la stampa" (novità): se disattivi la casella nel popup di modifica, l\'Output successivo continua sulla STESSA riga della console invece di andare a capo.', '"New line after printing" (new): if you uncheck this box in the edit popup, the next Output continues on the SAME console line instead of starting a new one.', '"سطر جديد بعد الطباعة" (جديد): إذا ألغيت تحديد هذا المربع في نافذة التعديل، يتابع الإخراج التالي على نفس سطر الطرفية بدلًا من الانتقال لسطر جديد.', '"打印后换行"（新功能）：如果在编辑弹窗中取消勾选此项，下一次 Output 会接在终端的同一行，而不换行。'],
+
+    tut_edit_assign: ['Nei nodi Assegna imposta un valore a una variabile dichiarata: [NOME] = [VALORE].', 'In Assign nodes set a value to a declared variable: [NAME] = [VALUE].', 'في عقد الإسناد عيّن قيمة لمتغير معلن: [الاسم] = [القيمة].', '在赋值节点中为已声明变量赋值：[名称] = [值]。'],
+    syn_assign: ['<code>nome = espressione</code>, con nome già dichiarato. L\'espressione supporta TUTTI gli operatori (aritmetica, confronto, <code>%</code>, <code>?:</code>, <code>&amp;&amp;</code>/<code>||</code>, funzioni <code>Math.*</code>) perché qui le variabili si sostituiscono per intero, non carattere per carattere.', '<code>name = expression</code>, with an already-declared name. The expression supports ALL operators (arithmetic, comparison, <code>%</code>, <code>?:</code>, <code>&amp;&amp;</code>/<code>||</code>, <code>Math.*</code> functions) because variables here are substituted whole, not character by character.', '<code>الاسم = تعبير</code>، مع اسم معلن مسبقًا. يدعم التعبير جميع العوامل (الحساب، المقارنة، <code>%</code>، <code>?:</code>، <code>&amp;&amp;</code>/<code>||</code>، دوال <code>Math.*</code>) لأن المتغيرات هنا تُستبدل كاملة، وليس حرفًا بحرف.', '<code>名称 = 表达式</code>，名称须已声明。表达式支持所有运算符（算术、比较、<code>%</code>、<code>?:</code>、<code>&amp;&amp;</code>/<code>||</code>、<code>Math.*</code> 函数），因为这里的变量是整体替换的，而不是逐字符处理。'],
+    tut_edit_if: ['I nodi If servono a decidere. Scrivi una condizione (es: x > 5). Il flusso segue il ramo True o False.', 'If nodes are for decisions. Write a condition (e.g. x > 5). The flow follows the True or False branch.', 'عقد "إذا" للقرارات. اكتب شرطًا (مثل x > 5). يتبع المسار فرع True أو False.', '如果节点用于判断。写一个条件（如 x > 5），流程按 True 或 False 分支走。'],
+
+    tut_edit_while: ['I nodi While ripetono finché la condizione è vera (es: i < 10).', 'While nodes repeat while the condition is true (e.g. i < 10).', 'عقد "طالما" تتكرر ما دام الشرط صحيحًا (مثل i < 10).', 'While 节点在条件为真时重复（如 i < 10）。'],
+    tut_edit_do: ['I nodi Do-While sono come i While ma il blocco viene eseguito almeno una volta (condizione controllata dopo).', 'Do-While nodes are like While but the block always runs at least once (condition checked after).', 'عقد "كرر-طالما" مثل "طالما" لكن الكتلة تُنفّذ مرة واحدة على الأقل (يُفحص الشرط بعدها).', 'Do-While 节点类似 While，但方块至少执行一次（之后检查条件）。'],
+
+    tut_edit_for: ['I nodi For sono cicli contati. Scrivi init;condizione;incremento (es: i = 0; i < 5; 1).', 'For nodes are counted loops. Write init;condition;increment (e.g. i = 0; i < 5; 1).', 'عقد "لأجل" حلقات معدودة. اكتب التهيئة;الشرط;الزيادة (مثل i = 0; i < 5; 1).', 'For 节点是计数循环。写 初始化;条件;增量（如 i = 0; i < 5; 1）。'],
+    syn_for: ['Generato dal dialog dedicato (Variabile / Iniziale / Finale / Direzione / Passo); formato interno: <code>variabile = iniziale; condizione; incremento</code>.', 'Generated by the dedicated dialog (Variable / Initial / Final / Direction / Step); internal format: <code>variable = initial; condition; increment</code>.', 'يُنشأ من مربع الحوار المخصص (المتغير / الأولي / النهائي / الاتجاه / الخطوة)؛ الصيغة الداخلية: <code>المتغير = الأولي; الشرط; الزيادة</code>.', '由专用对话框生成（变量 / 初始值 / 最终值 / 方向 / 步长）；内部格式：<code>变量 = 初始值; 条件; 增量</code>。'],
+    err_for: ['Editare il campo a mano con un formato diverso (es. dimenticare uno dei due <code>;</code>) rende il blocco rosso; la CONDIZIONE segue le stesse regole di If/While (niente <code>&amp;&amp;</code>/<code>||</code>/<code>%</code> — vedi capitolo 3), mentre iniziale/incremento si comportano come in Assign (grammatica completa).', 'Hand-editing the field with a different format (e.g. forgetting one of the two <code>;</code>) turns the block red; the CONDITION follows the same rules as If/While (no <code>&amp;&amp;</code>/<code>||</code>/<code>%</code> — see chapter 3), while the initial/increment behave like Assign (full grammar).', 'تعديل الحقل يدويًا بصيغة مختلفة (مثل نسيان إحدى الفاصلتين المنقوطتين <code>;</code>) يجعل الكتلة حمراء؛ يتبع الشرط نفس قواعد إذا/طالما (بلا <code>&amp;&amp;</code>/<code>||</code>/<code>%</code> — انظر الفصل 3)، بينما تتصرف القيمة الأولية/الزيادة كما في الإسناد (قواعد كاملة).', '手动编辑该字段使用不同格式（例如漏写其中一个 <code>;</code>）会使方块变红；条件部分遵循与 If/While 相同的规则（不支持 <code>&amp;&amp;</code>/<code>||</code>/<code>%</code>——见第 3 章），而初始值/增量的行为与 Assign 相同（完整语法）。'],
+
+    tut_edit_comment: ['I nodi Commento sono note che non vengono eseguite: servono solo a documentare il flowchart.', 'Comment nodes are notes that are not executed: they only document the flowchart.', 'عقد التعليق ملاحظات لا تُنفّذ: فقط لتوثيق المخطط.', '注释节点是不执行的说明，仅用于记录流程图。'],
+    syn_comment: ['Nessuna — testo libero, non eseguito, solo documentazione visiva.', 'None — free text, never executed, purely visual documentation.', 'لا توجد — نص حر، لا يُنفّذ أبدًا، توثيق بصري فقط.', '无——自由文本，永不执行，仅作视觉说明。'],
+
+    desc_pause: ['Il blocco Pausa è un BREAKPOINT: durante un Esegui, il flusso passa attraverso il blocco e poi si FERMA, pronto per essere ripreso con Esegui o Passo — vedi capitolo 5 per i controlli di esecuzione.', 'The Pause block is a BREAKPOINT: during a Run, execution passes through the block and then STOPS, ready to resume with Run or Step — see chapter 5 for the execution controls.', 'كتلة الإيقاف المؤقت هي نقطة توقف (breakpoint): أثناء التشغيل، يمر التنفيذ عبر الكتلة ثم يتوقف، جاهزًا للاستئناف بتشغيل أو خطوة — انظر الفصل 5 لعناصر تحكم التنفيذ.', '暂停方块是一个断点：在运行过程中，执行流会经过该方块然后停止，可通过"执行"或"单步"继续——执行控件见第 5 章。'],
+    syn_pause: ['Nessuna — il campo info viene ignorato.', 'None — the info field is ignored.', 'لا توجد — يتم تجاهل حقل المعلومات.', '无——信息字段会被忽略。'],
+
+    tut_edit_forward: ['Move/Draw (Muovi/Disegna): muove la tartaruga in avanti della distanza indicata; se la penna è giù lascia una traccia.', 'Move/Draw: moves the turtle forward by the given distance; if the pen is down it leaves a trail.', 'تحرك/ارسم: يحرك السلحفاة للأمام بالمسافة المحددة؛ إذا كان القلم منخفضًا يترك أثرًا.', '移动/绘制：使海龟按指定距离前进；若落笔则留下轨迹。'],
+    syn_forward: ['Un\'espressione numerica per la distanza (stessa grammatica di Assign: variabili, aritmetica, <code>Math.*</code>).', 'A numeric expression for the distance (same grammar as Assign: variables, arithmetic, <code>Math.*</code>).', 'تعبير رقمي للمسافة (نفس قواعد الإسناد: متغيرات، حساب، <code>Math.*</code>).', '一个表示距离的数值表达式（与 Assign 相同的语法：变量、算术、<code>Math.*</code>）。'],
+
+    tut_edit_turn: ['Ruota (Turn): scegli Destra o Sinistra per la direzione, poi scrivi i Gradi (0-360) di rotazione. La tartaruga non si sposta: cambia solo l\'orientamento che useranno i successivi blocchi Move/Draw.', 'Turn: choose Right or Left for the direction, then enter the Degrees (0-360) to rotate. The turtle does not move; it only changes the heading used by the next Move/Draw blocks.', 'استدر: اختر يمين أو يسار للاتجاه، ثم أدخل عدد الدرجات (0-360) للدوران. السلحفاة لا تتحرك، بل يتغيّر اتجاهها فقط لتُستخدمه كتل تحرك/ارسم التالية.', '转向：选择"右"或"左"作为方向，再输入旋转的度数（0-360）。海龟本身不移动，只改变后续"移动/绘制"方块所使用的朝向。'],
+    syn_turn: ['Direzione (Sinistra/Destra, scelta nel dialog dedicato) + gradi (espressione numerica, stessa grammatica di Assign).', 'Direction (Left/Right, chosen in the dedicated dialog) + degrees (numeric expression, same grammar as Assign).', 'الاتجاه (يسار/يمين، يُختار في مربع الحوار المخصص) + الدرجات (تعبير رقمي، نفس قواعد الإسناد).', '方向（左/右，在专用对话框中选择）+ 角度（数值表达式，与 Assign 相同的语法）。'],
+    note_turn_shape: ['La FORMA del blocco sul canvas mostra la direzione scelta con una singola punta (sinistra o destra); finché non hai ancora salvato una direzione nel dialog, il blocco mostra DUE punte. All\'esecuzione, una direzione non impostata equivale a "Destra" per default.', 'The block\'s SHAPE on the canvas shows the chosen direction with a single arrowhead (left or right); until you save a direction in the dialog, the block shows TWO arrowheads. At execution time, an unset direction defaults to "Right".', 'يُظهر شكل الكتلة على اللوحة الاتجاه المُختار برأس سهم واحد (يسار أو يمين)؛ وإلى أن تحفظ اتجاهًا في مربع الحوار، تُظهر الكتلة رأسي سهم. عند التنفيذ، الاتجاه غير المحدد يُعامل افتراضيًا كـ"يمين".', '方块在画布上的形状会用单个箭头显示所选方向（左或右）；在对话框中保存方向之前，方块会显示两个箭头。执行时，未设置的方向默认视为"右"。'],
+
+    tut_edit_home: ['Casa (Home): riporta la tartaruga al centro della tela con direzione verso l\'alto. Non ha impostazioni.', 'Home: returns the turtle to the center facing up. It has no settings.', 'البداية: تعيد السلحفاة إلى المركز متجهة للأعلى. بلا إعدادات.', '起点：将海龟移回中心并朝上。无设置。'],
+    tut_edit_pen: ['Penna (Pen): scegli Giù (disegna) per lasciare una traccia durante i movimenti, oppure Su (non disegna) per spostare la tartaruga senza disegnare. Colore e Spessore impostano il colore e lo spessore del tratto usato dai successivi blocchi Move/Draw (non modificano ciò che è già stato disegnato).', 'Pen: choose Down (draws) to leave a trail while moving, or Up (no drawing) to move the turtle without drawing. Color and Width set the stroke color and thickness used by the next Move/Draw blocks (they do not change lines already drawn).', 'القلم: اختر أسفل (يرسم) لترك أثر أثناء الحركة، أو أعلى (لا يرسم) لتحريك السلحفاة دون رسم. اللون والسُمك يحددان لون وسُمك الخط المستخدم في كتل تحرك/ارسم التالية (لا يغيّران ما تم رسمه بالفعل).', '画笔：选择"落笔（绘制）"以在移动时留下轨迹，或选择"抬笔（不绘制）"以移动海龟而不作画。颜色和粗细设置的是之后"移动/绘制"方块所用线条的颜色与粗细（不会改变已画好的线条）。'],
+    syn_pen: ['Stato (Giù/Su, scelto nel dialog) + colore + spessore (numero).', 'State (Down/Up, chosen in the dialog) + color + width (number).', 'الحالة (أسفل/أعلى، تُختار في مربع الحوار) + اللون + السُمك (رقم).', '状态（落笔/抬笔，在对话框中选择）+ 颜色 + 粗细（数字）。'],
+    syn_none: ['Nessuna — il blocco non ha parametri.', 'None — the block has no parameters.', 'لا توجد — لا تحتوي الكتلة على معاملات.', '无——该方块没有参数。'],
+    tut_edit_gclear: ['Pulisci (Clear): cancella il disegno e riporta la tartaruga a casa. Non ha impostazioni.', 'Clear: erases the drawing and sends the turtle home. It has no settings.', 'مسح: يمسح الرسم ويعيد السلحفاة للبداية. بلا إعدادات.', '清屏：清除绘图并让海龟归位。无设置。'],
+
+    ch3_p1: ['Condizioni (If, While, Do-While, For) ed espressioni di valore (Assegna, Uscita, Muovi/Disegna, Ruota, Penna) usano la STESSA grammatica: quello che scrivi in un campo si comporta allo stesso modo in tutti gli altri.', 'Conditions (If, While, Do-While, For) and value expressions (Assign, Output, Move/Draw, Turn, Pen) use the SAME grammar: whatever you write in one field behaves the same way in all the others.', 'الشروط (إذا، طالما، كرر-طالما، لأجل) وتعبيرات القيمة (إسناد، إخراج، تحرك/ارسم، استدر، القلم) تستخدم نفس القواعد النحوية: ما تكتبه في حقل واحد يعمل بنفس الطريقة في كل الحقول الأخرى.', '条件（If、While、Do-While、For）和值表达式（Assign、Output、Move/Draw、Turn、Pen）使用相同的语法：你在一个字段中写的内容，在其他所有字段中表现一致。'],
+    ch3_supported_p: ['Supportato ovunque: confronto (<code>== != === !== &lt; &gt; &lt;= &gt;=</code>), negazione <code>!</code>, aritmetica (<code>+ - * /</code>), <code>%</code>, il ternario <code>?:</code>, gli operatori logici <code>&amp;&amp;</code> <code>||</code>, le funzioni <code>Math.*</code>, i letterali <code>true</code>/<code>false</code>, parentesi e numeri decimali.', 'Supported everywhere: comparison (<code>== != === !== &lt; &gt; &lt;= &gt;=</code>), negation <code>!</code>, arithmetic (<code>+ - * /</code>), <code>%</code>, the ternary <code>?:</code>, the logical operators <code>&amp;&amp;</code> <code>||</code>, <code>Math.*</code> functions, <code>true</code>/<code>false</code> literals, parentheses and decimal numbers.', 'مدعوم في كل مكان: المقارنة (<code>== != === !== &lt; &gt; &lt;= &gt;=</code>)، النفي <code>!</code>، الحساب (<code>+ - * /</code>)، <code>%</code>، الشرط الثلاثي <code>?:</code>، العوامل المنطقية <code>&amp;&amp;</code> <code>||</code>، دوال <code>Math.*</code>، القيم <code>true</code>/<code>false</code>، الأقواس والأعداد العشرية.', '在所有字段中都支持：比较（<code>== != === !== &lt; &gt; &lt;= &gt;=</code>）、取反 <code>!</code>、算术（<code>+ - * /</code>）、<code>%</code>、三元运算符 <code>?:</code>、逻辑运算符 <code>&amp;&amp;</code> <code>||</code>、<code>Math.*</code> 函数、<code>true</code>/<code>false</code> 字面量、括号和小数。'],
+
+    ch3_example_title: ['Esempio concreto', 'Concrete example', 'مثال ملموس', '具体示例'],
+    ch3_example_p: ['<code>Math.PI * r * r</code> funziona allo stesso modo in un blocco Assegna (<code>area = Math.PI * r * r</code>) e dentro un If (<code>Math.PI * r * r > 10</code>): stessa sintassi, stesso risultato in ogni campo.', '<code>Math.PI * r * r</code> works the same way in an Assign block (<code>area = Math.PI * r * r</code>) and inside an If (<code>Math.PI * r * r > 10</code>): same syntax, same result in every field.', '<code>Math.PI * r * r</code> يعمل بنفس الطريقة في كتلة إسناد (<code>area = Math.PI * r * r</code>) وداخل "إذا" (<code>Math.PI * r * r > 10</code>): نفس الصياغة، نفس النتيجة في كل حقل.', '<code>Math.PI * r * r</code> 在 Assign 方块（<code>area = Math.PI * r * r</code>）和 If 中（<code>Math.PI * r * r > 10</code>）表现完全一致：相同的写法，在每个字段中都得到相同的结果。'],
+    ch3_string_lbl: ['Le variabili String nelle espressioni', 'String variables in expressions', 'متغيرات String في التعبيرات', '表达式中的 String 变量'],
+    ch3_string_p: ['Una variabile String si sostituisce automaticamente tra virgolette (con l\'escape degli apici), quindi puoi combinarla liberamente con altre variabili o letterali nella stessa espressione: <code>saluto = "Ciao " + nome</code> e <code>nome == "Mario"</code> funzionano sia in Assegna/Uscita sia dentro una condizione.', 'A String variable is substituted automatically inside quotes (with apostrophes escaped), so you can freely combine it with other variables or literals in the same expression: <code>saluto = "Ciao " + nome</code> and <code>nome == "Mario"</code> work both in Assign/Output and inside a condition.', 'يتم استبدال متغير String تلقائيًا بين علامتي اقتباس (مع الهروب من الفواصل العليا)، لذا يمكنك دمجه بحرية مع متغيرات أو قيم أخرى في نفس التعبير: <code>saluto = "Ciao " + nome</code> و<code>nome == "Mario"</code> يعملان في كل من الإسناد/الإخراج وداخل الشرط.', 'String 变量会自动被替换为带引号的形式（并转义其中的撇号），因此你可以在同一个表达式中自由地将它与其他变量或字面量组合：<code>saluto = "Ciao " + nome</code> 和 <code>nome == "Mario"</code> 在 Assign/Output 和条件语句中都能正常工作。'],
+
+    math_intro: ['Allowlist REALE letta da <code>safeEval.js</code> (nessuna funzione oltre queste è permessa in un\'espressione):', 'The REAL allowlist read from <code>safeEval.js</code> (no function beyond these is allowed in an expression):', 'قائمة السماح الفعلية المقروءة من <code>safeEval.js</code> (لا يُسمح بأي دالة غير هذه في التعبير):', '从 <code>safeEval.js</code> 中读取的真实允许列表（表达式中不允许使用此列表之外的任何函数）：'],
+    math_note: ['Il prefisso <code>Math.</code> è OBBLIGATORIO: scrivere <code>sqrt(16)</code> da solo non funziona. Gli angoli per seno/coseno/tangente sono in RADIANTI, non gradi (usa <code>gradi * Math.PI / 180</code> per convertire). <code>Math.log</code> è il logaritmo NATURALE (base e), non quello in base 10. Queste funzioni si usano allo stesso modo in ogni campo, condizioni comprese (vedi capitolo 3).', 'The <code>Math.</code> prefix is REQUIRED: writing <code>sqrt(16)</code> alone does not work. Angles for sine/cosine/tangent are in RADIANS, not degrees (use <code>degrees * Math.PI / 180</code> to convert). <code>Math.log</code> is the NATURAL logarithm (base e), not base 10. These functions work the same way in every field, including conditions (see chapter 3).', 'بادئة <code>Math.</code> إلزامية: كتابة <code>sqrt(16)</code> وحدها لا تعمل. زوايا الجيب/جيب التمام/الظل بالراديان وليس بالدرجات (استخدم <code>الدرجات * Math.PI / 180</code> للتحويل). <code>Math.log</code> هو اللوغاريتم الطبيعي (الأساس e)، وليس الأساس 10. تعمل هذه الدوال بنفس الطريقة في كل حقل، بما في ذلك الشروط (انظر الفصل 3).', '<code>Math.</code> 前缀是必需的：仅写 <code>sqrt(16)</code> 不起作用。正弦/余弦/正切的角度以弧度为单位，而非角度（用 <code>角度 * Math.PI / 180</code> 转换）。<code>Math.log</code> 是自然对数（以 e 为底），不是以 10 为底。这些函数在每个字段中（包括条件）都以相同的方式工作（见第 3 章）。'],
+
+    ch5_p1: ['La barra sopra il canvas ha tre controlli di esecuzione: <strong>Esegui</strong> (interpreta l\'intero flowchart, fermandosi solo su un blocco Pausa o alla fine), <strong>Passo</strong> (esegue UN blocco alla volta, utile per seguire il flusso nodo per nodo), <strong>Stop</strong> (interrompe un\'esecuzione in corso).', 'The bar above the canvas has three execution controls: <strong>Run</strong> (interprets the whole flowchart, stopping only at a Pause block or at the end), <strong>Step</strong> (executes ONE block at a time, useful to follow the flow node by node), <strong>Stop</strong> (interrupts an execution in progress).', 'يحتوي الشريط أعلى اللوحة على ثلاثة عناصر تحكم بالتنفيذ: <strong>تشغيل</strong> (يفسّر المخطط بأكمله، ويتوقف فقط عند كتلة إيقاف مؤقت أو في النهاية)، <strong>خطوة</strong> (ينفّذ كتلة واحدة في كل مرة، مفيد لتتبع التدفق عقدة بعقدة)، <strong>إيقاف</strong> (يقاطع تنفيذًا جاريًا).', '画布上方的工具栏有三个执行控件：<strong>执行</strong>（解释整个流程图，只在遇到 Pause 方块或结束时停止）、<strong>单步</strong>（一次执行一个方块，便于逐节点跟踪流程）、<strong>停止</strong>（中断正在进行的执行）。'],
+    ch5_p2: ['Il blocco <a href="#blk-pause"><strong>Pausa</strong></a> agisce come un BREAKPOINT: durante un Esegui, il flusso lo attraversa e poi si ferma, pronto per essere ripreso con Esegui o Passo.', 'The <a href="#blk-pause"><strong>Pause</strong></a> block acts as a BREAKPOINT: during a Run, execution passes through it and then stops, ready to resume with Run or Step.', 'تعمل كتلة <a href="#blk-pause"><strong>إيقاف مؤقت</strong></a> كنقطة توقف: أثناء التشغيل، يمر التنفيذ عبرها ثم يتوقف، جاهزًا للاستئناف بتشغيل أو خطوة.', '<a href="#blk-pause"><strong>Pause</strong></a> 方块的作用类似断点：在执行过程中，流程经过它后会停止，可通过"执行"或"单步"继续。'],
+    errors_p2: ['Se un blocco è sintatticamente valido ma fallisce durante l\'esecuzione (variabile non dichiarata, espressione non valida, ecc.), l\'app mostra un popup di errore di esecuzione e ferma il Run.', 'If a block is syntactically valid but fails during execution (undeclared variable, invalid expression, etc.), the app shows a runtime error popup and stops the Run.', 'إذا كانت الكتلة صالحة نحويًا لكنها تفشل أثناء التنفيذ (متغير غير معلن، تعبير غير صالح، إلخ)، يعرض التطبيق نافذة خطأ تنفيذ ويوقف التشغيل.', '如果方块语法有效，但在执行期间失败（变量未声明、表达式无效等），应用会显示运行时错误弹窗并停止运行。'],
+    errors_p3: ['Un flowchart che non termina entro 50 000 passi viene interrotto automaticamente con un errore di "possibile ciclo infinito" — utile per non bloccare il browser su un ciclo scritto per sbaglio senza condizione di uscita.', 'A flowchart that does not finish within 50,000 steps is automatically stopped with a "possible infinite loop" error — useful so a loop accidentally written without an exit condition does not freeze the browser.', 'يتم إيقاف المخطط الانسيابي الذي لا ينتهي خلال 50000 خطوة تلقائيًا برسالة خطأ "حلقة لا نهائية محتملة" — مفيد حتى لا تُجمّد حلقة كُتبت بالخطأ دون شرط خروج المتصفح.', '如果流程图在 50000 步内没有结束，会自动因"可能存在无限循环"的错误而停止——这样可以避免因不小心写出没有退出条件的循环而卡死浏览器。'],
+
+    editor_p1: ['Un click seleziona un blocco (bordo colorato); un secondo click sullo STESSO blocco apre il popup di modifica. Un click su un altro blocco o sullo sfondo deseleziona.', 'One click selects a block (colored border); a second click on the SAME block opens the edit popup. Clicking another block or the background deselects.', 'نقرة واحدة تحدد كتلة (بحدود ملونة)؛ نقرة ثانية على نفس الكتلة تفتح نافذة التعديل. النقر على كتلة أخرى أو على الخلفية يلغي التحديد.', '单击可选中方块（彩色边框）；再次单击同一个方块会打开编辑弹窗。点击其他方块或空白处会取消选中。'],
+    editor_p2: ['Ctrl+click (Cmd+click su Mac) su più blocchi crea una SELEZIONE MULTIPLA (bordo tratteggiato): puoi spostare l\'intero gruppo trascinandolo (solo se i blocchi selezionati sono CONTIGUI, altrimenti il trascinamento viene rifiutato), copiarlo o eliminarlo tutto insieme dal menu contestuale o col tasto Canc.', 'Ctrl+click (Cmd+click on Mac) on multiple blocks creates a MULTI-SELECTION (dashed border): you can drag the whole group at once (only if the selected blocks are CONTIGUOUS, otherwise the drag is rejected), copy it, or delete it all together from the context menu or with the Delete key.', 'يؤدي Ctrl+نقر (Cmd+نقر على Mac) على عدة كتل إلى إنشاء تحديد متعدد (بحدود متقطعة): يمكنك سحب المجموعة بأكملها (فقط إذا كانت الكتل المحددة متجاورة، وإلا يُرفض السحب)، أو نسخها، أو حذفها كلها معًا من القائمة السياقية أو بمفتاح الحذف.', '按住 Ctrl（Mac 上为 Cmd）单击多个方块可创建多重选择（虚线边框）：可以整体拖动该组（仅当所选方块是连续的时才可以，否则拖动会被拒绝），也可以通过右键菜单或 Delete 键将其整体复制或删除。'],
+    ch6_range_p: ['Ctrl+Maiusc+click (Cmd+Maiusc+click su Mac) da un blocco già selezionato a un altro seleziona l\'intero RANGE fra i due, purché siano sullo stesso livello di annidamento — utile per estendere una selezione multipla senza cliccare ogni blocco intermedio uno per uno. Se i due blocchi non sono sullo stesso livello, la selezione viene rifiutata (lampeggio rosso) invece di produrre un risultato scorretto.', 'Ctrl+Shift+click (Cmd+Shift+click on Mac) from an already-selected block to another selects the entire RANGE between the two, as long as they are at the same nesting level — useful to extend a multi-selection without clicking every block in between one by one. If the two blocks are not at the same level, the selection is rejected (a red flash) instead of producing an incorrect result.', 'يؤدي Ctrl+Shift+نقر (Cmd+Shift+نقر على Mac) من كتلة محددة مسبقًا إلى أخرى إلى تحديد النطاق الكامل بينهما، طالما كانتا على نفس مستوى التعشيش — مفيد لتوسيع تحديد متعدد دون النقر على كل كتلة وسيطة واحدة تلو الأخرى. إذا لم تكن الكتلتان على نفس المستوى، يُرفض التحديد (وميض أحمر) بدلاً من إنتاج نتيجة غير صحيحة.', '按住 Ctrl+Shift 单击（Mac 上为 Cmd+Shift）从一个已选中的方块到另一个方块，会选中两者之间的整个范围，前提是它们处于同一嵌套层级——这样无需逐个点击中间的每个方块即可扩展多重选择。如果两个方块不在同一层级，选择会被拒绝（红色闪烁），而不会产生错误的结果。'],
+    editor_p3: ['Il menu contestuale (click destro su un blocco o una freccia) offre Modifica, Taglia, Copia, Incolla ed Elimina, più le voci Copia/Elimina selezione quando è attiva una selezione multipla.', 'The context menu (right-click on a block or arrow) offers Edit, Cut, Copy, Paste, and Delete, plus Copy/Delete selection entries when a multi-selection is active.', 'تقدم القائمة السياقية (نقر بزر الفأرة الأيمن على كتلة أو سهم) خيارات تحرير وقص ونسخ ولصق وحذف، بالإضافة إلى خياري نسخ/حذف التحديد عند وجود تحديد متعدد نشط.', '上下文菜单（右键单击方块或箭头）提供编辑、剪切、复制、粘贴和删除，当存在多重选择时还会显示"复制所选/删除所选"选项。'],
+    editor_p4: ['Annulla/Ripeti: Ctrl+Z per annullare, Ctrl+Y (o Ctrl+Maiusc+Z) per ripetere — coprono anche spostamenti, copie ed eliminazioni di gruppo.', 'Undo/Redo: Ctrl+Z to undo, Ctrl+Y (or Ctrl+Shift+Z) to redo — these also cover group moves, copies, and deletions.', 'تراجع/إعادة: Ctrl+Z للتراجع، Ctrl+Y (أو Ctrl+Shift+Z) للإعادة — تشمل أيضًا نقل المجموعات ونسخها وحذفها.', '撤销/重做：Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做——同样适用于分组的移动、复制和删除。'],
+
+    errors_p1: ['Un blocco diventa ROSSO quando il suo contenuto non è sintatticamente valido: per If/While/Do-While controlla che sia JAVASCRIPT valido (non che l\'interprete lo accetti davvero — restano alcuni costrutti JS validi ma non supportati, es. operatori bit a bit o <code>typeof</code>), per Assign che sia nella forma <code>nome = espressione</code>, per Input che sia un nome di variabile valido, per For che rispetti <code>nome = iniziale; condizione; incremento</code>.', 'A block turns RED when its content is not syntactically valid: for If/While/Do-While it checks that it is valid JAVASCRIPT (not that the interpreter actually accepts it — a few valid JS constructs remain unsupported, e.g. bitwise operators or <code>typeof</code>), for Assign that it has the form <code>name = expression</code>, for Input that it is a valid variable name, for For that it follows <code>name = initial; condition; increment</code>.', 'تتحول الكتلة إلى اللون الأحمر عندما يكون محتواها غير صالح نحويًا: بالنسبة لـ إذا/طالما/كرر-طالما، يتحقق من أنه JAVASCRIPT صالح (وليس أن المفسِّر يقبله فعليًا — تبقى بعض تراكيب JS الصالحة غير مدعومة، مثل العوامل الثنائية أو <code>typeof</code>)، وللإسناد أن يكون بصيغة <code>الاسم = تعبير</code>، وللإدخال أن يكون اسم متغير صالحًا، ولـ لأجل أن يتبع <code>الاسم = الأولي; الشرط; الزيادة</code>.', '当方块内容语法无效时会变红：对于 If/While/Do-While，检查的是它是否是有效的 JAVASCRIPT（而不是解释器是否真的接受它——仍有少数有效的 JS 结构不受支持，例如位运算符或 <code>typeof</code>）；对于 Assign，检查是否符合 <code>名称 = 表达式</code> 的形式；对于 Input，检查是否是有效的变量名；对于 For，检查是否符合 <code>名称 = 初始值; 条件; 增量</code>。'],
+    ch7_seealso_run: ['Errori che succedono SOLO durante l\'esecuzione (variabile non dichiarata, ciclo infinito) sono trattati nel capitolo 5.', 'Errors that happen ONLY during execution (undeclared variable, infinite loop) are covered in chapter 5.', 'الأخطاء التي تحدث فقط أثناء التنفيذ (متغير غير معلن، حلقة لا نهائية) مشروحة في الفصل 5.', '仅在执行期间发生的错误（变量未声明、无限循环）在第 5 章中说明。'],
+    errors_p4_lbl: ['Limite noto rimasto:', 'Remaining known limit:', 'القيد المعروف المتبقي:', '仍存在的已知限制：'],
+    errors_known_limit_p: ['nel blocco Uscita non puoi usare parentesi né numeri decimali scritti a mano nella parte non tra virgolette (per un calcolo con parentesi o decimali, falla prima in un blocco Assegna e stampa il risultato).', 'inside the Output block you cannot use parentheses or hand-written decimal numbers in the unquoted part (for a calculation with parentheses or decimals, do it first in an Assign block and print the result).', 'داخل كتلة الإخراج لا يمكنك استخدام الأقواس أو الأعداد العشرية المكتوبة يدويًا في الجزء غير المحاط بعلامات اقتباس (لحساب يتضمن أقواسًا أو أعدادًا عشرية، نفّذه أولًا في كتلة إسناد ثم اطبع النتيجة).', '在 Output 方块中，未加引号的部分不能使用括号或手写的小数（如果需要带括号或小数的计算，请先在 Assign 方块中完成，再打印结果）。']
+  };
+
+  var MATH_FN = [
+    ['Math.abs(x)', ['Valore assoluto', 'Absolute value', 'القيمة المطلقة', '绝对值'], 'Math.abs(-5)', '5'],
+    ['Math.floor(x)', ['Arrotonda per difetto', 'Round down', 'التقريب لأسفل', '向下取整'], 'Math.floor(4.7)', '4'],
+    ['Math.ceil(x)', ['Arrotonda per eccesso', 'Round up', 'التقريب لأعلى', '向上取整'], 'Math.ceil(4.2)', '5'],
+    ['Math.round(x)', ['Arrotonda all\'intero più vicino', 'Round to nearest integer', 'التقريب لأقرب عدد صحيح', '四舍五入取整'], 'Math.round(4.5)', '5'],
+    ['Math.sqrt(x)', ['Radice quadrata', 'Square root', 'الجذر التربيعي', '平方根'], 'Math.sqrt(16)', '4'],
+    ['Math.pow(x, y)', ['Potenza x elevato a y', 'Power, x raised to y', 'القوة، x أس y', '幂，x 的 y 次方'], 'Math.pow(2, 10)', '1024'],
+    ['Math.max(...)', ['Massimo fra due o più valori', 'Maximum of two or more values', 'الحد الأقصى بين قيمتين أو أكثر', '两个或多个值中的最大值'], 'Math.max(3, 7, 2)', '7'],
+    ['Math.min(...)', ['Minimo fra due o più valori', 'Minimum of two or more values', 'الحد الأدنى بين قيمتين أو أكثر', '两个或多个值中的最小值'], 'Math.min(3, 7, 2)', '2'],
+    ['Math.trunc(x)', ['Tronca la parte decimale', 'Truncates the decimal part', 'يقتطع الجزء العشري', '截断小数部分'], 'Math.trunc(4.9)', '4'],
+    ['Math.sign(x)', ['Segno (-1, 0, 1)', 'Sign (-1, 0, 1)', 'الإشارة (-1، 0، 1)', '符号（-1、0、1）'], 'Math.sign(-8)', '-1'],
+    ['Math.cbrt(x)', ['Radice cubica', 'Cube root', 'الجذر التكعيبي', '立方根'], 'Math.cbrt(27)', '3'],
+    ['Math.log(x)', ['Logaritmo NATURALE (base e)', 'NATURAL logarithm (base e)', 'اللوغاريتم الطبيعي (الأساس e)', '自然对数（以 e 为底）'], 'Math.log(Math.E)', '1'],
+    ['Math.exp(x)', ['e elevato a x', 'e raised to x', 'الأس الطبيعي e^x', 'e 的 x 次方'], 'Math.exp(1)', '2.718…'],
+    ['Math.sin(x)', ['Seno, x in RADIANTI', 'Sine, x in RADIANS', 'الجيب، x بالراديان', '正弦，x 为弧度'], 'Math.sin(0)', '0'],
+    ['Math.cos(x)', ['Coseno, x in RADIANTI', 'Cosine, x in RADIANS', 'جيب التمام، x بالراديان', '余弦，x 为弧度'], 'Math.cos(0)', '1'],
+    ['Math.tan(x)', ['Tangente, x in RADIANTI', 'Tangent, x in RADIANS', 'الظل، x بالراديان', '正切，x 为弧度'], 'Math.tan(0)', '0'],
+    ['Math.PI', ['Costante π', 'Constant π', 'الثابت π', '常数 π'], 'Math.PI', '3.14159…'],
+    ['Math.E', ['Costante e', 'Constant e', 'الثابت e', '常数 e'], 'Math.E', '2.71828…'],
+    ['Math.random()', ['Numero casuale fra 0 e 1', 'Random number between 0 and 1', 'رقم عشوائي بين 0 و1', '0 到 1 之间的随机数'], 'Math.random()', '0.42… (esempio)']
+  ];
+
+  function idx(lang) { var i = MI18N_LANGS.indexOf(lang); return i >= 0 ? i : 0; }
+
+  function buildMathTable(lang) {
+    var body = document.getElementById('math-table-body');
+    if (!body) return;
+    var i = idx(lang);
+    var html = '';
+    MATH_FN.forEach(function (row) {
+      html += '<tr><td><code>' + row[0] + '</code></td><td>' + row[1][i] + '</td>' +
+        '<td><code>' + row[2] + '</code> → <code>' + row[3] + '</code></td></tr>';
+    });
+    body.innerHTML = html;
+  }
+
+  function applyManualLanguage(lang) {
+    if (MI18N_LANGS.indexOf(lang) === -1) lang = 'it';
+    document.documentElement.setAttribute('lang', lang);
+    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+    document.title = (MI.page_h1 ? MI.page_h1[idx(lang)] : 'Manual') + ' — BaseFlow';
+    document.querySelectorAll('[data-mi]').forEach(function (el) {
+      var key = el.getAttribute('data-mi');
+      var entry = MI[key];
+      if (!entry) return;
+      el.innerHTML = entry[idx(lang)];
+    });
+    buildMathTable(lang);
+    var sel = document.getElementById('man-lang-select');
+    if (sel && sel.value !== lang) sel.value = lang;
+    try { localStorage.setItem('baseflow-lang', lang); } catch (e) { /* non bloccante */ }
+  }
+
+  // ============================================================================
+  // R13-K (Ismail 2026-07-12): router a capitoli. Algoritmo generico (nessuna mappa
+  // sotto-ancora -> capitolo da tenere sincronizzata a mano): l'hash puo' essere lo slug
+  // di un capitolo (es. "#syntax", che e' anche l'id della sua <section class="man-chapter">)
+  // oppure l'id di un elemento QUALUNQUE dentro un capitolo (es. "#blk-input", una card
+  // di blocco dentro #blocks) -- in quel caso closest('.man-chapter') risale al capitolo
+  // che lo contiene e ci si posiziona li', poi si scrolla fino all'elemento preciso.
+  // Stato nell'URL hash (linkabile, come da piano) senza duplicare la history: il cambio
+  // capitolo passa SEMPRE da qui (sidebar = <a href="#...">, Precedente/Successivo/frecce
+  // = location.hash = ...), mai da una chiamata diretta a renderChapter -- un solo punto
+  // di verita', niente doppio aggiornamento fra "stato JS" e "hash nell'URL".
+  // ============================================================================
+  function renderChapter(idx, subEl) {
+    currentChapter = idx;
+    var sections = document.querySelectorAll('.man-chapter');
+    sections.forEach(function (sec, i) { sec.classList.toggle('man-chapter-hidden', i !== idx); });
+    document.querySelectorAll('.man-toc a').forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + CHAPTERS[idx].id);
+    });
+    var prevBtn = document.getElementById('man-prev'), nextBtn = document.getElementById('man-next');
+    if (prevBtn) prevBtn.disabled = (idx === 0);
+    if (nextBtn) nextBtn.disabled = (idx === CHAPTERS.length - 1);
+    var counter = document.getElementById('man-pager-count');
+    if (counter) counter.textContent = (idx + 1) + ' / ' + CHAPTERS.length;
+    if (subEl && subEl.scrollIntoView) {
+      setTimeout(function () { subEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+    } else if (typeof window.scrollTo === 'function') {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  function renderFromHash() {
+    var hash = (location.hash || '').replace(/^#/, '');
+    var target = hash ? document.getElementById(hash) : null;
+    var chapterSection = null;
+    if (target) chapterSection = target.classList.contains('man-chapter') ? target : target.closest('.man-chapter');
+    var i = chapterSection ? CHAPTERS.findIndex(function (c) { return c.id === chapterSection.id; }) : -1;
+    if (i === -1) i = 0;
+    var subEl = (target && chapterSection && target !== chapterSection) ? target : null;
+    renderChapter(i, subEl);
+  }
+
+  function goToChapter(newIdx) {
+    newIdx = Math.max(0, Math.min(CHAPTERS.length - 1, newIdx));
+    var slug = '#' + CHAPTERS[newIdx].id;
+    if (location.hash === slug) { renderChapter(newIdx, null); return; } // stesso hash: hashchange non scatterebbe da solo
+    location.hash = slug;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var lang = 'it';
+    try {
+      var saved = localStorage.getItem('baseflow-lang');
+      if (saved && MI18N_LANGS.indexOf(saved) !== -1) lang = saved;
+    } catch (e) { lang = 'it'; }
+    applyManualLanguage(lang);
+    var sel = document.getElementById('man-lang-select');
+    if (sel) sel.addEventListener('change', function () { applyManualLanguage(sel.value); });
+
+    renderFromHash();
+    window.addEventListener('hashchange', renderFromHash);
+
+    var prevBtn = document.getElementById('man-prev'), nextBtn = document.getElementById('man-next');
+    if (prevBtn) prevBtn.addEventListener('click', function () { goToChapter(currentChapter - 1); });
+    if (nextBtn) nextBtn.addEventListener('click', function () { goToChapter(currentChapter + 1); });
+
+    // Frecce tastiera come equivalente di Precedente/Successivo (ignorate se il focus e'
+    // su un campo di testo/select, stesso principio del listener globale dell'app).
+    document.addEventListener('keydown', function (e) {
+      var tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.key === 'ArrowRight') goToChapter(currentChapter + 1);
+      else if (e.key === 'ArrowLeft') goToChapter(currentChapter - 1);
+    });
+  });
+})();
+</script>
+</body>
+</html>

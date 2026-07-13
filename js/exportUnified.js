@@ -98,10 +98,10 @@ function renderExportPopup() {
           codeContainer.value = '# ' + formattedDate + '\n# Code from BaseFlow\n\n# ' + codeLines[0];
         } else {
           codeContainer.value = '# ' + formattedDate + '\n# Code from BaseFlow\n' + codeLines.join('\n');
-        { const _b = exportInvalidNodes(); if (_b.length) codeContainer.value = '# \u26A0 ATTENZIONE: ' + _b.length + ' blocco/i con contenuto non valido (' + _b.join(', ') + '): il codice potrebbe essere incompleto.\n' + codeContainer.value; }
+        { const _b = exportInvalidNodes(); if (_b.length) codeContainer.value = '# \u26A0 ' + ((typeof i18nFormat === 'function' && i18nFormat('export_invalid_warn', { n: _b.length, list: _b.join(', ') })) || (_b.length + ' blocco/i con contenuto non valido (' + _b.join(', ') + '): il codice potrebbe essere incompleto.')) + '\n' + codeContainer.value; }
         }
       } else {
-        codeContainer.value = '# Empty flowchart';
+        codeContainer.value = '# ' + ((typeof i18nText === 'function' && i18nText('export_empty')) || 'Empty flowchart');
       }
     } else {
       translateFlowMulti(format); // js/multiTranslation.js: popola 'multiCodeLines'
@@ -113,10 +113,10 @@ function renderExportPopup() {
           codeContainer.value = commentHeader + multiCodeLines[0];
         } else {
           codeContainer.value = commentHeader + multiCodeLines.join('\n');
-          { const _b = exportInvalidNodes(); if (_b.length) codeContainer.value = '// \u26A0 ATTENZIONE: ' + _b.length + ' blocco/i con contenuto non valido (' + _b.join(', ') + '): il codice potrebbe essere incompleto.\n' + codeContainer.value; }
+          { const _b = exportInvalidNodes(); if (_b.length) codeContainer.value = '// \u26A0 ' + ((typeof i18nFormat === 'function' && i18nFormat('export_invalid_warn', { n: _b.length, list: _b.join(', ') })) || (_b.length + ' blocco/i con contenuto non valido (' + _b.join(', ') + '): il codice potrebbe essere incompleto.')) + '\n' + codeContainer.value; }
         }
       } else {
-        codeContainer.value = '// Empty flowchart';
+        codeContainer.value = '// ' + ((typeof i18nText === 'function' && i18nText('export_empty')) || 'Empty flowchart');
       }
     }
   } else if (meta.kind === 'image') {
@@ -131,7 +131,7 @@ function renderExportPopup() {
     if (preview) preview.style.display = 'none';
     if (codeContainer) {
       codeContainer.style.display = '';
-      codeContainer.value = 'PDF export: click "Download" to save the diagram as a one-page PDF (cropped to content).';
+      codeContainer.value = (typeof i18nFormat === 'function' && i18nFormat('pdf_instructions', { btn: (typeof i18nText === 'function' && i18nText('download')) || 'Download' })) || 'PDF export: click "Download" to save the diagram as a one-page PDF (cropped to content).';
     }
     if (copyBtn) copyBtn.disabled = true;
   }
@@ -141,6 +141,7 @@ function openExportPopup() {
   document.getElementById('export-popup').classList.add('active');
   document.getElementById('overlay').classList.add('active');
   renderExportPopup();
+  if (typeof _bfPushOverlay === 'function') _bfPushOverlay('export-popup'); // R13-F: registro condiviso Esc
 }
 
 function onExportFormatChange() {
@@ -150,15 +151,25 @@ function onExportFormatChange() {
 function closeExportPopup() {
   document.getElementById('export-popup').classList.remove('active');
   document.getElementById('overlay').classList.remove('active');
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('export-popup');
 }
 
-function copyExportOutput() {
+// D2 (round 11, bonus tecnico): document.execCommand('copy') e' un'API deprecata che puo'
+// fallire silenziosamente (specie fuori da un contesto "trusted" o su browser recenti).
+// navigator.clipboard.writeText() e' l'API moderna -- fallback sul vecchio execCommand nel
+// catch (stesso codeContainer.select()+copy di prima) per i browser/contesti senza Clipboard API.
+async function copyExportOutput() {
   const format = currentExportFormat();
   const meta = EXPORT_FORMAT_META[format];
   if (meta.kind !== 'code') return;
   const codeContainer = document.getElementById('export-code');
-  codeContainer.select();
-  document.execCommand('copy');
+  try {
+    if (!(navigator.clipboard && navigator.clipboard.writeText)) throw new Error('Clipboard API non disponibile');
+    await navigator.clipboard.writeText(codeContainer.value);
+  } catch (e) {
+    codeContainer.select();
+    document.execCommand('copy');
+  }
   if (typeof showStyledAlert === 'function') showStyledAlert(((typeof i18nText === 'function' && i18nText('export_copied')) || 'Code copied to clipboard!'));
   else alert(meta.label + ' code copied to clipboard!');
 }
@@ -179,7 +190,14 @@ function downloadExportOutput() {
     const codeContainer = document.getElementById('export-code');
     const blob = new Blob([codeContainer.value], { type: 'text/plain' });
     triggerDownload(URL.createObjectURL(blob), 'flow_code.' + meta.ext);
-    alert(meta.label + ' code downloaded as flow_code.' + meta.ext + '!');
+    // B1 (round 11): modale stilizzata invece di alert() nativo.
+    {
+      const fileName = 'flow_code.' + meta.ext;
+      const msg = (typeof i18nFormat === 'function' && i18nFormat('export_downloaded', { label: meta.label, file: fileName })) ||
+        (meta.label + ' code downloaded as ' + fileName + '!');
+      if (typeof showStyledAlert === 'function') showStyledAlert(msg);
+      else if (typeof alert === 'function') alert(msg);
+    }
     return;
   }
   if (meta.kind === 'image') {
@@ -198,7 +216,10 @@ function downloadDiagramAsPdf() {
   const JsPDFCtor = (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) ||
     (typeof jsPDF !== 'undefined' ? jsPDF : null);
   if (!JsPDFCtor) {
-    alert('PDF export non disponibile: la libreria jsPDF non e\' stata caricata (serve connessione a Internet).');
+    // B1 (round 11): modale stilizzata invece di alert() nativo.
+    const msg = (typeof i18nText === 'function' && i18nText('pdf_unavailable')) || "PDF export non disponibile: la libreria jsPDF non e' stata caricata (serve connessione a Internet).";
+    if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true });
+    else if (typeof alert === 'function') alert(msg);
     return;
   }
   const cropped = renderCroppedCanvas();

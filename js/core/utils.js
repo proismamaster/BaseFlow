@@ -479,6 +479,55 @@ function validateFlow(parsed) {
     for (let i = 0; i < n; i++) {
       if (!reached.has(i)) errors.push(`nodo ${i} (${nodes[i].type}): irraggiungibile dallo start`);
     }
+
+    // 6) Invarianti di layout (R12-C, Ismail 2026-07-11): i controlli 1-4 sopra non
+    // bastano -- un file puo' passarli e comunque rompere il layout (drag&drop,
+    // cascade-delete, calcoloY, vedi collectFullIfSubtreeMembers/
+    // collectFullLoopSubtreeMembers in questo stesso file), perche' NON verificano
+    // CONTIGUITA'/DISGIUNZIONE dei sottoalberi. Caso reale: test-fixtures/
+    // 2026-07-11-if-rami-condivisi.json (fornita da Ismail) -- due if il cui ramo
+    // false punta allo STESSO nodo condiviso, che l'UI (inserisciNodo) non puo' MAI
+    // produrre (ogni inserimento shifta contiguamente gli indici e aggiorna un SOLO
+    // puntatore per volta). Riusa le STESSE funzioni di cui si fidano drag&drop e
+    // cascade-delete (nessun nuovo walker): un file che le viola farebbe danni ovunque
+    // in-app, non solo qui. Ogni chiamata e' avvolta in try/catch: un'eccezione (file
+    // davvero malformato, profondita' inattesa) e' un errore di validazione, MAI un
+    // crash. NESSUNA riparazione automatica (decisione storica, vedi commento FIX A1
+    // sopra): il caricamento si rifiuta e basta, l'intento originale di un file rotto
+    // e' ambiguo.
+    for (let i = 0; i < n; i++) {
+      const node = nodes[i];
+      if (node.type === "if") {
+        let info = null;
+        try { info = collectFullIfSubtreeMembers(i); } catch (e) { info = null; }
+        if (!info || !info.contiguous) {
+          errors.push(`if(${i}): sottoalbero non contiguo — file non prodotto da BaseFlow o corrotto`);
+        } else {
+          for (const ei of endIdxs) {
+            if (ei >= info.blockStart && ei < info.blockEnd) {
+              errors.push(`if(${i}): il nodo "end" (indice ${ei}) cade dentro l'intervallo del blocco if [${info.blockStart},${info.blockEnd})`);
+            }
+          }
+        }
+        let branch = null;
+        try { branch = collectBranchNodes(i); } catch (e) { branch = null; }
+        if (branch) {
+          const trueSet = new Set(branch.trueList);
+          const shared = branch.falseList.filter((idx) => trueSet.has(idx));
+          if (shared.length) {
+            errors.push(`if(${i}): i rami condividono nodi (indici ${shared.join(", ")})`);
+          }
+        } else {
+          errors.push(`if(${i}): impossibile calcolare i rami (errore interno)`);
+        }
+      } else if (isBranchingNodeType(node.type)) {
+        let info = null;
+        try { info = collectFullLoopSubtreeMembers(i); } catch (e) { info = null; }
+        if (!info || !info.contiguous) {
+          errors.push(`ciclo ${node.type}(${i}): sottoalbero non contiguo — file non prodotto da BaseFlow o corrotto`);
+        }
+      }
+    }
   } finally {
     flow = savedFlow;
   }

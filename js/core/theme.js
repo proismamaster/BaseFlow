@@ -68,18 +68,47 @@ function loadDarkModePreference() {
 // (backup/condivisione, ricaricabile con "Carica tema"). Le voci "Crea nuovo tema" e "Carica
 // tema" stanno in fondo al menu dei temi. I colori sono tutti variabili CSS.
 // ============================================================================
+// Ogni voce: [variabile CSS, chiave i18n, etichetta di fallback IT se i18nText non c'e'].
+// Il gruppo usa la stessa convenzione: [chiave i18n, fallback IT]. Tradotto in base alla
+// lingua attiva da openThemeEditor() tramite _tt(), come gia' il resto della UI.
 const THEME_EDITABLE = [
-  { group: 'Nodi', vars: [
-    ['--node-start', 'Start'], ['--node-end', 'End'], ['--node-input', 'Input'], ['--node-output', 'Output/Print'],
-    ['--node-assign', 'Assegna'], ['--node-if', 'If'], ['--node-while', 'While'], ['--node-for', 'For'],
-    ['--node-do', 'Do'], ['--node-comment', 'Commento'], ['--node-pause', 'Pausa'] ] },
-  { group: 'Grafica (turtle)', vars: [
-    ['--node-forward', 'Move/Draw'], ['--node-turn', 'Turn'], ['--node-home', 'Home'], ['--node-pen', 'Pen'], ['--node-gclear', 'Clear'] ] },
-  { group: 'Archi & etichette', vars: [
-    ['--canvas-line-color', 'Linee/archi'], ['--if-true-color', 'Vero/True'], ['--if-false-color', 'Falso/False'],
-    ['--arc-hover-color', 'Arco (hover)'] ] },
-  { group: 'Esecuzione', vars: [
-    ['--exec-node-color', 'Nodo in esecuzione'], ['--exec-edge-color', 'Arco percorso'], ['--exec-error-color', 'Blocco in errore'] ] }
+  { groupKey: 'theme_grp_ui', groupFallback: 'Interfaccia', vars: [
+    ['--bg', 'theme_var_bg', 'Sfondo pagina'], ['--surface', 'theme_var_surface', 'Pannelli/superficie'],
+    ['--primary', 'theme_var_primary', 'Pulsanti/colore principale'], ['--primary-dark', 'theme_var_primarydark', 'Colore principale (scuro/hover)'],
+    ['--accent', 'theme_var_accent', 'Accento'], ['--border', 'theme_var_border', 'Bordi'], ['--text', 'theme_var_text', 'Testo'] ] },
+  { groupKey: 'theme_grp_nodes', groupFallback: 'Nodi', vars: [
+    // Riusa le STESSE chiavi i18n gia' usate per i nomi reali dei nodi/blocchi
+    // (nd_*/blk_*, es. "Se"/"Mentre"/"Per" in italiano) — cosi' l'editor tema mostra
+    // sempre l'etichetta IDENTICA a quella che l'utente vede sul blocco vero, in
+    // qualunque lingua, senza una seconda traduzione da tenere allineata a mano.
+    ['--node-start', 'nd_start', 'Start'], ['--node-end', 'nd_end', 'End'],
+    ['--node-input', 'blk_input', 'Input'], ['--node-output', 'blk_output', 'Output/Print'],
+    ['--node-assign', 'blk_assign', 'Assegna'], ['--node-if', 'blk_if', 'If'],
+    ['--node-while', 'blk_while', 'While'], ['--node-for', 'blk_for', 'For'],
+    ['--node-do', 'blk_dowhile', 'Do'], ['--node-comment', 'blk_comment', 'Commento'],
+    ['--node-pause', 'blk_pause', 'Pausa'] ] },
+  { groupKey: 'theme_grp_turtle', groupFallback: 'Grafica (turtle)', vars: [
+    ['--node-forward', 'blk_forward', 'Move/Draw'], ['--node-turn', 'blk_turn', 'Turn'],
+    ['--node-home', 'blk_home', 'Home'], ['--node-pen', 'blk_pen', 'Pen'],
+    ['--node-gclear', 'blk_clearscreen', 'Clear'] ] },
+  { groupKey: 'theme_grp_arcs', groupFallback: 'Archi & etichette', vars: [
+    ['--canvas-line-color', 'theme_var_line', 'Linee/archi'], ['--if-true-color', 'theme_var_true', 'Vero/True'],
+    ['--if-false-color', 'theme_var_false', 'Falso/False'], ['--arc-hover-color', 'theme_var_archover', 'Arco (hover)'],
+    // R12-E/E1 (Ismail 2026-07-11): --arc-drag-color esisteva gia' (rendering.js arcDragColor(),
+    // usata per l'arrowhead dell'arco target durante il drag di un nodo -- vedi anche il fix
+    // fatto in questo stesso WP per allineare corpo-linea/nodo-trascinato/ghost allo stesso
+    // colore) ma non compariva nell'editor: l'utente non poteva personalizzarla.
+    ['--arc-drag-color', 'theme_var_arcdrag', 'Arco (drag)'] ] },
+  { groupKey: 'theme_grp_exec', groupFallback: 'Esecuzione', vars: [
+    ['--exec-node-color', 'theme_var_execnode', 'Nodo in esecuzione'], ['--exec-edge-color', 'theme_var_execedge', 'Arco percorso'],
+    ['--exec-error-color', 'theme_var_execerr', 'Blocco in errore'],
+    // R12-E/E1: --node-selected-color esisteva gia' (rendering.js, bordo di selezione a click
+    // singolo, feature C4 round 11) ma non era nell'editor.
+    ['--node-selected-color', 'theme_var_nodesel', 'Blocco selezionato'] ] },
+  // R12-E/E2 (Ismail 2026-07-11): il pulsante Stop del terminale era rosso FISSO (style.css
+  // #console-stop, mai una CSS var) -- nuovo gruppo dedicato ai controlli del terminale.
+  { groupKey: 'theme_grp_console', groupFallback: 'Terminale', vars: [
+    ['--stop-btn-color', 'theme_var_stopbtn', 'Pulsante Stop'] ] }
 ];
 const CUSTOM_THEMES_KEY = 'baseflow-custom-themes';
 let _draftColors = {};
@@ -157,17 +186,35 @@ function startCreateTheme() {
   const nameInp = document.getElementById('te-name');
   if (nameInp) { nameInp.value = ''; nameInp.style.borderColor = ''; setTimeout(function () { try { nameInp.focus(); } catch (e) {} }, 60); }
 }
+// R12-E/E3 (Ismail 2026-07-11): legge il valore CORRENTE di una var, per il tema REALMENTE
+// attivo. BUG trovato: prima si leggeva sempre getComputedStyle(document.documentElement)
+// (l'elemento <html>), ma applyThemeClass() mette le classi tema/dark-mode su document.BODY
+// ("body.theme-neon { --primary: ... }", "body.dark-mode { ... }", vedi style.css) -- <body>
+// e' un FIGLIO di <html>, quindi le sue regole non "risalgono" mai a modificare cio' che
+// getComputedStyle(document.documentElement) restituisce: quella chiamata vedeva SEMPRE e SOLO
+// i valori di default di :root (tema chiaro), MAI quelli del tema scuro/neon/ecc. realmente
+// attivo -- motivo per cui "Crea nuovo tema" mostrava sempre gli stessi colori di fabbrica.
+// Fix: legge da document.body (dove il cascade e' quello VERO per l'utente); se la var non e'
+// ridefinita dal tema attivo (nessuna regola body.* la tocca) il valore e' comunque ereditato
+// correttamente da :root tramite il normale cascade -- il fallback esplicito su
+// getComputedStyle(document.documentElement) sotto copre solo il caso limite in cui anche
+// l'eredita' desse una stringa vuota (var mai definita da nessuna parte).
+function _activeVarValue(varName) {
+  let raw = '';
+  try { raw = (getComputedStyle(document.body).getPropertyValue(varName) || '').trim(); } catch (e) {}
+  if (!raw) { try { raw = (getComputedStyle(document.documentElement).getPropertyValue(varName) || '').trim(); } catch (e) {} }
+  return raw;
+}
 function openThemeEditor() {
   const box = document.getElementById('theme-editor'); const body = document.getElementById('te-body');
   if (!box || !body) return;
-  const cs = getComputedStyle(document.documentElement);
   let html = '';
   THEME_EDITABLE.forEach(function (grp) {
-    html += '<div class="te-group">' + grp.group + '</div>';
+    html += '<div class="te-group">' + _tt(grp.groupKey, grp.groupFallback) + '</div>';
     grp.vars.forEach(function (v) {
-      const cur = _draftColors[v[0]] || _rgbToHex((cs.getPropertyValue(v[0]) || '').trim());
+      const cur = _draftColors[v[0]] || _rgbToHex(_activeVarValue(v[0]));
       _draftColors[v[0]] = cur;
-      html += '<label class="te-row"><span>' + v[1] + '</span>' +
+      html += '<label class="te-row"><span>' + _tt(v[1], v[2]) + '</span>' +
         '<input type="color" value="' + cur + '" oninput="setDraftColor(\'' + v[0] + '\', this.value)"></label>';
     });
   });
@@ -202,13 +249,15 @@ function saveNewTheme() {
   const nameInp = document.getElementById('te-name');
   const name = ((nameInp && nameInp.value) || '').trim();
   if (!name) {
-    if (nameInp) { nameInp.style.borderColor = '#e53935'; try { nameInp.focus(); } catch (e) {} }
+    // R12-E/E4: bordo di errore del campo nome -- segue --bf-danger (tema/dark/bw) invece di
+    // un rosso fisso, stesso var usato per le altre segnalazioni "danger" della UI.
+    if (nameInp) { nameInp.style.borderColor = _activeVarValue('--bf-danger') || '#e53935'; try { nameInp.focus(); } catch (e) {} }
     try { if (typeof showStyledAlert==='function') showStyledAlert(_tt('theme_name_req', 'Dai un nome al tema prima di salvarlo.'),{danger:true}); else alert(_tt('theme_name_req','')); } catch (e) {}
     return;
   }
-  const cs = getComputedStyle(document.documentElement);
   const colors = {};
-  _allEditableVars().forEach(function (k) { colors[k] = _draftColors[k] || _rgbToHex((cs.getPropertyValue(k) || '').trim()); });
+  // R12-E/E3: stesso fix di openThemeEditor() -- fallback su document.body, non document.documentElement.
+  _allEditableVars().forEach(function (k) { colors[k] = _draftColors[k] || _rgbToHex(_activeVarValue(k)); });
   const base = (_activeThemeValue.indexOf('custom:') === 0)
     ? ((_customThemes()[_activeThemeValue.slice(7)] || {}).base || 'light')
     : (THEMES.indexOf(_activeThemeValue) !== -1 ? _activeThemeValue : 'light');

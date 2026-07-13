@@ -25,7 +25,7 @@
           } catch (e) { /* API non disponibili: file caricati freschi comunque */ }
         })();
         </script>
-        <link rel="stylesheet" href="style.css?v=20260709g">
+        <link rel="stylesheet" href="style.css?v=20260713f">
         <link rel="icon" type="image/png" href="img/icon.png" />
         <link rel="manifest" href="manifest.json">
     </head>
@@ -36,12 +36,13 @@
             <div id="toolbar">
 
             <img id="logo" src="img/logoBaseFlow.png" alt="BaseFlow Logo">
-            <span id="unsaved-indicator" data-i18n-title="unsaved_dot" title="Modifiche non salvate" hidden>&#9679;</span>
 
             <button class="tb-icon bf-icon" id="new-btn" data-i18n-title="new" title="Nuovo" onclick="
             if(!saved && !isEmpty()){
-                document.getElementById('new-popup').classList.add('active')
-                document.getElementById('overlay').classList.add('active')
+                showUnsavedDialog({ onSave: function(){ saveFile(); }, onDiscard: function(){
+                    window._bfBypassUnload = true;
+                    location.reload();
+                } });
             }
             else{
                 location.reload()
@@ -49,18 +50,45 @@
             "><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
             <button class="tb-icon bf-icon" id="open-btn" data-i18n-title="open" title="Apri" onclick="openFileWithGuard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
             <input type="file" id="fileInput" style="display:none;" accept=".json" multiple="false" />
-            <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="save" title="Salva" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
+            <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="tip_save" title="Salva: silenzioso se il progetto ha gia' un nome, altrimenti chiede nome e autore" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
+            <button class="tb-icon bf-icon" id="save-as-btn" data-i18n-title="tip_save_as" title="Salva con nome: chiede sempre nome e autore" onclick="saveFileAs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l4 4v3"/><polyline points="15 21 15 14 7 14 7 21"/><polyline points="7 3 7 8 13 8"/><path d="M21.7 13.3a1.5 1.5 0 0 0-2.1 0L15 18v3h3l4.6-4.6a1.5 1.5 0 0 0 0-2.1z"/></svg></button>
             <button class="tb-icon bf-icon" id="clear-btn" onclick="clearCanvas()" data-i18n-title="tip_clear" title="Svuota il canvas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
             <button class="tb-icon bf-icon" id="undo-btn" onclick="undo()" data-i18n-title="undo" title="Annulla (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
             <button class="tb-icon bf-icon" id="redo-btn" onclick="redo()" data-i18n-title="redo" title="Ripeti (Ctrl+Y)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
             <button class="tb-icon bf-icon" id="export-btn" onclick="openExportPopup()" data-i18n-title="export" title="Esporta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <span class="tb-sep"></span>
-            <button class="tb-icon bf-icon" id="console-exe" onclick="(async () => { await executeFlow(flow); })();" data-i18n-title="execute" title="Esegui"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-step" onclick="(async () => { await executeStep(); })();" data-i18n-title="step" title="Passo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button><button class="tb-icon bf-icon" id="exec-pause" onclick="requestPause()" data-i18n-title="exec_pause" title="Pausa" disabled><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button><button class="tb-icon bf-icon" id="console-stop" onclick="requestStop()" data-i18n-title="stop" title="Ferma" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-reset" onclick="resetFlow()" data-i18n-title="reset" title="Reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button><button class="tb-icon bf-icon" id="console-clear" onclick="clearConsole()" data-i18n-title="clear" title="Pulisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button><select id="run-speed" class="tb-select" onchange="setRunSpeed(this.value)" data-i18n-title="tip_runspeed" title="Velocità animazione"><option value="700" data-i18n="speed_slow">Lenta</option><option value="350" selected data-i18n="speed_normal">Normale</option><option value="120" data-i18n="speed_fast">Veloce</option><option value="0" data-i18n="speed_instant">Istantanea</option></select>
+            <button class="tb-icon bf-icon" id="console-exe" onclick="(async () => { await executeFlow(flow); })();" data-i18n-title="execute" title="Esegui"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-step" onclick="(async () => { await executeStep(); })();" data-i18n-title="step" title="Passo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button><button class="tb-icon bf-icon" id="exec-pause" onclick="requestPause()" data-i18n-title="exec_pause" title="Pausa" disabled><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button><button class="tb-icon bf-icon" id="console-stop" onclick="requestStop()" data-i18n-title="stop" title="Ferma" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-reset" onclick="resetFlow()" data-i18n-title="reset" title="Reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button><select id="run-speed" class="tb-select" onchange="setRunSpeed(this.value)" data-i18n-title="tip_runspeed" title="Velocità animazione"><option value="700" data-i18n="speed_slow">Lenta</option><option value="350" selected data-i18n="speed_normal">Normale</option><option value="120" data-i18n="speed_fast">Veloce</option><option value="0" data-i18n="speed_instant">Istantanea</option></select>
             <span class="tb-sep"></span>
             <button class="tb-icon bf-icon" id="settings-btn" onclick="openSettingsPopup()" data-i18n-title="tip_settings" title="Impostazioni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
             <button class="tb-icon bf-icon" id="help-btn" onclick="startTutorial()" data-i18n-title="help" title="Aiuto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+            <!-- R13-K (Ismail 2026-07-12): ingresso in toolbar al manuale (ora a capitoli, vedi
+                 manual.html) -- richiesta esplicita "non una pagina nel footer". <button> (non
+                 <a>): tutte le regole di stile della toolbar sono scoped a "#toolbar button"
+                 (elemento, non classe) -- un <a> con le stesse classi le avrebbe MANCATE tutte
+                 (colore/hover/dark-mode/temi), restando uno spoglio link blu di sistema.
+                 R14-D (Ismail 2026-07-13): non piu' una nuova scheda -- apre un overlay IN-APP
+                 (#manual-overlay sotto, iframe same-origin verso manual.html). Il manuale eredita
+                 tema/lingua da localStorage per conto proprio (script inline in testa a
+                 manual.html), non serve passare stato via query string; l'iframe si carica alla
+                 PRIMA apertura (openManualOverlay, popups.js) e resta in memoria dopo, cosi'
+                 riaprendo si ritrova lo stesso capitolo/scroll di prima. -->
+            <button class="tb-icon bf-icon" id="manual-btn" onclick="openManualOverlay()" data-i18n-title="manual" title="Manuale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></button>
             <input type="file" id="theme-file-input" accept=".json,application/json" style="display:none" onchange="loadThemeFromFile(this)">
+            <!-- R13-D (Ismail 2026-07-12): identita' del progetto in elaborazione -- nome + autore,
+                 col pallino "non salvato" SPOSTATO qui accanto al nome (prima vicino al logo, area di
+                 hover minuscola: un solo carattere). margin-inline-start:auto lo spinge a fine riga,
+                 RTL-safe (in arabo l'inizio riga e' a destra, quindi "fine riga" resta a sinistra senza
+                 bisogno di una regola speculare dedicata). Popolato/aggiornato da updateProjectIdentity()
+                 (execute.js) -- vedi anche state.js (currentFileName/currentAuthor). -->
+            <!-- R14-B.2 (Ismail 2026-07-13): niente piu' data-i18n-title/title statici qui --
+                 il tooltip e' ora quello istantaneo di js/core/ux.js (stesso di .bf-icon),
+                 agganciato via #project-identity/#unsaved-indicator (vedi ux.js). Contenuto
+                 dinamico scritto in data-tip da updateProjectIdentity() (execute.js). -->
+            <div id="project-identity">
+              <span id="project-identity-text"></span>
+              <span id="unsaved-indicator" data-i18n-title="unsaved_dot" hidden>&#9679;</span>
+            </div>
             </div>
             <div id="main">
             <div id="sidebar">
@@ -92,6 +120,13 @@
                         </td>
                     </tr>
                 </table>
+                <!-- R13-L (Ismail 2026-07-12): popover di editing per valori lunghi (doppio click
+                     sulla cella Valore, vedi openVarValuePopover in variables.js). Un solo elemento
+                     condiviso, ancorato dinamicamente sopra la riga cliccata. -->
+                <div id="var-value-popover" hidden>
+                  <textarea id="var-value-popover-textarea" rows="2"></textarea>
+                  <div class="var-value-popover-hint" id="var-value-popover-hint" data-i18n="var_value_popover_hint">Invio per confermare · Esc per annullare</div>
+                </div>
                 </div>
             </div>    
                  <button class="bf-icon" id="sidebar-reopen" onclick="toggleVariables()" data-i18n-title="tip_show_vars" title="Mostra le variabili">☰</button>
@@ -141,6 +176,11 @@
                         <button class="x-close" onclick="chiudiEditPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                         <h3 id="edit-node-title" data-i18n="edit_title">Edit Node</h3>
                         <input type="text" id="edit-node-input" data-i18n-ph="edit_ph" placeholder="Enter node information">
+                        <div id="assign-fields" hidden>
+                          <div class="assign-row"><label for="assign-var-input" data-i18n="assign_var_label">Variabile</label><input type="text" id="assign-var-input"></div>
+                          <div class="assign-row"><label for="assign-val-input" data-i18n="assign_val_label">Valore</label><input type="text" id="assign-val-input"></div>
+                        </div>
+                        <label id="out-newline-row" hidden><input type="checkbox" id="out-newline-check" checked> <span data-i18n="out_newline">A capo dopo la stampa</span></label>
                         <div class="edit-actions">
                         <button id="save-node-info" onclick="salvaInfo()" data-i18n="save">Save</button>
                         <button id="delete-node-btn" onclick="deleteNode()" data-i18n="delete">Delete</button>
@@ -187,49 +227,88 @@
                     </div>
                     </div>
 
+                    <!-- R14-C (Ismail 2026-07-13): redesign per allinearlo alla famiglia bf-modal
+                         (showStyledConfirm/showUnsavedDialog) -- icona floppy in cerchio + titolo,
+                         X di chiusura (riusa closeSavePopup(), gia' nello stack Esc R13-F tramite
+                         _bfPushOverlay('save-popup') in saveFileAs()/_bfCloseOverlayById), pulsanti
+                         Salva/Annulla con le stesse classi .bf-modal-btn/.bf-modal-ok/.bf-modal-btn-ghost
+                         (nessuna nuova regola tema/dark-mode necessaria: sono gia' generiche). Il
+                         popup resta un componente A PARTE da .bf-modal (overlay/#overlay/logica di
+                         apertura in popups.js INVARIATI) -- solo l'aspetto e' allineato. -->
                     <div id="save-popup">
-                    <h3 data-i18n="save_project">Save project</h3>
+                    <button type="button" class="x-close" id="save-popup-xclose" onclick="closeSavePopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <div class="bf-modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></div>
+                    <h3 class="bf-modal-title" data-i18n="save_project">Save project</h3>
+                    <!-- R13-D punto 4: sottotitolo col nome del progetto ATTUALE, se noto (Salva con
+                         nome puo' anche solo rinominare/cambiare autore dello stesso progetto). -->
+                    <p id="save-popup-current" hidden></p>
                     <label for="filename-input" data-i18n="filename_label">File name (without extension):</label><br>
                     <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name"><br><br>
-                    <button id="save-confirm-btn" onclick="save(flow,document.getElementById('filename-input').value)" data-i18n="save">Save</button>
-                    <button id="save-cancel-btn" onclick="closeSavePopup()" data-i18n="cancel">Cancel</button>
+                    <!-- R13-D (Ismail 2026-07-12): campo Autore, precompilato da currentAuthor o
+                         dall'ultimo autore usato (localStorage['baseflow-author']) -- vedi saveFileAs()/
+                         confirmSaveFromPopup() in popups.js. -->
+                    <label for="save-author-input" data-i18n="author_label">Author:</label><br>
+                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name"><br><br>
+                    <div id="save-popup-actions">
+                    <button id="save-confirm-btn" class="bf-modal-btn bf-modal-ok" onclick="confirmSaveFromPopup()" data-i18n="save">Save</button>
+                    <button id="save-cancel-btn" class="bf-modal-btn bf-modal-btn-ghost" onclick="closeSavePopup()" data-i18n="cancel">Cancel</button>
+                    </div>
                     </div>
 
-                    <div id="new-popup" >
-                    <p data-i18n="unsaved">Do you want to continue without saving?</p>
-                    <button id="save-btn" onclick="document.getElementById('new-popup').classList.remove('active')
-                    document.getElementById('overlay').classList.remove('active')
-                    saveFile()" data-i18n="save">Save</button>
-                    <button id="continue-btn" onclick="location.reload()" data-i18n="new">New</button>
-                    <button id="cancel-btn" onclick="document.getElementById('overlay').classList.remove('active');
-                    document.getElementById('new-popup').classList.remove('active');" data-i18n="cancel">Cancel</button>
+                    <!-- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay a schermo pieno con
+                         un iframe same-origin verso manual.html (invece di window.open in una
+                         nuova scheda). X di chiusura + Esc (stack condiviso R13-F, vedi
+                         openManualOverlay/closeManualOverlay e _bfCloseOverlayById in popups.js).
+                         manual.html nasconde da solo il suo link "← BaseFlow" quando rileva di
+                         essere in un iframe (window.self !== window.top, vedi script inline in
+                         testa a manual.html) -- navigare "indietro" dentro l'iframe non avrebbe
+                         senso, si chiude l'overlay con X/Esc invece. -->
+                    <div id="manual-overlay">
+                      <div id="manual-overlay-box">
+                        <!-- Barra dedicata SOLO per la X, sopra l'iframe: la X assoluta sull'iframe
+                             avrebbe coperto il selettore lingua del manuale (.man-lang, gia' in alto
+                             a destra dentro manual.html -- vedi .man-topbar). -->
+                        <div id="manual-overlay-bar">
+                          <button type="button" class="x-close" id="manual-overlay-xclose" onclick="closeManualOverlay()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                        </div>
+                        <iframe id="manual-iframe" data-i18n-title="manual" title="Manual"></iframe>
+                      </div>
                     </div>
 
                     <div id="console-popup" class="docked">
                     <div id="console-resize-handle" data-i18n-title="tip_resize" title="Trascina per ridimensionare il pannello"></div>
-                    <div id="console-titlebar">
+                    <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                    <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                    <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                    <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                    <div id="console-titlebar" onclick="onConsoleTitlebarClick(event)" role="button" tabindex="0" data-i18n-title="tip_hide_terminal" title="Nascondi terminale">
                       <span id="console-title" data-i18n="console_title">Console</span>
-                      <button class="x-close console-x" onclick="closeConsole()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                      <span class="console-caret" aria-hidden="true">&rsaquo;</span>
+                      <button class="x-close console-x" onclick="event.stopPropagation(); closeConsole();" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                     </div>
                     <div id="console-watch" hidden></div>
                     <div id="console-outwrap">
-                      <button onclick="startConsoleTour()" id="console-help" class="term-badge term-badge-left" data-i18n-title="tip_console_help" title="Guida del terminale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
-                      <button onclick="downloadConsoleOutput()" id="console-download" class="term-badge term-badge-right" data-i18n-title="tip_savelog" title="Scarica log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                      <div id="console-cardbar">
+                        <button onclick="startConsoleTour()" id="console-help" class="term-badge" data-i18n-title="tip_console_help" title="Guida del terminale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+                        <span class="cardbar-spacer"></span>
+                        <button onclick="downloadConsoleOutput()" id="console-download" class="term-badge" data-i18n-title="tip_savelog" title="Scarica log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                        <button onclick="clearConsole()" id="console-clear-term" class="term-badge" data-i18n-title="clear" title="Pulisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+                      </div>
                       <div id="console-output" role="log">
                         <p>> Console ready...</p>
                       </div>
-                    </div>
-                    <div id="console-input-section">
-                        <input type="text" id="console-input" data-i18n-ph="value_ph" placeholder="Enter a value...">
-                        <button id="console-send" data-i18n="send">Send</button>
-                    </div>
-                    <div id="console-bottombar">
+                      <div id="console-bottombar">
                         <button id="console-mobile-toggle" class="term-icon" onclick="toggleConsoleDock()" data-i18n-title="tip_mobile" title="Terminale mobile" aria-label="Terminale mobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
                         <div id="console-zoom">
                           <button onclick="consoleFontZoom(0.15)" id="console-font-inc" data-i18n-title="tip_font_inc" title="Ingrandisci carattere">+</button>
                           <button onclick="consoleFontZoom(-0.15)" id="console-font-dec" data-i18n-title="tip_font_dec" title="Riduci carattere">&minus;</button>
                           <button onclick="consoleFontReset()" id="console-font-reset" data-i18n-title="tip_font_reset" title="Carattere predefinito">&#8635;</button>
                         </div>
+                    </div>
+                      <div id="console-input-section">
+                        <input type="text" id="console-input" data-i18n-ph="value_ph" placeholder="Enter a value...">
+                        <button id="console-send" data-i18n="send">Send</button>
+                    </div>
                     </div>
                     </div>
                     
@@ -286,6 +365,11 @@
                         <label class="settings-check"><input type="checkbox" id="cset-loop" checked onchange="toggleConsoleSetting('loop', this.checked)"> <span data-i18n="cset_loop">Esiti cicli</span></label>
                         <label class="settings-check"><input type="checkbox" id="cset-debug" checked onchange="toggleConsoleSetting('debug', this.checked)"> <span data-i18n="cset_debug">Debug</span></label>
                       </section>
+                      <section class="settings-group">
+                        <h4 data-i18n="perf_title">Prestazioni</h4>
+                        <label class="settings-check"><input type="checkbox" id="perf-anim" onchange="togglePerfSetting('reducedAnim', this.checked)"> <span data-i18n="perf_reduce_anim">Riduci animazioni</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-hover" checked onchange="togglePerfSetting('hoverHighlight', this.checked)"> <span data-i18n="perf_hover">Evidenzia frecce al passaggio del mouse</span></label>
+                      </section>
                     </div>
                     <div class="settings-actions">
                       <button id="settings-done" onclick="closeSettingsPopup()" data-i18n="settings_done">Done</button>
@@ -294,23 +378,26 @@
 
                     <div id="export-popup">
                     <h3 data-i18n="export">Export</h3>
-                    <select id="export-format" onchange="onExportFormatChange()">
-                        <optgroup label="Code">
-                            <option value="python">Python (.py)</option>
-                            <option value="javascript">JavaScript (.js)</option>
-                            <option value="c">C (.c)</option>
-                            <option value="cpp">C++ (.cpp)</option>
-                            <option value="java">Java (.java)</option>
-                        </optgroup>
-                        <optgroup label="Image / Document">
-                            <option value="png">PNG Image (.png)</option>
-                            <option value="jpg">JPG Image (.jpg)</option>
-                            <option value="pdf">PDF Document (.pdf)</option>
-                        </optgroup>
-                    </select>
+                    <div class="export-format-row">
+                        <label for="export-format" data-i18n="export_format">Formato</label>
+                        <select id="export-format" onchange="onExportFormatChange()">
+                            <optgroup label="Code">
+                                <option value="python">Python (.py)</option>
+                                <option value="javascript">JavaScript (.js)</option>
+                                <option value="c">C (.c)</option>
+                                <option value="cpp">C++ (.cpp)</option>
+                                <option value="java">Java (.java)</option>
+                            </optgroup>
+                            <optgroup label="Image / Document">
+                                <option value="png">PNG Image (.png)</option>
+                                <option value="jpg">JPG Image (.jpg)</option>
+                                <option value="pdf">PDF Document (.pdf)</option>
+                            </optgroup>
+                        </select>
+                    </div>
                     <textarea id="export-code" rows="15" cols="60" readonly></textarea>
                     <img id="export-preview" alt="Diagram preview" style="display:none;">
-                    <div>
+                    <div class="export-actions">
                         <button onclick="copyExportOutput()" id="copy-export-btn" data-i18n="ctx_copy">Copy</button>
                         <button onclick="downloadExportOutput()" id="download-export-btn" data-i18n="download">Download</button>
                         <button onclick="closeExportPopup()" id="close-export-btn" data-i18n="close">Close</button>
@@ -319,12 +406,14 @@
 
                     <div id="overlay" ></div>
                     <div id="ctx-menu" class="ctx-menu" hidden>
+                        <button class="ctx-item" data-act="copy-selection" onclick="ctxAction('copy-selection')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy_selection">Copia selezione</span><span class="ctx-sel-count"></span></button>
+                        <button class="ctx-item ctx-danger" data-act="delete-selection" onclick="ctxAction('delete-selection')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span data-i18n="ctx_delete_selection">Elimina selezione</span><span class="ctx-sel-count"></span></button>
                         <button class="ctx-item" data-act="edit" onclick="ctxAction('edit')"><span class="ctx-ico">&#9998;</span><span data-i18n="ctx_edit">Modifica</span></button>
-                        <button class="ctx-item" data-act="cut" onclick="ctxAction('cut')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut">Taglia</span> <span style="opacity:.5;margin-left:auto">Ctrl+X</span></button>
-                        <button class="ctx-item" data-act="copy" onclick="ctxAction('copy')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy">Copia</span> <span style="opacity:.5;margin-left:auto">Ctrl+C</span></button>
-                        <button class="ctx-item" data-act="paste" onclick="ctxAction('paste')"><span class="ctx-ico">&#128203;</span><span data-i18n="ctx_paste">Incolla</span> <span style="opacity:.5;margin-left:auto">Ctrl+V</span></button>
+                        <button class="ctx-item" data-act="cut" onclick="ctxAction('cut')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut">Taglia</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+X</span></button>
+                        <button class="ctx-item" data-act="copy" onclick="ctxAction('copy')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy">Copia</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+C</span></button>
+                        <button class="ctx-item" data-act="paste" onclick="ctxAction('paste')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="4" rx="1" ry="1"/><path d="M9 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2h-2"/></svg></span><span data-i18n="ctx_paste">Incolla</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+V</span></button>
                         <div class="ctx-sep"></div>
-                        <button class="ctx-item ctx-danger" data-act="delete" onclick="ctxAction('delete')"><span class="ctx-ico">&#128465;</span><span data-i18n="delete">Elimina</span></button>
+                        <button class="ctx-item ctx-danger" data-act="delete" onclick="ctxAction('delete')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span data-i18n="delete">Elimina</span></button>
                     </div>
                     <div id="zoom-controls">
                         <button class="bf-icon" id="zoom-in-btn" onclick="zoomIn()" data-i18n-title="tip_zoom_in" title="Zoom avanti">+</button>
@@ -341,14 +430,26 @@
                 Created by Matteo Artifoni and Ismail Barakat | Open source educational project.<br>
                 Thanks to <a href="https://shepherdjs.dev/" target="_blank" rel="noopener">Shepherd.js</a> and other open source libraries.<br>
                 <div id="github-links"></div>
-                    <a href="https://github.com/mat-teo/web-flowcharts" id="github-logo" target="_blank" rel="noopener" title="View on GitHub">
+                    <a href="https://github.com/proismamaster/BaseFlow" id="github-logo" target="_blank" rel="noopener" title="View on GitHub">
                         <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub" width="24" height="24">
                     </a>
                     <span id="contributors"></span>
                 </div>
+                <nav id="footer-links">
+                    <!-- R13-K (Ismail 2026-07-12): voce "Manuale" rimossa da qui -- ora e' un
+                         pulsante libro in toolbar (id="manual-btn"), non una pagina nel footer
+                         (richiesta esplicita). Privacy/Cookie restano qui. -->
+                    <a href="privacy.html">Privacy Policy</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="cookies.html">Cookie Policy</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="https://github.com/proismamaster/BaseFlow" target="_blank" rel="noopener">GitHub</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="https://ismailbarakat.dev" target="_blank" rel="noopener">Portfolio</a>
+                </nav>
                 <script>
                 // fetch contributors from GitHub API and display their avatars
-                fetch('https://api.github.com/repos/mat-teo/web-flowcharts/contributors')
+                fetch('https://api.github.com/repos/proismamaster/BaseFlow/contributors')
                   .then(response => response.json())
                   .then(contributors => {
                     const container = document.getElementById('contributors');
@@ -377,31 +478,31 @@
         </footer>
 
         <!-- Core modules (refactored from script.js) -->
-        <script src="js/core/state.js?v=20260709g"></script>
-        <script src="js/core/utils.js?v=20260709g"></script>
-        <script src="js/core/variables.js?v=20260709g"></script>
-        <script src="js/core/layout.js?v=20260709g"></script>
-        <script src="js/core/rendering.js?v=20260709g"></script>
-        <script src="js/core/popups.js?v=20260709g"></script>
-        <script src="js/core/interaction.js?v=20260709g"></script>
-        <script src="js/core/fileIO.js?v=20260709g"></script>
-        <script src="js/core/theme.js?v=20260709g"></script>
-        <script src="js/core/i18n.js?v=20260709g"></script>
-        <script src="js/core/draw.js?v=20260709g"></script>
-        <script src="js/core/ux.js?v=20260709g"></script>
-        <script src="js/core/settings.js?v=20260709g"></script>
-        <script src="js/core/init.js?v=20260709g"></script>
+        <script src="js/core/state.js?v=20260713c"></script>
+        <script src="js/core/utils.js?v=20260712a"></script>
+        <script src="js/core/variables.js?v=20260713b"></script>
+        <script src="js/core/layout.js?v=20260713b"></script>
+        <script src="js/core/rendering.js?v=20260713c"></script>
+        <script src="js/core/popups.js?v=20260713c"></script>
+        <script src="js/core/interaction.js?v=20260713c"></script>
+        <script src="js/core/fileIO.js?v=20260712x"></script>
+        <script src="js/core/theme.js?v=20260712a"></script>
+        <script src="js/core/i18n.js?v=20260713d"></script>
+        <script src="js/core/draw.js?v=20260712q"></script>
+        <script src="js/core/ux.js?v=20260713a"></script>
+        <script src="js/core/settings.js?v=20260712r"></script>
+        <script src="js/core/init.js?v=20260713d"></script>
 
         <script src="js/core/safeEval.js?v=20260709g"></script>
-        <script src="js/execute.js?v=20260709g"></script>
-        <script src="js/saveOpen.js?v=20260709g"></script>
-        <script src="js/pythonTranslation.js?v=20260709g"></script>
-        <script src="js/multiTranslation.js?v=20260709g"></script>
+        <script src="js/execute.js?v=20260713i"></script>
+        <script src="js/saveOpen.js?v=20260713e"></script>
+        <script src="js/pythonTranslation.js?v=20260713a"></script>
+        <script src="js/multiTranslation.js?v=20260713a"></script>
 
-        <script src="js/exportUnified.js?v=20260709g"></script>
+        <script src="js/exportUnified.js?v=20260712t"></script>
 
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js/dist/css/shepherd.css" />
         <script src="https://cdn.jsdelivr.net/npm/shepherd.js/dist/js/shepherd.min.js"></script>
-        <script src="js/tutorial.js?v=20260709g"></script>
+        <script src="js/tutorial.js?v=20260711a"></script>
     </body>
 </html>

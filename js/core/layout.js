@@ -104,41 +104,79 @@ function applyZoom() {
 // Centra la vista sul grafo (orizzontalmente al centro del canvas, dove sta il
 // flusso principale). Chiamata sui cambi di zoom: senza, aumentando lo zoom il
 // grafo scivolava verso destra fuori dalla viewport.
+//
+// FIX v2 (Ismail 2026-07-10, "qua non ha centrato bene, funziona ma non sempre"):
+// prima la funzione si appoggiava SOLO su scrollLeft, che pero' il browser puo'
+// muovere SOLO se il canvas e' PIU' LARGO dell'area visibile del container (c'e'
+// overflow reale da scorrere). Per un grafo piccolo (es. solo Inizio/Fine) il canvas
+// e' spesso PIU' STRETTO del container -> scrollWidth cede completamente, non c'e'
+// overflow da scorrere, scrollLeft resta bloccato a 0 qualunque valore gli si dia, e
+// il grafo restava dov'era (a filo della sidebar) invece di centrarsi nello spazio
+// vuoto fra sidebar e console. Il CSS (canvas{margin:0 auto} + margin-right dinamico
+// sul container) dovrebbe coprire questo caso, ma dipende da un ricalcolo preciso
+// della griglia che non sempre e' aggiornato nel momento esatto della chiamata.
+// Ora la funzione e' autosufficiente: assorbe quanto puo' con lo scroll (caso canvas
+// piu' largo), poi il resto del disallineamento lo applica DIRETTAMENTE come margine
+// sul canvas (caso canvas piu' stretto) — cosi' il centraggio funziona SEMPRE,
+// indipendentemente da quale dei due casi si presenta.
 function centerGraph() {
   if (typeof container === 'undefined' || !container || !canvas) return;
-  const z = (typeof zoom === 'number' && zoom > 0) ? zoom : 1;
-  const cw = container.clientWidth || 0;
-  // Sottrai la parte coperta a destra dalla console agganciata+aperta: cosi' il grafo
-  // si centra nell'area EFFETTIVAMENTE visibile (una o due barre aperte). La sidebar
-  // variabili invece e' nel grid, quindi e' gia' esclusa da container.clientWidth.
+  if (typeof container.getBoundingClientRect !== 'function' || typeof canvas.getBoundingClientRect !== 'function') return;
+  // Azzera un eventuale aggiustamento manuale lasciato dalla chiamata precedente,
+  // cosi' le misure qui sotto riflettono la posizione "naturale" (CSS pura) del canvas,
+  // non quella gia' corretta l'ultima volta (altrimenti l'offset si accumulerebbe).
+  canvas.style.marginLeft = '';
+  canvas.style.marginRight = '';
+
+  // Copertura a destra della console agganciata+aperta (in fixed, fuori dal grid: non
+  // possiamo fidarci che container.clientWidth la escluda gia' da sola in ogni momento).
   let rightCover = 0;
   const cons = (typeof document !== 'undefined') ? document.getElementById('console-popup') : null;
   if (cons && cons.classList && typeof cons.classList.contains === 'function' && cons.classList.contains('active') && cons.classList.contains('docked') && typeof cons.getBoundingClientRect === 'function') {
     rightCover = cons.getBoundingClientRect().width || 0;
   }
-  const visibleW = Math.max(60, cw - rightCover);
   const _rtl = (typeof document !== 'undefined') && document.documentElement && typeof document.documentElement.getAttribute === 'function' && document.documentElement.getAttribute('dir') === 'rtl';
-  // FIX #33c (Ismail 2026-07-08, "in arabo, quando allargo il terminale il grafo non si
-  // centra"): in RTL `scrollLeft` ha semantica DIVERSA (Chrome/Brave usano il modello
-  // "negativo": 0 = tutto a destra, valori negativi verso sinistra), quindi la vecchia
-  // formula assoluta (con Math.max(0, ...)) restava incollata a un bordo. Soluzione robusta e
-  // indipendente dalla direzione: si misura lo SFASAMENTO in coordinate FISICHE del viewport
-  // (getBoundingClientRect, sempre orientato LTR) fra il centro reale del canvas e il centro
-  // dell'area VISIBILE (non coperta dalla console), e si aggiusta scrollLeft di quel DELTA
-  // relativo. `scrollLeft += delta` sposta il contenuto della stessa quantita' fisica sia in
-  // LTR sia in RTL, e il browser fa da solo il clamp al range valido.
-  if (typeof container.getBoundingClientRect !== 'function' || typeof canvas.getBoundingClientRect !== 'function') return;
+
   const cRect = container.getBoundingClientRect();
+  // Bordi (in coordinate FISICHE di viewport) dell'area REALMENTE visibile: in RTL la
+  // console copre la sinistra, in LTR copre la destra.
+  const visibleLeft = _rtl ? (cRect.left + rightCover) : cRect.left;
+  const visibleRight = _rtl ? cRect.right : (cRect.right - rightCover);
+  const visibleW = Math.max(60, visibleRight - visibleLeft);
+  const targetCenter = visibleLeft + visibleW / 2;
+
   const canRect = canvas.getBoundingClientRect();
   const canvasCenter = canRect.left + canRect.width / 2;
-  // Centro dell'area visibile in coordinate viewport: in RTL la console copre la SINISTRA
-  // (offset +rightCover da sinistra), in LTR copre la destra (l'area parte dal bordo sinistro).
-  const targetCenter = _rtl ? (cRect.left + rightCover + visibleW / 2) : (cRect.left + visibleW / 2);
-  container.scrollLeft += (canvasCenter - targetCenter);
+  let delta = canvasCenter - targetCenter; // >0 = canvas troppo a destra, va spostato a sinistra
+
+  // 1) Assorbi quanto possibile con lo scroll — funziona solo se c'e' overflow reale
+  //    (canvas piu' largo dell'area visibile del container).
+  const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+  const prevScrollLeft = container.scrollLeft;
+  let newScrollLeft = prevScrollLeft + delta;
+  newScrollLeft = Math.max(0, Math.min(maxScroll, newScrollLeft));
+  container.scrollLeft = newScrollLeft;
+  delta -= (newScrollLeft - prevScrollLeft); // quanto NON e' stato assorbito dallo scroll
+
+  // 2) Il resto (caso tipico: canvas piu' STRETTO dell'area visibile, niente overflow da
+  //    scorrere) si applica come margine diretto sul canvas, cosi' si centra per davvero
+  //    nello spazio libero reale — non importa se il margin-right CSS del container
+  //    (--console-cover-width) ha gia' "fatto presa" sulla larghezza del container oppure no.
+  if (Math.abs(delta) > 0.5) {
+    const cs = (typeof window !== 'undefined' && window.getComputedStyle) ? window.getComputedStyle(canvas) : null;
+    const curML = cs ? (parseFloat(cs.marginLeft) || 0) : 0;
+    canvas.style.marginLeft = (curML - delta) + 'px';
+    canvas.style.marginRight = '0px';
+  }
 }
-function zoomIn() { zoom = Math.min(ZOOM_MAX, +(zoom * ZOOM_STEP).toFixed(4)); _bfZoomRerender(); centerGraph(); }
-function zoomOut() { zoom = Math.max(ZOOM_MIN, +(zoom / ZOOM_STEP).toFixed(4)); _bfZoomRerender(); centerGraph(); }
-function zoomReset() { zoom = 1; _bfZoomRerender(); centerGraph(); }
+// R14-E (Ismail 2026-07-13): lo zoom e' una delle sorgenti che il piano elenca esplicitamente
+// per il tick condiviso _bfSidebarLiveResizeTick() (init.js) -- non cambia S/C, ma passare
+// dallo STESSO punto di ricalcolo (invece di un centerGraph() isolato) mantiene un solo
+// percorso per "qualunque evento che tocca il layout", coerente con gli altri trigger.
+function _bfLayoutTickOrCenter() { if (typeof _bfSidebarLiveResizeTick === 'function') _bfSidebarLiveResizeTick(); else if (typeof centerGraph === 'function') centerGraph(); }
+function zoomIn() { zoom = Math.min(ZOOM_MAX, +(zoom * ZOOM_STEP).toFixed(4)); _bfZoomRerender(); _bfLayoutTickOrCenter(); }
+function zoomOut() { zoom = Math.max(ZOOM_MIN, +(zoom / ZOOM_STEP).toFixed(4)); _bfZoomRerender(); _bfLayoutTickOrCenter(); }
+function zoomReset() { zoom = 1; _bfZoomRerender(); _bfLayoutTickOrCenter(); }
 // Ricalcola il backing supersamplato al nuovo zoom e ridisegna nitido (fallback applyZoom in headless).
 function _bfZoomRerender() { if (typeof calcoloY === 'function' && typeof nodi !== 'undefined') { calcoloY(nodi); if (typeof draw === 'function') draw(nodi); } else applyZoom(); }
 
@@ -270,7 +308,18 @@ function computeNodeSizes(nodiVisualArray) {
     let width, height;
     if (shape === 'diamond') {
       width = Math.max(BASE_W, Math.min(2 * tw + 34, MAXW));
-      height = single ? BASE_H : Math.max(BASE_H, 2 * th + 16);
+      // R13-G (Ismail 2026-07-12, "con testo lungo si allarga un sacco orizzontalmente ma non
+      // cresce in verticale -- non sembra piu' un rombo"): il ramo `single` (1 sola riga)
+      // ignorava completamente la larghezza appena calcolata e fissava SEMPRE height=BASE_H
+      // (40px) -- un rombo che si allarga a 440px di larghezza restando alto 40px e' visivamente
+      // uno strato appiattito, non un rombo. Il fattore di forma (rapporto BASE_H/BASE_W, lo
+      // stesso di un rombo "normale" a testo corto) va applicato all'ALTEZZA quanto la
+      // larghezza cresce, non solo quando il testo va a capo (caso multi-riga, gia' corretto
+      // sotto con 2*th+16). Pavimento comune width*aspetto in ENTRAMBI i rami, cosi' anche un
+      // rombo multi-riga ma molto largo (poche righe, testo lungo su ciascuna) resta proporzionato.
+      const diamondAspect = BASE_H / BASE_W; // rapporto del rombo "base" (testo corto): 40/100
+      const shapeFloor = width * diamondAspect;
+      height = single ? Math.max(BASE_H, shapeFloor) : Math.max(BASE_H, 2 * th + 16, shapeFloor);
     } else if (shape === 'hex') {
       // FIX (Ismail 2026-07-08, For/While a testo lungo): gli spigoli inclinati (inset ~24px)
       // restringono l'esagono in alto/basso, dove finivano le righe estreme del testo -> a

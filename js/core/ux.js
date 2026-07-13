@@ -18,7 +18,14 @@
     if (key && typeof i18nText === 'function') { const s = i18nText(key); if (s) return s; }
     return el.getAttribute('data-tip') || el.getAttribute('title') || '';
   }
-  function iconEl(target) { return target && target.closest ? target.closest('.bf-icon, .x-close') : null; }
+  // R14-B.2 (Ismail 2026-07-13): estende lo stesso tooltip istantaneo (gia' usato per i
+  // pulsanti .bf-icon/.x-close) a #project-identity e #unsaved-indicator -- prima
+  // usavano il "title" nativo del browser, con ritardo del sistema operativo (il "?"
+  // che compariva subito ma senza alcun testo leggibile finche' l'OS non decideva di
+  // mostrare il tooltip). tipText() sotto legge gia' data-tip/title in tempo reale ad
+  // ogni mouseover, quindi il contenuto DINAMICO di #project-identity (aggiornato da
+  // updateProjectIdentity() in execute.js) resta sempre fresco senza modifiche qui.
+  function iconEl(target) { return target && target.closest ? target.closest('.bf-icon, .x-close, #project-identity, #unsaved-indicator') : null; }
   function showTip(el) {
     const txt = tipText(el); if (!txt) return;
     const t = ensureTip(); t.textContent = txt;
@@ -37,7 +44,7 @@
 
   function stripNativeTitles() {
     if (!document.querySelectorAll) return;
-    document.querySelectorAll('.bf-icon, .x-close').forEach(function (el) {
+    document.querySelectorAll('.bf-icon, .x-close, #project-identity, #unsaved-indicator').forEach(function (el) {
       if (el.hasAttribute('title')) { el.setAttribute('data-tip', el.getAttribute('title')); el.removeAttribute('title'); }
     });
   }

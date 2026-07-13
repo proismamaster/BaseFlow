@@ -187,9 +187,13 @@ function startBlockTutorial(type) {
     buttons: [{ text: tut('tut_done') || 'Fine', action: () => blockTour.complete() }]
   };
   // Se e' aperta una finestra di modifica del blocco, ancora il tooltip ad essa; altrimenti centro schermo.
+  // A2 (round 11): 'on' FISSO a 'right' finiva stretto/tagliato o sovrapposto quando il popup
+  // e' largo o vicino al bordo (caso tipico: #draw-popup dei blocchi Disegno). Omettendo 'on',
+  // Shepherd/Popper sceglie da solo il lato con piu' spazio (stesso pattern gia' usato altrove
+  // in questo file, es. lo step 'canvas-zone' sopra, che non specifica 'on').
   const openPop = ['edit-node-popup', 'for-popup', 'draw-popup'].map(function (id) { return document.getElementById(id); })
     .find(function (e) { return e && e.classList && e.classList.contains('active'); });
-  if (openPop) step.attachTo = { element: '#' + openPop.id, on: 'right' };
+  if (openPop) step.attachTo = { element: '#' + openPop.id };
   blockTour.addStep(step);
   blockTour.start();
   return true;

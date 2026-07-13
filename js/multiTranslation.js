@@ -23,10 +23,51 @@ function toDoubleQuotes(s) {
   return String(s).replace(/'/g, '"');
 }
 
+// R13-M: in C il bareword true/false non e' un identificatore valido senza <stdbool.h>
+// (mai incluso da questo export, che per le variabili non modella affatto un tipo
+// booleano: sempre int/float/char). Prima le condizioni con true/false non arrivavano
+// MAI a un If/While/Assign REALMENTE esportato perche' l'esecuzione in-app le
+// rifiutava (checkCondition, execute.js); ora che funzionano in-app (R13-M), l'export C
+// deve smettere di copiarle VERBATIM (errore di compilazione: "true"/"false" non
+// dichiarati). Sostituzione convenzionale C: true -> 1, false -> 0. Token-aware: le
+// stringhe quotate restano intatte (mai toccate dentro gli apici). && || e il ternario
+// ?: sono gia' sintassi C valida, nessuna conversione necessaria per quelli; Math.*
+// resta un limite noto (non affrontato qui, richiederebbe <math.h> + nomi bare tipo
+// sqrt() invece di Math.sqrt() -- vedi header di questo file, export "best-effort").
+function cBoolLiteralFix(expr) {
+  const s = String(expr);
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch; let j = i + 1, lit = ch;
+      while (j < s.length) {
+        lit += s[j];
+        if (s[j] === '\\' && j + 1 < s.length) { lit += s[j + 1]; j += 2; continue; }
+        if (s[j] === quote) { j++; break; }
+        j++;
+      }
+      out += lit; i = j; continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i, id = ''; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) { id += s[j]; j++; }
+      out += (id === 'true') ? '1' : (id === 'false') ? '0' : id;
+      i = j; continue;
+    }
+    out += ch; i++;
+  }
+  return out;
+}
+
 // Converte un'espressione (assign/if) per il linguaggio target. In JS le stringhe
-// possono restare con apici singoli; Java e C++ richiedono apici doppi.
+// possono restare con apici singoli; Java e C++ richiedono apici doppi. Java/C++/JS
+// supportano gia' nativamente && || true false ternario (stessa grammatica di
+// safeEval.js) -- nessuna conversione extra serve li'; C e' l'unico caso speciale
+// (vedi cBoolLiteralFix sopra).
 function convertExprForLang(expr, lang) {
   if (lang === 'javascript') return expr;
+  if (lang === 'c') return toDoubleQuotes(cBoolLiteralFix(expr));
   return toDoubleQuotes(expr);
 }
 
@@ -97,12 +138,18 @@ function translateVariableMulti(v, lang) {
 
 // Traduce un nodo 'print'. Riusa splitStrings() (definita in js/execute.js) per
 // separare i letterali stringa dalle espressioni, cosi' come fa l'interprete a runtime.
-function translatePrintMulti(info, lang) {
+// A4 (round 11): 3° parametro `newline` (default true, assente = true per retro-compat
+// coi flow salvati prima di questa feature) -- vedi execute.js/pythonTranslation.js.
+function translatePrintMulti(info, lang, newline) {
+  if (newline === undefined) newline = true;
   if (lang === 'javascript') {
-    return 'console.log(' + info + ');';
+    // console.log() non sa stampare senza newline: unico linguaggio qui senza un
+    // equivalente diretto di print-senza-a-capo, quindi si passa a process.stdout.write
+    // (Node.js) -- l'export e' gia' dichiaratamente best-effort (vedi header modulo).
+    return newline ? ('console.log(' + info + ');') : ('process.stdout.write(String(' + info + ')); // Node.js');
   }
   if (lang === 'java') {
-    return 'System.out.println(' + toDoubleQuotes(info) + ');';
+    return newline ? ('System.out.println(' + toDoubleQuotes(info) + ');') : ('System.out.print(' + toDoubleQuotes(info) + ');');
   }
   if (lang === 'cpp') {
     let parts;
@@ -113,7 +160,7 @@ function translatePrintMulti(info, lang) {
       }
       return '(' + p + ')';
     }).join(' << ');
-    return 'cout << ' + stream + ' << endl;';
+    return 'cout << ' + stream + (newline ? ' << endl;' : ';');
   }
   if (lang === 'c') {
     const parts = splitStringsMulti(info);
@@ -129,7 +176,7 @@ function translatePrintMulti(info, lang) {
         else { fmt += '%d'; args.push(p); }
       }
     });
-    return 'printf("' + fmt + '\\n"' + (args.length ? ', ' + args.join(', ') : '') + ');';
+    return 'printf("' + fmt + (newline ? '\\n' : '') + '"' + (args.length ? ', ' + args.join(', ') : '') + ');';
   }
   return '';
 }
@@ -208,7 +255,7 @@ function translateNodeMulti(node, lang, idx) {
       return;
     case 'print':
       if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
-      addMultiLine(translatePrintMulti(node.info, lang));
+      addMultiLine(translatePrintMulti(node.info, lang, node.newline !== false));
       return;
     case 'forward':
     case 'turn':

@@ -15,7 +15,10 @@ const I18N = {
   redo:           ['Ripeti', 'Redo', 'إعادة', '重做'],
   terminal:       ['Terminale', 'Terminal', 'طرفية', '终端'],
   export:         ['Esporta come…', 'Export as…', 'تصدير كـ…', '导出为…'],
+  export_format:  ['Formato', 'Format', 'التنسيق', '格式'],
   help:           ['Aiuto', 'Help', 'مساعدة', '帮助'],
+  // R13-K (Ismail 2026-07-12): tooltip del pulsante libro in toolbar (apre manual.html).
+  manual:         ['Manuale', 'Manual', 'الدليل', '手册'],
   cat_interaction:['Interazione', 'Interaction', 'تفاعل', '交互'],
   cat_math:       ['Matematica', 'Math', 'رياضيات', '数学'],
   cat_selection:  ['Selezione', 'Selection', 'تحديد', '选择'],
@@ -86,14 +89,19 @@ const I18N = {
   var_value:      ['Valore', 'Value', 'القيمة', '值'],
   var_dup:        ['Esiste già una variabile con questo nome.', 'A variable with this name already exists.', 'يوجد بالفعل متغير بهذا الاسم.', '已存在同名变量。'],
   var_delete:     ['Elimina variabile', 'Delete variable', 'حذف المتغير', '删除变量'],
-  var_type_int:    ['Intero', 'Integer', 'عدد صحيح', '整数'],
-  var_type_float:  ['Decimale', 'Float', 'عدد عشري', '浮点数'],
+  var_type_int:    ['Intero', 'Integer', 'صحيح', '整数'],
+  var_type_float:  ['Decimale', 'Float', 'عشري', '浮点数'],
   var_type_string: ['Stringa', 'String', 'سلسلة', '字符串'],
+  // R13-L (Ismail 2026-07-12): hint del popover di editing valori (doppio click sulla cella Valore).
+  var_value_popover_hint: ['Invio per confermare · Esc per annullare', 'Enter to confirm · Esc to cancel', 'Enter للتأكيد · Esc للإلغاء', '按 Enter 确认 · 按 Esc 取消'],
   edit_title:     ['Modifica nodo', 'Edit Node', 'تحرير العقدة', '编辑节点'],
   ctx_edit:       ['Modifica', 'Edit', 'تحرير', '编辑'],
   ctx_cut:        ['Taglia', 'Cut', 'قص', '剪切'],
   ctx_copy:       ['Copia', 'Copy', 'نسخ', '复制'],
   ctx_paste:      ['Incolla', 'Paste', 'لصق', '粘贴'],
+  ctx_copy_selection: ['Copia selezione', 'Copy selection', 'نسخ التحديد', '复制所选'],
+  ctx_delete_selection: ['Elimina selezione', 'Delete selection', 'حذف التحديد', '删除所选'],
+  del_group_confirm: ['Eliminare {n} blocchi?', 'Delete {n} blocks?', 'حذف {n} كتل؟', '删除 {n} 个方块？'],
   delete:         ['Elimina', 'Delete', 'حذف', '删除'],
   del_block_confirm: ['Eliminare questo blocco e i suoi {n} nodi interni?', 'Delete this block and its {n} inner nodes?', 'هل تريد حذف هذه الكتلة و{n} من عقدها الداخلية؟', '删除此方块及其 {n} 个内部节点？'],
   del_err_struct: ['Struttura interna del blocco non valida.', 'Invalid internal block structure.', 'بنية الكتلة الداخلية غير صالحة.', '方块内部结构无效。'],
@@ -105,8 +113,31 @@ const I18N = {
   edit_ph:        ['Inserisci le informazioni del nodo', 'Enter node information', 'أدخل معلومات العقدة', '输入节点信息'],
   filename_label: ['Nome file (senza estensione):', 'File name (without extension):', 'اسم الملف (بدون امتداد):', '文件名（不含扩展名）：'],
   filename_ph:    ['Inserisci il nome del file', 'Insert file name', 'أدخل اسم الملف', '输入文件名'],
+  // R13-D (Ismail 2026-07-12): identita' progetto (header) + campo Autore nel save-popup.
+  author_label:   ['Autore:', 'Author:', 'المؤلف:', '作者：'],
+  author_ph:      ['Nome autore', 'Author name', 'اسم المؤلف', '作者姓名'],
+  untitled_project: ['Senza nome', 'Untitled', 'بدون عنوان', '无标题'],
+  unknown_author: ['Autore sconosciuto', 'Unknown author', 'مؤلف غير معروف', '未知作者'],
+  saved_state:    ['Salvato', 'Saved', 'تم الحفظ', '已保存'],
+  // R14-B.2 (Ismail 2026-07-13): "project_identity_tip" rimossa -- era il testo statico del
+  // vecchio title nativo di #project-identity (sempre "Stato del progetto"/generico), ora
+  // sostituito dal tooltip dinamico (nome+autore+stato) scritto in data-tip da
+  // updateProjectIdentity() (execute.js), mostrato dal tooltip istantaneo di ux.js.
+  // R13-D punto 4 (Ismail 2026-07-12, decisione approvata): Salva e Salva-con-nome restano
+  // ENTRAMBI -- tooltip dedicati che spiegano la differenza (prima entrambi i pulsanti
+  // mostravano solo l'etichetta breve "Salva"/"Salva con nome" come tooltip, poco chiaro).
+  tip_save:       ['Salva: silenzioso se il progetto ha gia\' un nome, altrimenti chiede nome e autore', 'Save: silent if the project already has a name, otherwise asks for name and author', 'حفظ: صامت إذا كان للمشروع اسم بالفعل، وإلا يطلب الاسم والمؤلف', '保存：如果项目已有名称则静默保存，否则会询问名称和作者'],
+  tip_save_as:    ['Salva con nome: chiede sempre nome e autore (rinomina o cambia autore)', 'Save as: always asks for name and author (rename or change author)', 'حفظ باسم: يطلب دائمًا الاسم والمؤلف (لإعادة التسمية أو تغيير المؤلف)', '另存为：始终询问名称和作者（用于重命名或更改作者）'],
+  save_current_project: ['Progetto attuale: {name}', 'Currently: {name}', 'المشروع الحالي: {name}', '当前项目：{name}'],
   value_ph:       ['Inserisci un valore…', 'Enter a value…', 'أدخل قيمة…', '输入一个值…'],
   unsaved:        ['Vuoi continuare senza salvare?', 'Do you want to continue without saving?', 'هل تريد المتابعة دون حفظ؟', '是否不保存并继续？'],
+  unsaved_title:  ['Modifiche non salvate', 'Unsaved changes', 'تغييرات غير محفوظة', '未保存的更改'],
+  // R12-B (Ismail 2026-07-11): messaggio CONTESTUALE del dialog "Modifiche non salvate" quando
+  // il nome del file e' noto (currentFileName, state.js) -- {file} col pattern gia' usato da
+  // export_downloaded/err_*. Senza nome noto il dialog riusa la chiave generica "unsaved" sopra.
+  unsaved_msg_named: ['Vuoi salvare le modifiche a {file} prima di continuare?', 'Do you want to save the changes to {file} before continuing?', 'هل تريد حفظ التغييرات في {file} قبل المتابعة؟', '是否要在继续之前保存对 {file} 的更改？'],
+  tip_hide_terminal: ['Nascondi terminale', 'Hide terminal', 'إخفاء الطرفية', '隐藏终端'],
+  dont_save:      ['Non salvare', "Don't save", 'عدم الحفظ', '不保存'],
   yes:            ['Sì', 'Yes', 'نعم', '是'],
   no:             ['No', 'No', 'لا', '否'],
   send:           ['Invia', 'Send', 'إرسال', '发送'],
@@ -127,6 +158,36 @@ const I18N = {
   theme_custom_group:['I miei temi', 'My themes', 'سماتي', '我的主题'],
   theme_name_req:  ['Dai un nome al tema prima di salvarlo.', 'Give the theme a name before saving.', 'أعطِ اسمًا للسمة قبل الحفظ.', '保存前请为主题命名。'],
   theme_load_err:  ['File tema non valido.', 'Invalid theme file.', 'ملف سمة غير صالح.', '主题文件无效。'],
+  // Gruppi ed etichette dell'editor "Crea nuovo tema" (Ismail 2026-07-10)
+  theme_grp_ui:      ['Interfaccia', 'Interface', 'الواجهة', '界面'],
+  theme_grp_nodes:   ['Nodi', 'Nodes', 'العقد', '节点'],
+  theme_grp_turtle:  ['Grafica (tartaruga)', 'Turtle graphics', 'رسومات السلحفاة', '海龟图形'],
+  theme_grp_arcs:    ['Archi & etichette', 'Arrows & labels', 'الأسهم والتسميات', '箭头和标签'],
+  theme_grp_exec:    ['Esecuzione', 'Execution', 'التنفيذ', '执行'],
+  // R12-E/E2 (Ismail 2026-07-11): nuovo gruppo editor tema per i controlli del terminale (Stop).
+  theme_grp_console: ['Terminale', 'Terminal', 'الطرفية', '终端'],
+  theme_var_bg:          ['Sfondo pagina', 'Page background', 'خلفية الصفحة', '页面背景'],
+  theme_var_surface:     ['Pannelli/superficie', 'Panels/surface', 'اللوحات/السطح', '面板/表面'],
+  theme_var_primary:     ['Pulsanti/colore principale', 'Buttons/primary color', 'الأزرار/اللون الأساسي', '按钮/主色'],
+  theme_var_primarydark: ['Colore principale (scuro/hover)', 'Primary color (dark/hover)', 'اللون الأساسي (داكن/تمرير)', '主色（深色/悬停）'],
+  theme_var_accent:      ['Accento', 'Accent', 'لون مميز', '强调色'],
+  theme_var_border:      ['Bordi', 'Borders', 'الحدود', '边框'],
+  theme_var_text:        ['Testo', 'Text', 'النص', '文本'],
+  // Nomi nodi/blocchi (Start, If, While...) NON duplicati qui: l'editor tema riusa le
+  // chiavi nd_*/blk_* gia' esistenti piu' sotto, cosi' l'etichetta e' sempre identica
+  // a quella mostrata sul blocco vero e proprio, in ogni lingua.
+  theme_var_line:      ['Linee/archi', 'Lines/arrows', 'الخطوط/الأسهم', '线条/箭头'],
+  theme_var_true:      ['Vero/True', 'True', 'صحيح', '真'],
+  theme_var_false:     ['Falso/False', 'False', 'خطأ', '假'],
+  theme_var_archover:  ['Arco (hover)', 'Arrow (hover)', 'السهم (تمرير)', '箭头（悬停）'],
+  theme_var_execnode: ['Nodo in esecuzione', 'Running node', 'العقدة قيد التنفيذ', '执行中的节点'],
+  theme_var_execedge: ['Arco percorso', 'Traversed arrow', 'السهم المقطوع', '已遍历的箭头'],
+  theme_var_execerr:  ['Blocco in errore', 'Block in error', 'كتلة بها خطأ', '出错的模块'],
+  // R12-E/E1 (Ismail 2026-07-11): var gia' esistenti in CSS/JS ma mancanti nell'editor tema.
+  theme_var_arcdrag:  ['Arco (drag)', 'Arrow (drag)', 'السهم (سحب)', '箭头（拖动）'],
+  theme_var_nodesel:  ['Blocco selezionato', 'Selected block', 'الكتلة المحددة', '选中的方块'],
+  // R12-E/E2: nuova var per il pulsante Stop del terminale (prima rosso fisso).
+  theme_var_stopbtn:  ['Pulsante Stop', 'Stop button', 'زر الإيقاف', '停止按钮'],
   for_bad_name:    ['Nome variabile non valido: solo lettere, numeri e underscore, senza spazi.', 'Invalid variable name: letters, digits and underscore only, no spaces.', 'اسم متغير غير صالح.', '变量名无效。'],
   for_missing:     ['Compila inizio, fine e passo del ciclo For.', 'Fill in the For loop start, end and step.', 'أكمل قيم حلقة For.', '请填写 For 循环的起止和步长。'],
   theme_light:    ['Chiaro', 'Light', 'فاتح', '浅色'],
@@ -158,8 +219,8 @@ const I18N = {
   tip_console_help:['Apri la guida del terminale', 'Open the terminal guide', 'افتح دليل الطرفية', '打开终端指南'],
   tip_mobile:     ['Attiva/disattiva terminale mobile (finestra spostabile)', 'Toggle mobile terminal (movable window)', 'تبديل الطرفية المتنقلة (نافذة قابلة للتحريك)', '切换移动终端（可移动窗口）'],
   term_mobile:    ['Mobile', 'Mobile', 'متنقل', '移动'],
-  nd_start:       ['Start', 'Start', 'بداية', '开始'],
-  nd_end:         ['End', 'End', 'نهاية', '结束'],
+  nd_start:       ['Inizio', 'Start', 'بداية', '开始'],
+  nd_end:         ['Fine', 'End', 'نهاية', '结束'],
   tip_settings:   ['Impostazioni applicazione', 'Application settings', 'إعدادات التطبيق', '应用设置'],
   tip_block_help: ['Guida al blocco: cosa fa e come si usa', 'Block help: what it does and how to use it', 'دليل الكتلة: ماذا تفعل وكيف تُستخدم', '方块指南：作用与用法'],
   settings_title: ['Impostazioni', 'Settings', 'الإعدادات', '设置'],
@@ -233,9 +294,9 @@ const I18N = {
   tut_edit_comment:['I nodi Commento sono note che non vengono eseguite: servono solo a documentare il flowchart.', 'Comment nodes are notes that are not executed: they only document the flowchart.', 'عقد التعليق ملاحظات لا تُنفّذ: فقط لتوثيق المخطط.', '注释节点是不执行的说明，仅用于记录流程图。'],
   tut_edit_pause:['I nodi Pausa sono marcatori non eseguibili (utili come segnaposto/pausa visiva).', 'Pause nodes are non-executing markers (useful as a placeholder / visual pause).', 'عقد الإيقاف علامات غير قابلة للتنفيذ (مفيدة كعلامة/إيقاف بصري).', '暂停节点是不执行的标记（用作占位/视觉暂停）。'],
   tut_edit_forward:['Move/Draw (Muovi/Disegna): muove la tartaruga in avanti della distanza indicata; se la penna e\' giu\' lascia una traccia.', 'Move/Draw: moves the turtle forward by the given distance; if the pen is down it leaves a trail.', 'تحرك/ارسم: يحرك السلحفاة للأمام بالمسافة المحددة؛ إذا كان القلم منخفضًا يترك أثرًا.', '移动/绘制：使海龟按指定距离前进；若落笔则留下轨迹。'],
-  tut_edit_turn:  ['Ruota (Turn): gira la direzione della tartaruga di N gradi, a destra o a sinistra.', 'Turn: rotates the turtle direction by N degrees, right or left.', 'استدر: يدير اتجاه السلحفاة بمقدار N درجة يمينًا أو يسارًا.', '转向：将海龟方向旋转 N 度（左或右）。'],
+  tut_edit_turn:  ['Ruota (Turn): scegli Destra o Sinistra per la direzione, poi scrivi i Gradi (0-360) di rotazione. La tartaruga non si sposta: cambia solo l\'orientamento che useranno i successivi blocchi Move/Draw.', 'Turn: choose Right or Left for the direction, then enter the Degrees (0-360) to rotate. The turtle does not move; it only changes the heading used by the next Move/Draw blocks.', 'استدر: اختر يمين أو يسار للاتجاه، ثم أدخل عدد الدرجات (0-360) للدوران. السلحفاة لا تتحرك، بل يتغيّر اتجاهها فقط لتُستخدمه كتل تحرك/ارسم التالية.', '转向：选择"右"或"左"作为方向，再输入旋转的度数（0-360）。海龟本身不移动，只改变后续"移动/绘制"方块所使用的朝向。'],
   tut_edit_home:  ['Casa (Home): riporta la tartaruga al centro della tela con direzione verso l\'alto. Non ha impostazioni.', 'Home: returns the turtle to the center facing up. It has no settings.', 'البداية: تعيد السلحفاة إلى المركز متجهة للأعلى. بلا إعدادات.', '起点：将海龟移回中心并朝上。无设置。'],
-  tut_edit_pen:   ['Penna (Pen): imposta la penna su/giu\', il colore e lo spessore del tratto.', 'Pen: sets the pen up/down, and the stroke color and width.', 'القلم: يضبط القلم أعلى/أسفل واللون وسمك الخط.', '画笔：设置画笔抬/落、颜色与粗细。'],
+  tut_edit_pen:   ['Penna (Pen): scegli Giu\' (disegna) per lasciare una traccia durante i movimenti, oppure Su (non disegna) per spostare la tartaruga senza disegnare. Colore e Spessore impostano il colore e lo spessore del tratto usato dai successivi blocchi Move/Draw (non modificano cio\' che e\' gia\' stato disegnato).', 'Pen: choose Down (draws) to leave a trail while moving, or Up (no drawing) to move the turtle without drawing. Color and Width set the stroke color and thickness used by the next Move/Draw blocks (they do not change lines already drawn).', 'القلم: اختر أسفل (يرسم) لترك أثر أثناء الحركة، أو أعلى (لا يرسم) لتحريك السلحفاة دون رسم. اللون والسُمك يحددان لون وسُمك الخط المستخدم في كتل تحرك/ارسم التالية (لا يغيّران ما تم رسمه بالفعل).', '画笔：选择"落笔（绘制）"以在移动时留下轨迹，或选择"抬笔（不绘制）"以移动海龟而不作画。颜色和粗细设置的是之后"移动/绘制"方块所用线条的颜色与粗细（不会改变已画好的线条）。'],
   tut_edit_gclear:['Pulisci (Clear): cancella il disegno e riporta la tartaruga a casa. Non ha impostazioni.', 'Clear: erases the drawing and sends the turtle home. It has no settings.', 'مسح: يمسح الرسم ويعيد السلحفاة للبداية. بلا إعدادات.', '清屏：清除绘图并让海龟归位。无设置。'],
   tut_edit_turtle:['I blocchi Grafica sono la grafica tartaruga di Flowgorithm: Move/Draw muove la tartaruga (e disegna se la penna è giù), Turn la ruota, Home la riporta al centro, Pen imposta penna/colore/spessore, Clear pulisce. Il disegno appare nella tela durante l\'esecuzione.', 'Graphics blocks are Flowgorithm turtle graphics: Move/Draw moves the turtle (drawing if the pen is down), Turn rotates it, Home returns it to center, Pen sets pen/color/width, Clear clears the screen. The drawing appears on the canvas during execution.', 'كتل الرسومات هي رسومات السلحفاة في Flowgorithm: تحرك/ارسم يحرك السلحفاة (ويرسم إذا كان القلم منخفضًا)، استدر يديرها، البداية يعيدها للمركز، القلم يضبط القلم/اللون/السمك، مسح يمسح الشاشة.', '图形块是 Flowgorithm 的海龟绘图：移动/绘制移动海龟（落笔时绘制），转向旋转它，起点回到中心，画笔设置画笔/颜色/粗细，清屏清除。执行时绘图显示在画布上。'],
   tut_edit_save:['Clicca qui per salvare le modifiche.', 'Click here to save your changes.', 'انقر هنا لحفظ التغييرات.', '点击此处保存更改。'],
@@ -243,7 +304,62 @@ const I18N = {
   tut_con_intro:['Questo e\' il terminale: qui esegui il flowchart e vedi l\'output.', 'This is the terminal: here you run the flowchart and see the output.', 'هذه هي الطرفية: هنا تشغّل المخطط وترى المخرجات.', '这是终端：在此运行流程图并查看输出。'],
   tut_con_output:['Quest\'area mostra l\'output del flowchart, inclusi errori e risultati.', 'This area shows the flowchart output, including errors and results.', 'تعرض هذه المنطقة مخرجات المخطط، بما في ذلك الأخطاء والنتائج.', '此区域显示流程图输出，包括错误和结果。'],
   tut_con_input:['Se il flowchart richiede input, scrivilo qui e premi Invia (o Invio).', 'If the flowchart needs input, type it here and press Send (or Enter).', 'إذا احتاج المخطط إلى إدخال، اكتبه هنا واضغط إرسال (أو Enter).', '若流程图需要输入，在此输入并按发送（或回车）。'],
-  tut_con_buttons:['Usa questi pulsanti per controllare l\'esecuzione: esegui tutto, passo-passo, reset, oppure pulisci/chiudi il terminale.', 'Use these buttons to control execution: run all, step by step, reset, or clear/close the terminal.', 'استخدم هذه الأزرار للتحكم بالتنفيذ: تشغيل الكل، خطوة بخطوة، إعادة تعيين، أو مسح/إغلاق الطرفية.', '用这些按钮控制执行：全部运行、单步、重置，或清空/关闭终端。']
+  tut_con_buttons:['Usa questi pulsanti per controllare l\'esecuzione: esegui tutto, passo-passo, reset, oppure pulisci/chiudi il terminale.', 'Use these buttons to control execution: run all, step by step, reset, or clear/close the terminal.', 'استخدم هذه الأزرار للتحكم بالتنفيذ: تشغيل الكل، خطوة بخطوة، إعادة تعيين، أو مسح/إغلاق الطرفية.', '用这些按钮控制执行：全部运行、单步、重置，或清空/关闭终端。'],
+  // ---- WP-B / B1 (round 11): popup di conferma coerenti, alert()/confirm() nativi sostituiti ----
+  load_invalid_title: ['File non valido', 'Invalid file', 'ملف غير صالح', '文件无效'],
+  load_parse_err: ['Errore nel file JSON: {msg}', 'Error parsing JSON file: {msg}', 'خطأ في تحليل ملف JSON: {msg}', 'JSON 文件解析错误：{msg}'],
+  dup_branch_unsupported: ['I blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.', 'Blocks with branches (if/loops) cannot be deep-duplicated yet.', 'لا يمكن حاليًا نسخ الكتل ذات الفروع (إذا/حلقات) نسخًا عميقًا.', '带分支的方块（如果/循环）暂不支持深度复制。'],
+  export_downloaded: ['{label} scaricato come {file}!', '{label} downloaded as {file}!', 'تم تنزيل {label} باسم {file}!', '{label} 已下载为 {file}！'],
+  pdf_unavailable: ["PDF export non disponibile: la libreria jsPDF non e' stata caricata (serve connessione a Internet).", 'PDF export unavailable: the jsPDF library did not load (an Internet connection is required).', 'تصدير PDF غير متاح: لم يتم تحميل مكتبة jsPDF (يلزم اتصال بالإنترنت).', 'PDF 导出不可用：未能加载 jsPDF 库（需要互联网连接）。'],
+  // ---- WP-B / B3 (round 11): Salva vs Salva con nome ----
+  save_as: ['Salva con nome', 'Save as', 'حفظ باسم', '另存为'],
+  // ---- WP-A / A1+A4 (round 11): campo Assegna a 2 righe + newline Output ----
+  assign_var_label: ['Variabile', 'Variable', 'المتغير', '变量'],
+  assign_val_label: ['Valore', 'Value', 'القيمة', '值'],
+  out_newline: ['A capo dopo la stampa', 'New line after printing', 'سطر جديد بعد الطباعة', '打印后换行'],
+  // ---- WP-D3 (round 11): impostazioni performance ----
+  perf_title:      ['Prestazioni', 'Performance', 'الأداء', '性能'],
+  perf_reduce_anim:['Riduci animazioni', 'Reduce animations', 'تقليل الرسوم المتحركة', '减少动画'],
+  perf_hover:      ['Evidenzia frecce al passaggio del mouse', 'Highlight arrows on hover', 'إبراز الأسهم عند المرور بالماوس', '鼠标悬停时高亮箭头'],
+  // ---- WP-D1 esteso (round 11/12, Ismail 2026-07-13): messaggi runtime hardcoded ----
+  // execute.js: printMessage(...) senza categoria esplicita -- va SEMPRE passata 'debug'
+  // esplicitamente insieme a queste chiavi (vedi report), altrimenti classifyConsoleMsg()
+  // (che riconosce il testo INGLESE originale via regex) non le classifica piu' come
+  // 'debug' una volta tradotte e finiscono nella categoria 'output' (sempre visibile).
+  exec_stopped:   ['Esecuzione interrotta dall\'utente.', 'Execution stopped by user.', 'تم إيقاف التنفيذ بواسطة المستخدم.', '执行已被用户停止。'],
+  console_cleared:['Console pulita.', 'Console cleared.', 'تم مسح الطرفية.', '控制台已清空。'],
+  exec_paused:    ['⏸ Esecuzione in pausa. Premi Esegui o Passo per continuare.', '⏸ Execution paused. Press Run or Step to continue.', '⏸ تم إيقاف التنفيذ مؤقتًا. اضغط تشغيل أو خطوة للمتابعة.', '⏸ 执行已暂停。按运行或单步继续。'],
+  exec_breakpoint:['⏸ Breakpoint (Pausa). Premi Esegui o Passo per continuare.', '⏸ Breakpoint (Pause). Press Run or Step to continue.', '⏸ نقطة توقف (إيقاف مؤقت). اضغط تشغيل أو خطوة للمتابعة.', '⏸ 断点（暂停）。按运行或单步继续。'],
+  flow_reset:     ['Flusso reimpostato. Pronto per una nuova esecuzione.', 'Flow reset. Ready to execute again.', 'تمت إعادة تعيين المخطط. جاهز لتنفيذ جديد.', '流程已重置，可以重新执行。'],
+  // variables.js: errori di validazione riga variabile.
+  var_err_int:    ['Il valore deve essere un intero valido.', 'The value must be a valid integer.', 'يجب أن تكون القيمة عددًا صحيحًا صالحًا.', '该值必须是有效的整数。'],
+  var_err_float:  ['Il valore deve essere un numero decimale valido.', 'The value must be a valid decimal number.', 'يجب أن تكون القيمة رقمًا عشريًا صالحًا.', '该值必须是有效的小数。'],
+  var_err_name:   ['Nome variabile non valido (deve iniziare con una lettera e contenere solo lettere e numeri).', 'Invalid variable name (it must start with a letter and contain only letters and numbers).', 'اسم متغير غير صالح (يجب أن يبدأ بحرف ويحتوي فقط على أحرف وأرقام).', '变量名无效（必须以字母开头，且只能包含字母和数字）。'],
+  var_err_invalid_data: ['Dati non validi.', 'Invalid data.', 'بيانات غير صالحة.', '数据无效。'],
+  // interaction.js: feedback copia/incolla (_clipMsg, categoria 'debug' gia' di default).
+  clip_start_end_uncopyable: ['Start/End non si copiano.', 'Start/End cannot be copied.', 'لا يمكن نسخ عقدتي البداية/النهاية.', '开始/结束节点无法复制。'],
+  clip_copied:    ['Copiato: {type}', 'Copied: {type}', 'تم النسخ: {type}', '已复制：{type}'],
+  clip_copy_struct_err: ['Copia: struttura del blocco non riconosciuta.', 'Copy: block structure not recognized.', 'نسخ: بنية الكتلة غير معروفة.', '复制：无法识别方块结构。'],
+  clip_copy_ext_err: ['Copia: il blocco ha collegamenti esterni non gestiti.', 'Copy: the block has unhandled external links.', 'نسخ: الكتلة تحتوي على روابط خارجية غير مدعومة.', '复制：该方块存在未处理的外部连接。'],
+  clip_copied_block: ['Copiato blocco {type} ({n} nodi)', 'Copied block {type} ({n} nodes)', 'تم نسخ كتلة {type} ({n} عقدة)', '已复制 {type} 方块（{n} 个节点）'],
+  clip_group_none_selected: ['Copia selezione: nessun blocco selezionato.', 'Copy selection: no block selected.', 'نسخ التحديد: لم يتم تحديد أي كتلة.', '复制所选：未选择任何方块。'],
+  clip_group_noncontig: ['Copia: la selezione non e\' un blocco contiguo.', 'Copy: the selection is not a contiguous block.', 'نسخ: التحديد ليس كتلة متجاورة.', '复制：所选内容不是连续的方块。'],
+  clip_group_ext_err: ['Copia: il gruppo ha collegamenti esterni non gestiti.', 'Copy: the group has unhandled external links.', 'نسخ: المجموعة تحتوي على روابط خارجية غير مدعومة.', '复制：该组存在未处理的外部连接。'],
+  clip_copied_group: ['Copiata selezione ({units} unita\', {n} nodi)', 'Copied selection ({units} units, {n} nodes)', 'تم نسخ التحديد ({units} وحدة، {n} عقدة)', '已复制所选（{units} 个单元，{n} 个节点）'],
+  clip_empty:     ['Niente da incollare.', 'Nothing to paste.', 'لا يوجد شيء للصق.', '没有可粘贴的内容。'],
+  clip_select_target: ['Seleziona un arco/blocco dove incollare.', 'Select an arrow/block where to paste.', 'حدد سهمًا/كتلة للصق فيها.', '请选择要粘贴到的箭头/方块。'],
+  clip_paste_root_fail: ['Incolla: inserimento della radice fallito.', 'Paste: root insertion failed.', 'لصق: فشل إدراج الجذر.', '粘贴：根节点插入失败。'],
+  clip_paste_group_fail: ['Incolla: inserimento del gruppo fallito.', 'Paste: group insertion failed.', 'لصق: فشل إدراج المجموعة.', '粘贴：组插入失败。'],
+  clip_select_after: ['Seleziona un blocco dopo cui incollare.', 'Select a block after which to paste.', 'حدد كتلة تريد اللصق بعدها.', '请选择要在其后粘贴的方块。'],
+  clip_paste_impossible: ['Impossibile incollare qui.', 'Cannot paste here.', 'لا يمكن اللصق هنا.', '无法粘贴到此处。'],
+  // popups.js: placeholder di sintassi nel campo For (edit rapido testuale).
+  for_edit_ph:    ['es. i=0;i<10;i++', 'e.g. i=0;i<10;i++', 'مثال: i=0;i<10;i++', '例：i=0;i<10;i++'],
+  // exportUnified.js: avviso blocchi non validi + placeholder flowchart vuoto + istruzioni PDF.
+  export_invalid_warn: ['{n} blocco/i con contenuto non valido ({list}): il codice potrebbe essere incompleto.', '{n} block(s) with invalid content ({list}): the generated code might be incomplete.', '{n} كتلة/كتل تحتوي محتوى غير صالح ({list}): قد يكون الكود الناتج غير مكتمل.', '{n} 个方块内容无效（{list}）：生成的代码可能不完整。'],
+  export_empty:   ['Flowchart vuoto', 'Empty flowchart', 'مخطط فارغ', '空流程图'],
+  pdf_instructions: ['Esportazione PDF: clicca "{btn}" per salvare il diagramma come PDF di una pagina (ritagliato al contenuto).', 'PDF export: click "{btn}" to save the diagram as a one-page PDF (cropped to content).', 'تصدير PDF: انقر على "{btn}" لحفظ المخطط كملف PDF من صفحة واحدة (مقصوص حسب المحتوى).', 'PDF 导出：点击"{btn}"将图表保存为单页 PDF（按内容裁剪）。']
+  // R13-K (Ismail 2026-07-12): manual_link (WP-D5) rimossa -- il manuale non e' piu' un link
+  // nel footer (vedi la nuova chiave "manual", pulsante libro in toolbar, sopra nel file).
 };
 
 function i18nText(key) {
@@ -269,6 +385,12 @@ function errMsg(key, params) {
 
 function applyLanguage(lang) {
   if (I18N_LANGS.indexOf(lang) === -1) lang = 'it';
+  // BUGFIX R13-A (2026-07-12): currentLang non veniva MAI aggiornata qui, quindi
+  // i18nText()/i18nFormat() (che leggono currentLang, non il parametro `lang`)
+  // continuavano a restituire sempre l'italiano: il cambio lingua sembrava "non fare
+  // nulla" tranne impostare dir=rtl per l'arabo (quello sotto usa `lang`, non
+  // currentLang, quindi funzionava). Va assegnata PRIMA di leggere le traduzioni.
+  currentLang = lang;
   if (typeof document === 'undefined' || !document.querySelectorAll) return;
   // testo
   document.querySelectorAll('[data-i18n]').forEach(function (el) {
@@ -296,6 +418,11 @@ function applyLanguage(lang) {
   try { if (typeof draw === 'function' && typeof nodi !== 'undefined' && nodi) draw(nodi); } catch (e) { /* non bloccante */ }
   try { if (typeof updateVarTypeOptions === 'function') updateVarTypeOptions(); } catch (e) {}
   try { if (typeof localStorage !== 'undefined') localStorage.setItem(I18N_STORAGE_KEY, lang); } catch (e) { /* non bloccante */ }
+  // R14-E (Ismail 2026-07-13): il cambio lingua (arabo = RTL) specchia sidebar/console
+  // (piano: "W_avail tra console e sidebar si scambiano lato") -- prima NESSUNA chiamata
+  // ricentrava il grafo dopo un cambio lingua. Stesso tick condiviso di ogni altro trigger
+  // (drag sidebar/console, resize, zoom): syncLayoutVars -> updateZoomOffset -> centerGraph.
+  try { if (typeof _bfSidebarLiveResizeTick === 'function') _bfSidebarLiveResizeTick(); else if (typeof centerGraph === 'function') centerGraph(); } catch (e) { /* non bloccante */ }
 }
 
 function setLanguage(lang) { applyLanguage(lang); }

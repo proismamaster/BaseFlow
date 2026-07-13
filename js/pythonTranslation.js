@@ -6,6 +6,46 @@ function addLine(code){
     codeLines.push(indend.repeat(tabsCount) + code);
 }
 
+// R13-M: converte la sintassi di condizione/espressione di BaseFlow (grammatica di
+// safeEval.js: && || true false, oltre a numeri/confronti/parentesi gia' validi anche in
+// Python) nell'equivalente Python -- prima le condizioni con && || true/false non
+// arrivavano MAI a un If/While/Assign/Print REALMENTE esportato perche' l'esecuzione
+// in-app le rifiutava (checkCondition rigettava questi operatori); ora che funzionano
+// in-app (R13-M), l'export deve smettere di copiarle VERBATIM: "if x && y:" e' un
+// SyntaxError in Python (servono "and"/"or"/"True"/"False"). Sostituzione token-aware:
+// le stringhe quotate passano intatte (mai toccate dentro gli apici), true/false
+// diventano True/False SOLO come parole intere. NOTA (limite noto, non affrontato qui):
+// il ternario "cond ? a : b" e le funzioni Math.* NON vengono riscritti (richiederebbero
+// un riordino/una mappatura per modulo non banale) -- restano un limite noto e
+// documentato dell'export "best-effort" (vedi header di js/exportUnified.js).
+function pyCondSyntax(expr) {
+    const s = String(expr);
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+        const ch = s[i];
+        if (ch === '"' || ch === "'") {
+            const quote = ch; let j = i + 1, lit = ch;
+            while (j < s.length) {
+                lit += s[j];
+                if (s[j] === '\\' && j + 1 < s.length) { lit += s[j + 1]; j += 2; continue; }
+                if (s[j] === quote) { j++; break; }
+                j++;
+            }
+            out += lit; i = j; continue;
+        }
+        if (/[A-Za-z_]/.test(ch)) {
+            let j = i, id = ''; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) { id += s[j]; j++; }
+            out += (id === 'true') ? 'True' : (id === 'false') ? 'False' : id;
+            i = j; continue;
+        }
+        if (s.substr(i, 2) === '&&') { out += ' and '; i += 2; continue; }
+        if (s.substr(i, 2) === '||') { out += ' or '; i += 2; continue; }
+        out += ch; i++;
+    }
+    return out.replace(/ {2,}/g, ' '); // collassa gli spazi doppi introdotti da ' and '/' or '
+}
+
 // Nota: le funzioni UI del vecchio popup dedicato (openPythonPopup/closePythonPopup/
 // copyPythonCode/downloadPythonCode, che puntavano a #python-popup/#python-code)
 // sono state rimosse: l'export Python passa ora dal popup unificato
@@ -45,7 +85,7 @@ function translateNode(node){
                 codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
                 return '';
             }
-            return node.info;
+            return pyCondSyntax(node.info); // R13-M: && || true/false -> and/or/True/False
         case 'input':
             if(node.info == ""){
                 codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
@@ -65,14 +105,15 @@ function translateNode(node){
                 codeLines[0] = "Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python";
                 return '';
             }
-            return 'print(' + node.info + ')';
+            // A4 (round 11): opzione "a capo dopo la stampa" (node.newline, assente = true).
+            return (node.newline === false) ? ('print(' + pyCondSyntax(node.info) + ", end='')") : ('print(' + pyCondSyntax(node.info) + ')');
         case 'if':
             if(node.info == ""){
                 codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
                 return '';
             }
             addLine('');
-            addLine('if ' + node.info + ':');
+            addLine('if ' + pyCondSyntax(node.info) + ':');
             tabsCount++;
             recreateIfBranches(node);
             return '';
@@ -82,7 +123,7 @@ function translateNode(node){
                 return '';
             }
             addLine('');
-            addLine('while ' + node.info + ':');
+            addLine('while ' + pyCondSyntax(node.info) + ':');
             tabsCount++;
             recreateWhileBody(node);
             return '';
@@ -106,8 +147,8 @@ function translateNode(node){
             const forCond = forParts[1].trim();
             const forIncr = forParts[2].trim();
             addLine('');
-            addLine(forInit);
-            addLine('while ' + forCond + ':');
+            addLine(pyCondSyntax(forInit));
+            addLine('while ' + pyCondSyntax(forCond) + ':');
             tabsCount++;
             recreateForBody(node, forIncr);
             return '';
@@ -210,7 +251,7 @@ function recreateDoWhileBody(doNode){
             addLine(translateNode(flow.nodes[idx]));
         }
     }
-    addLine('if not (' + doNode.info + '):');
+    addLine('if not (' + pyCondSyntax(doNode.info) + '):');
     tabsCount++;
     addLine('break');
     tabsCount--;

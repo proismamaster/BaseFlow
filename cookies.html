@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookie Policy — BaseFlow</title>
+  <link rel="stylesheet" href="style.css?v=20260710i">
+  <link rel="icon" type="image/png" href="img/icon.png" />
+  <script>
+    // Eredita il tema/dark-mode scelto nell'app (stesse classi usate da theme.js), cosi'
+    // questa pagina resta sempre coerente ai colori anche se non e' l'app stessa.
+    (function () {
+      try {
+        var t = localStorage.getItem('baseflow-theme') || 'light';
+        document.addEventListener('DOMContentLoaded', function () {
+          var b = document.body.classList;
+          b.toggle('dark-mode', t === 'dark' || t === 'chalk' || t === 'neon');
+          ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (name) {
+            b.toggle('theme-' + name, t === name);
+          });
+        });
+      } catch (e) { /* localStorage non disponibile: resta il tema di default */ }
+    })();
+    // WP-D5 (round 11): traduce SOLO il link "Manual" leggendo la stessa chiave lingua
+    // dell'app (baseflow-lang / I18N_STORAGE_KEY in js/core/i18n.js) -- questa pagina resta
+    // per il resto in inglese fisso (nessun i18n completo qui, fuori scope), quindi il
+    // fallback senza preferenza salvata e' 'en' (coerente col resto del testo della pagina).
+    (function () {
+      var LABELS = { it: 'Manuale', en: 'Manual', ar: 'دليل', zh: '手册' };
+      try {
+        var lang = localStorage.getItem('baseflow-lang') || 'en';
+        if (!LABELS[lang]) lang = 'en';
+        document.addEventListener('DOMContentLoaded', function () {
+          var el = document.getElementById('legal-manual-link');
+          if (el) el.textContent = LABELS[lang];
+        });
+      } catch (e) { /* resta l'etichetta inglese di default nel markup */ }
+    })();
+  </script>
+  <style>
+    .legal-page { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 3rem; color: var(--text, #2c2338); }
+    .legal-page h1 { color: var(--primary-dark, var(--primary)); font-size: 1.8rem; margin-bottom: 0.3rem; }
+    .legal-page .legal-updated { color: #6b6580; font-size: 0.85rem; margin-bottom: 2rem; }
+    .legal-page h2 { color: var(--primary); font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem; }
+    .legal-page p, .legal-page li { line-height: 1.65; font-size: 0.98rem; }
+    .legal-page ul { padding-left: 1.3rem; }
+    .legal-page a { color: var(--primary); }
+    .legal-page table { border-collapse: collapse; width: 100%; margin: 0.8rem 0 1.2rem; font-size: 0.92rem; }
+    .legal-page th, .legal-page td { border: 1px solid var(--border, #d1c4e9); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+    .legal-page th { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary-dark, var(--primary)); }
+    .legal-back {
+      display: inline-flex; align-items: center; gap: 0.4rem; margin-bottom: 1.5rem;
+      color: var(--primary); text-decoration: none; font-weight: 600; font-size: 0.92rem;
+    }
+    .legal-back:hover { text-decoration: underline; }
+    body.dark-mode .legal-page { color: #e8e6f0; }
+    body.dark-mode .legal-page .legal-updated { color: #a89fc4; }
+  </style>
+</head>
+<body>
+  <div class="legal-page">
+    <a class="legal-back" href="index.html">&larr; Back to BaseFlow</a>
+    <a class="legal-back" href="manual.html">&#128214; <span id="legal-manual-link">Manual</span></a>
+    <h1>Cookie &amp; Local Storage Policy</h1>
+    <div class="legal-updated">Last updated: July 2026</div>
+
+    <p>BaseFlow does <strong>not use cookies</strong> for tracking, advertising, or analytics. As a fully client-side app with no backend, there is no server to set them and nothing to track. It does, however, use two browser technologies to make the app work offline and remember your work — this page explains both.</p>
+
+    <h2>localStorage</h2>
+    <p>Used to save data locally in your browser, so it's there next time you open the app. Nothing here is ever sent to a server.</p>
+    <table>
+      <tr><th>What's stored</th><th>Why</th></tr>
+      <tr><td>Your flowchart (nodes, arrows, variables)</td><td>So your work isn't lost when you close the tab</td></tr>
+      <tr><td>Selected language &amp; theme (including custom colors)</td><td>So your preferences persist between visits</td></tr>
+    </table>
+
+    <h2>Service Worker cache</h2>
+    <p>BaseFlow registers a Service Worker that caches the app's own files (HTML, CSS, JS, icons) so it keeps working without an internet connection, like a native app. This cache only ever contains the application's own code — never your personal data.</p>
+
+    <h2>Third-party cookies</h2>
+    <p>None are set by BaseFlow. When the footer loads contributor avatars from GitHub, or the tutorial loads the Shepherd.js library from jsDelivr, those third parties may handle the request per their own cookie/privacy policies — see the <a href="privacy.html">Privacy Policy</a> for details. BaseFlow does not embed any advertising or analytics cookies of its own.</p>
+
+    <h2>Managing or clearing this data</h2>
+    <p>You can clear everything BaseFlow has stored at any time from your browser settings (clear site data / clear browsing data for this site), or by clearing your browser's cache and site storage. Doing so will remove your saved flowchart and preferences and reset the app to its defaults.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy are welcome via the <a href="https://github.com/proismamaster/BaseFlow" target="_blank" rel="noopener">GitHub repository</a>.</p>
+  </div>
+</body>
+</html>
