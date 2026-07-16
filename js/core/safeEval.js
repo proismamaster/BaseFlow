@@ -58,7 +58,7 @@
   Parser.prototype.eq = function () { let l = this.rel(); while (this.peek().t === 'op' && ['==','!=','===','!=='].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.rel(); l = o === '==' ? (l == r) : o === '!=' ? (l != r) : o === '===' ? (l === r) : (l !== r); } return l; };
   Parser.prototype.rel = function () { let l = this.add(); while (this.peek().t === 'op' && ['<','>','<=','>='].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.add(); l = o === '<' ? (l < r) : o === '>' ? (l > r) : o === '<=' ? (l <= r) : (l >= r); } return l; };
   Parser.prototype.add = function () { let l = this.mul(); while (this.peek().t === 'op' && (this.peek().v === '+' || this.peek().v === '-')) { const o = this.next().v; const r = this.mul(); l = o === '+' ? (l + r) : (l - r); } return l; };
-  Parser.prototype.mul = function () { let l = this.unary(); while (this.peek().t === 'op' && ['*','/','%'].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.unary(); l = o === '*' ? (l * r) : o === '/' ? (l / r) : (l % r); } return l; };
+  Parser.prototype.mul = function () { let l = this.unary(); while (this.peek().t === 'op' && ['*','/','%'].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.unary(); if ((o === '/' || o === '%') && Number(r) === 0) throw new Error('__DIV0__'); l = o === '*' ? (l * r) : o === '/' ? (l / r) : (l % r); } return l; };
   Parser.prototype.unary = function () { const tk = this.peek(); if (tk.t === 'op' && (tk.v === '!' || tk.v === '-' || tk.v === '+')) { this.next(); const v = this.unary(); return tk.v === '!' ? !v : tk.v === '-' ? -v : +v; } return this.primary(); };
   Parser.prototype.primary = function () {
     const tk = this.next();

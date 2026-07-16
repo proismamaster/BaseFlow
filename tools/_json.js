@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
+const ctxMock={strokeStyle:'#000',fillStyle:'#000',lineWidth:1,font:'',textAlign:'center',textBaseline:'middle',beginPath(){},moveTo(){},lineTo(){},quadraticCurveTo(){},rect(){},closePath(){},stroke(){},fill(){},clearRect(){},fillText(){},measureText(t){return{width:(t||'').length*8};},save(){},restore(){},setLineDash(){},setTransform(){},arc(){}};
+const canvasMock={width:W,height:H,getContext:()=>ctxMock,getBoundingClientRect:()=>({left:0,top:0}),addEventListener:()=>{},style:{}};
+const g=()=>({addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',querySelector:()=>({value:''}),querySelectorAll:()=>[],appendChild:()=>{},innerHTML:'',textContent:'',dataset:{},rows:[],setAttribute:()=>{},removeAttribute:()=>{},getAttribute:()=>null,hasAttribute:()=>false});
+const documentMock={getElementById:(id)=>id==='canvas'?canvasMock:id==='canvas-container'?{offsetWidth:W,offsetHeight:H,addEventListener:()=>{},scrollLeft:0,scrollTop:0}:id==='tabVariabili'?{rows:[]}:g(),addEventListener:()=>{},createElement:()=>g(),querySelector:()=>g(),querySelectorAll:()=>[],body:g(),documentElement:g()};
+const ctx={document:documentMock,window:{addEventListener:()=>{},innerWidth:W,innerHeight:H,matchMedia:()=>({matches:false,addEventListener:()=>{}})},localStorage:{getItem:()=>null,setItem:()=>{}},MutationObserver:function(){this.observe=()=>{}},console:{log:()=>{},error:()=>{},warn:()=>{}},Math,JSON,parseInt,parseFloat,isNaN,Set,Array,Object,String,Number,RegExp,Promise,setTimeout,eval,alert:()=>{},confirm:()=>true,location:{}};
+vm.createContext(ctx);for(const n of ['theme','state','utils','variables','layout','rendering','popups','interaction','fileIO','init'])vm.runInContext(fs.readFileSync(REPO+'/js/core/'+n+'.js','utf8'),ctx,{filename:n});vm.runInContext('window.onload();',ctx);
+const run=c=>vm.runInContext(c,ctx);
+const J=fs.readFileSync('/sessions/trusting-amazing-davinci/mnt/uploads/asdasdasdasds.json','utf8');
+run('flow = '+J+';');
+run('nodi=[]; for(let i=0;i<flow.nodes.length;i++){ nodi.push({relX:0.35,relY:0.05+i*0.1,width:100,height:NODE_BASE_HEIGHT_PX,color:"white",text:flow.nodes[i].type}); }');
+run('draw(nodi);');
+console.log('archi print(9) e to=while(4):',run('JSON.stringify(frecce.filter(function(f){return f.fromNodeIndex===9||f.toNodeIndex===4;}).map(function(f){return f.type+"("+f.fromNodeIndex+"->"+f.toNodeIndex+")";}))'));
+console.log('print(9)->while(4) gruppi ATTUALI:',run('JSON.stringify(computeEdgeGroups(9,4,null).map(function(x){return x.type;}))'));
+const p=JSON.parse(run('JSON.stringify(computeEdgePath(9,4,null))'));const w4=JSON.parse(run('JSON.stringify({x:Math.round(nodi[4].relX*w),y:Math.round(nodi[4].relY*h)})'));
+console.log('  ultimo punto path:',p.length?('('+p[p.length-1].x2+','+p[p.length-1].y2+')'):'-','| while(4) ~('+w4.x+','+w4.y+')  arriva?',p.length&&Math.abs(p[p.length-1].y2-w4.y)<50);

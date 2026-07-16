@@ -358,7 +358,22 @@ function execClearScreen() {
 function execTurtleNode(type, info, variables, currentNode) {
   const p = _parseTurtle(type, info);
   if (type === 'forward') return execForward(p.dist, variables, currentNode);
-  if (type === 'turn') return execTurn(p.dir, p.angle, variables, currentNode);
+  if (type === 'turn') {
+    // S11 P13.3 (round 15-B, Ismail 2026-07-15): un Turn senza direzione scelta resta
+    // NEUTRO a editing (nessuna marcatura rossa -- nodeHasError in layout.js non lo
+    // tratta affatto, e rendering.js/drawTurnShape disegna gia' la doppia freccia via
+    // turnDirectionOf, vedi R12-D: niente da cambiare li'). Ma ESEGUIRLO senza direzione
+    // non deve piu' scegliere silenziosamente "destra" (il default che _parseTurtle/p.dir
+    // applica solo per etichetta/traduzione export) -- turnDirectionOf(info), SENZA
+    // default, distingue "scelta esplicita" da "non ancora impostato": errore chiaro e
+    // tradotto, esecuzione fermata (return false, stesso contratto di execForward/_tgEval
+    // su espressione non valida).
+    if ((typeof turnDirectionOf === 'function' ? turnDirectionOf(info) : null) === null) {
+      if (typeof throwError === 'function') throwError(errMsg('err_turn_no_dir', { n: currentNode }));
+      return false;
+    }
+    return execTurn(p.dir, p.angle, variables, currentNode);
+  }
   if (type === 'home') return execHome();
   if (type === 'pen') return execPen(p.state, p.color, p.width);
   if (type === 'gclear') return execClearScreen();
@@ -476,9 +491,12 @@ function openTurtleDialog(idx) {
     const w = document.getElementById('tg-width'); if (w) w.value = p.width;
     const rs = document.getElementsByName('tg-pen'); for (let i = 0; i < rs.length; i++) rs[i].checked = (rs[i].value === p.state);
   }
-  document.getElementById('draw-popup').classList.add('active');
+  const _drawPop = document.getElementById('draw-popup');
+  _drawPop.classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
   if (typeof _bfPushOverlay === 'function') _bfPushOverlay('draw-popup'); // R13-F: registro condiviso Esc
+  // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
+  if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_drawPop);
 }
 function closeTurtleDialog() {
   const d = document.getElementById('draw-popup'); if (d) d.classList.remove('active');

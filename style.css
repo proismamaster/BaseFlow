@@ -124,8 +124,19 @@ canvas {
   /* R14-B.1 (Ismail 2026-07-13): max-width in ch (non piu' vw) -- limite leggibile fisso
      legato alla lunghezza del testo, non alla larghezza dello schermo (su schermi larghi
      34vw lasciava troppo spazio, su schermi stretti tagliava troppo presto). Il nome
-     COMPLETO resta comunque disponibile nel tooltip istantaneo (vedi ux.js, #bf-tip). */
-  max-width: 30ch; min-width: 0;
+     COMPLETO resta comunque disponibile nel tooltip istantaneo (vedi ux.js, #bf-tip).
+     WP-N12 (round 15-C, Ismail 2026-07-15, "nome coperto/tagliato, deve restare sempre
+     visibile"): due modifiche.
+     1) max-width 30ch->58ch, allineato ai nuovi limiti di truncateName() in
+        updateProjectIdentity() (execute.js, 30 nome + " -- " + 24 autore = 57ch): l'ellissi
+        QUI resta una rete di sicurezza, il vero taglio (senza spezzare parole) e' quello
+        JS gia' fatto a monte (S7 P7.1).
+     2) min-width 0->14ch: con 0 l'elemento poteva essere schiacciato quasi a niente dal
+        flex-shrink quando la toolbar era affollata (la causa vera del "coperto/tagliato" --
+        niente a che fare con l'ellissi). Con un minimo, se la riga corrente non ha piu'
+        posto il blocco va semplicemente A CAPO (il flex-wrap di #toolbar esiste gia'),
+        restando leggibile per intero invece di ridursi a una fessura. */
+  max-width: 58ch; min-width: 14ch;
   /* R14-B.1: leggermente piu' leggibile (era 0.78rem) restando comunque piu' discreto dei
      pulsanti, che sono il focus primario della toolbar. */
   font-size: 0.88rem; font-weight: 500; opacity: 0.92;
@@ -134,7 +145,12 @@ canvas {
 }
 #project-identity-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.theme-contrast #project-identity { color: #ffd400; }
-@media (max-width: 900px) { #project-identity { display: none; } } /* niente spazio su schermi stretti: header gia' affollato */
+/* WP-N12: PRIMA nascondeva del tutto il blocco sotto i 900px ("niente spazio, header gia'
+   affollato") -- ma il requisito ora e' che resti SEMPRE visibile. Da quando la toolbar usa
+   pulsanti responsive con clamp() (S4/S8, round 15-B) c'e' gia' piu' margine sugli schermi
+   medi; sotto i 900px si riduce solo lo spazio massimo (ellissi piu' aggressiva) invece di
+   sparire -- e se anche quello non basta, il flex-wrap lo manda comunque a capo (vedi sopra). */
+@media (max-width: 900px) { #project-identity { max-width: 22ch; } }
 
 #toolbar button {
   background-color: #fff;
@@ -547,7 +563,8 @@ body.perf-reduced *::after {
   font-weight: 500;
 }
 
-#filename-input {
+#filename-input,
+#save-author-input {
   width: 100%;
   min-width: 180px;
   max-width: 300px;
@@ -561,7 +578,8 @@ body.perf-reduced *::after {
   margin-bottom: 1rem;
 }
 
-#filename-input:focus {
+#filename-input:focus,
+#save-author-input:focus {
   border-color: var(--primary);
   outline: none;
 }
@@ -716,7 +734,11 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
   border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
-  padding: 1.2rem 2.5rem 1.2rem 2.5rem;
+  /* S8/P8.2 (Ismail 2026-07-13): padding-right allargato da 2.5rem a 3.3rem -- riserva un
+     margine vuoto piu' ampio a destra dove NESSUNA sezione della griglia arriva mai, cosi'
+     la X (vedi #popup-window #close-popup sotto) ha sempre spazio libero e non finisce mai
+     sopra il contenuto di "Strumenti" quando la griglia va a capo. */
+  padding: 1.2rem 3.3rem 1.2rem 2.5rem;
   z-index: 1000;
   display: none;
   flex-direction: row;
@@ -779,8 +801,12 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
 
 #popup-window #close-popup {
   position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
+  top: 0.5rem;
+  /* S8/P8.2 (Ismail 2026-07-13, "sposta la X a destra così non copre 'Strumenti'"): da
+     0.7rem a 0.4rem, dentro al padding-right ora piu' ampio (3.3rem, vedi #popup-window
+     sopra) -- la X sta quindi in un margine vuoto piu' largo e piu' vicino al bordo,
+     lontano da qualunque sezione della griglia .palette-grid vada a capo. */
+  right: 0.4rem;
   background: var(--primary);
   color: #fff;
   border: none;
@@ -1492,6 +1518,7 @@ body.dark-mode #save-popup label {
 /* Campi di input/select/textarea dentro ai popup: stessa superficie scura ovunque */
 body.dark-mode #edit-node-input,
 body.dark-mode #filename-input,
+body.dark-mode #save-author-input,
 body.dark-mode #export-code,
 body.dark-mode #export-format,
 body.dark-mode #console-input,
@@ -1513,6 +1540,7 @@ body.dark-mode #export-preview {
 }
 body.dark-mode #edit-node-input:focus,
 body.dark-mode #filename-input:focus,
+body.dark-mode #save-author-input:focus,
 body.dark-mode #console-input:focus,
 body.dark-mode #assign-var-input:focus,
 body.dark-mode #assign-val-input:focus {
@@ -1625,6 +1653,25 @@ body.theme-bw #console-popup.docked {
   color: #1a1a1a;
 }
 body.theme-bw #toolbar button { color: #2b2b2b; }
+/* S8/P8.5 (Ismail 2026-07-13, "si devono vedere un po'"): in bw i campi Nome/Valore della
+   tabella variabili avevano border:1px solid transparent (regola base #tabVariabili
+   input.inputVariable/select.inputVariable) -- su una cella #tabVariabili td gia' quasi
+   bianca (--surface qui e' #e9e9e9) il campo diventava di fatto invisibile. Bordo grigio
+   TENUE (riusa --accent, gia' #8a8a8a in questo tema) ma visibile. Stessa cosa per il
+   bordo di selezione dei blocchi sul canvas (--node-selected-color, rendering.js): di
+   default e' blu (#1e88e5, :root) -- fuori posto in un tema volutamente monocromo -- qui
+   diventa lo stesso grigio, coerente col resto del tema.
+*/
+body.theme-bw #tabVariabili input.inputVariable,
+body.theme-bw #tabVariabili select.inputVariable { border-color: var(--accent); }
+body.theme-bw { --node-selected-color: var(--accent); }
+/* P (round 15, Ismail): anche il tema ALTO CONTRASTO deve avere i campi Nome/Valore GRIGI
+   (il "div grigio" chiesto): bordo grigio + sfondo grigio tenue, cosi' sono visibili e
+   coerenti invece di sparire su sfondo bianco/giallo del tema. */
+body.theme-contrast #tabVariabili input.inputVariable,
+body.theme-contrast #tabVariabili select.inputVariable {
+  border-color: #9e9e9e; background: #ececec; color: #111;
+}
 
 /* Il selettore tema nella toolbar: stile coerente coi pulsanti */
 #theme-select, #lang-select {
@@ -1719,6 +1766,12 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
   #console-buttons { gap: 0.28rem; }
   /* tabella variabili: font e padding piu' compatti per stare in colonne strette */
   #tabVariabili th, #tabVariabili td { font-size: 0.76rem; padding: 0.12rem 0.2rem; }
+  /* S4/P8.3: sotto i 520px anche 3 colonne (min 120px l'una) rischiano di superare la
+     larghezza disponibile del popup -- ulteriore passo di sicurezza a 2 colonne (3 righe
+     da 2), per restare sempre dentro la viewport senza scroll orizzontale. Non richiesto
+     esplicitamente dal piano (che chiede solo "1 riga -> 2 righe da 3"), ma necessario per
+     non introdurre una regressione di overflow sui telefoni piu' stretti. */
+  #popup-window .palette-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* Puntatori "coarse" (touch): target un filo piu' grandi per il tocco */
 @media (pointer: coarse) {
@@ -1731,61 +1784,169 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
    Palette d'inserimento riorganizzata (Ismail 2026-07-07) -- categorie Interaction / Math
    / Selection / Loops / Tools, con pulsanti a FORMA colorata coerenti coi nodi sul canvas.
    ============================================================ */
+/* S4/P8.3 (Ismail 2026-07-13, "tutte le sezioni su UNA riga che scala con zoom/larghezza,
+   oltre un breakpoint 2 righe da 3 sezioni"): da flex-wrap (a-capo "sporco" -- quante
+   sezioni entravano in una riga dipendeva dalla larghezza casuale di ciascuna, es. 4+2 o
+   5+1) a CSS grid a 6 colonne uguali (minmax(0,1fr)): restano SEMPRE le stesse 6 colonne
+   che si restringono INSIEME (scalano) finche' c'e' spazio; sotto il breakpoint (vedi
+   grid-template-columns dentro le media query qui sotto) diventano ESATTAMENTE 2 righe da
+   3, mai un a-capo irregolare. align-items:start (non flex-start, equivalente in grid) */
 #popup-window .palette-grid {
-  display: flex; flex-wrap: wrap; gap: 1.1rem; width: 100%; align-items: flex-start;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1.1rem; width: 100%; align-items: start;
 }
 #popup-window .palette-grid .section {
   background: transparent; box-shadow: none; border: none; padding: 0.2rem 0.4rem;
-  min-width: 120px; margin: 0; align-items: center;
+  /* max-width:none neutralizza il vecchio #popup-window .section{max-width:48%} (pensato
+     per un layout a 2 sezioni per riga mai usato da questo markup, vedi sopra nel file) --
+     con la grid a governare la larghezza colonna per colonna, quel 48% e' inerte ma va
+     azzerato esplicitamente per non lasciare un vincolo fantasma poco chiaro. */
+  min-width: 120px; max-width: none; margin: 0; align-items: center;
 }
 #popup-window .palette-grid .section h3 {
   font-size: 1rem; color: #555; font-weight: 600; letter-spacing: 0.02em;
   margin: 0 0 0.6rem 0; text-align: center; width: 100%;
 }
+/* S4/P8.3: breakpoint dedicato (non riuso i 900px del popup-window qui sopra: a quella
+   soglia il contenuto minimo di 6 colonne, ~120px l'una + i gap, sfiora/supera il tetto
+   max-width:98vw del popup con margine quasi zero -- 1000px lascia un margine di sicurezza
+   e verifica-a-vista pulita). Sotto: 2 righe da 3 (mai un a-capo irregolare). La X del
+   popup (S8/P8.2, top:0.5rem right:0.4rem dentro il padding-right:3.3rem di #popup-window)
+   resta sempre fuori dalla grid stessa (che vive nel content-box, gia' al netto di quel
+   padding) quindi non si sovrappone in nessuna delle due modalita'. */
+@media (max-width: 1000px) {
+  #popup-window .palette-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .blk {
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 108px; min-height: 48px; margin: 0.34rem 0; padding: 0.5rem 1.1rem;
-  color: #14202e; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  color: black; font-weight: 700; font-size: 0.9rem; cursor: pointer;
   border: none; background: transparent; box-shadow: none; z-index: 0;
-  --blk-c: #e0e0e0;
   transition: transform 0.09s ease, filter 0.15s ease;
 }
-/* La FORMA (colore + contorno) sta sul ::before: il testo del pulsante resta sopra e non
-   viene mai tagliato dal clip-path. Il contorno e' reso con un drop-shadow sottile. */
-.blk::before {
-  content: ''; position: absolute; inset: 0; background: var(--blk-c); z-index: -1;
-  filter: drop-shadow(0 0 0.6px #2a2a2a) drop-shadow(0 1px 1px rgba(0,0,0,0.18));
+/* S8/P13.2 (Ismail 2026-07-13, "deve essere tutto una variabile, flessibile e
+   manutenibile"): la FORMA e' un mask-image (silhouette, senza contorno) colorato con
+   background: var(--node-*) -- segue quindi QUALUNQUE tema/tema-personalizzato,
+   esattamente come i blocchi veri sul canvas (rendering.js legge la STESSA variabile
+   --node-<tipo>, vedi cssVar() in rendering.js). Prima ogni forma era un secondo sistema
+   di colori --blk-c hard-coded, scollegato dal tema (causa della richiesta R13-E/P13.2).
+   Il contorno nero netto (gia' introdotto in una revisione precedente per sostituire un
+   clip-path+drop-shadow poco nitido sugli angoli) resta un livello SEPARATO su ::after:
+   stessa geometria ma fill="none", quindi il contorno non e' mai toccato dal mask e resta
+   sempre nero -- coerente col canvas, dove ctx.strokeStyle e' SEMPRE "black", mai
+   tema-dipendente (rendering.js). ::before = riempimento colorato (sotto), ::after = solo
+   contorno (sopra il riempimento, sotto il testo del pulsante).
+   P8.1: il testo (color, sopra) e' nero come sul canvas (ctx.fillStyle nero li'), non piu'
+   il grigio-blu #14202e/#444 di prima -- coerenza richiesta esplicitamente da Ismail. */
+.blk::before, .blk::after {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  mask-repeat: no-repeat; mask-position: center; mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: 100% 100%;
+}
+.blk::after {
+  /* ::after non usa mask: e' gia' un SVG col SOLO contorno (fill="none"), quindi il colore
+     del contorno viene dal PNG/SVG stesso, non da background:var(...). */
+  mask-image: none; -webkit-mask-image: none;
+  background-repeat: no-repeat; background-position: center; background-size: 100% 100%;
 }
 .blk:hover { transform: translateY(-1px); filter: brightness(0.96); }
 .blk:active { transform: translateY(1px); }
 .blk-parallelogram { padding: 0.5rem 1.7rem; }
-.blk-parallelogram::before { clip-path: polygon(15% 0, 100% 0, 85% 100%, 0 100%); }
-.blk-rect::before { border-radius: 4px; }
+.blk-parallelogram::before, .blk-parallelogram::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='white'/%3E%3C/svg%3E");
+}
+.blk-parallelogram::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+.blk-rect::before, .blk-rect::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='white'/%3E%3C/svg%3E");
+}
+.blk-rect::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
 .blk-diamond { min-width: 116px; min-height: 72px; padding: 0.5rem 1.3rem; }
-.blk-diamond::before { clip-path: polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%); }
+.blk-diamond::before, .blk-diamond::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,24 50,45.5 2.5,24' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,24 50,45.5 2.5,24' fill='white'/%3E%3C/svg%3E");
+}
+.blk-diamond::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,24 50,45.5 2.5,24' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
 .blk-hex { padding: 0.5rem 1.5rem; }
-.blk-hex::before { clip-path: polygon(13% 0, 87% 0, 100% 50%, 87% 100%, 13% 100%, 0 50%); }
-.blk-dashed { color: #444; }
-.blk-dashed::before { border: none; filter: none; } /* tratteggio unico: lo fa gia' l'SVG di sfondo del commento */
-/* colori coerenti con NODE_COLORS (state.js) */
-.blk-input  { --blk-c: #b0bec5; }
-.blk-output { --blk-c: #90caf9; }
-.blk-assign { --blk-c: #fff59d; }
-.blk-if     { --blk-c: #ce93d8; }
-.blk-do     { --blk-c: #9fa8da; }
-.blk-while  { --blk-c: #80cbc4; }
-.blk-for    { --blk-c: #ffcc80; }
-.blk-comment{ --blk-c: #fafafa; }
-.blk-pause  { --blk-c: #f48fb1; }
-.blk-forward { --blk-c: #a5d6a7; padding: 0.5rem 1.5rem 0.5rem 1.1rem; }
-.blk-forward::before { clip-path: polygon(0 0, 78% 0, 100% 50%, 78% 100%, 0 100%); }
-.blk-turn { --blk-c: #ffe082; padding: 0.5rem 1.6rem; }
-.blk-turn::before { clip-path: polygon(0 50%, 16% 0, 84% 0, 100% 50%, 84% 100%, 16% 100%); }
-.blk-home { --blk-c: #ffd54f; padding: 0.6rem 1.2rem 0.5rem; }
-.blk-home::before { clip-path: polygon(50% 0, 100% 42%, 100% 100%, 0 100%, 0 42%); }
-.blk-pen { --blk-c: #80deea; }
-.blk-gclear { --blk-c: #cfd8dc; }
+.blk-hex::before, .blk-hex::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='white'/%3E%3C/svg%3E");
+}
+.blk-hex::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+.blk-dashed { color: black; }
+/* Commento: contorno TRATTEGGIATO grigio (non nero pieno) -- unico caso diverso dagli altri. */
+.blk-dashed::before, .blk-dashed::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='white'/%3E%3C/svg%3E");
+}
+.blk-dashed::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='none' stroke='%238a8a8a' stroke-width='2.5' stroke-dasharray='6 4' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+/* Colore di riempimento: SEMPRE la variabile del tema (--node-<tipo>, gia' definita in
+   :root e ridefinibile dall'editor "Crea nuovo tema") -- MAI un valore hard-coded qui,
+   cosi' la palette segue il tema esattamente come il blocco vero disegnato sul canvas. */
+.blk-input::before   { background: var(--node-input); }
+.blk-output::before  { background: var(--node-output); }
+.blk-assign::before  { background: var(--node-assign); }
+.blk-if::before      { background: var(--node-if); }
+.blk-do::before      { background: var(--node-do); }
+.blk-while::before   { background: var(--node-while); }
+.blk-for::before     { background: var(--node-for); }
+.blk-comment::before { background: var(--node-comment); }
+.blk-pause::before   { background: var(--node-pause); }
+.blk-pen::before      { background: var(--node-pen); }
+.blk-gclear::before   { background: var(--node-gclear); }
+.blk-forward { padding: 0.5rem 1.5rem 0.5rem 1.1rem; }
+.blk-forward::before, .blk-forward::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='3,3 78,3 97.5,24 78,45 3,45' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='3,3 78,3 97.5,24 78,45 3,45' fill='white'/%3E%3C/svg%3E");
+}
+.blk-forward::before { background: var(--node-forward); }
+.blk-forward::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='3,3 78,3 97.5,24 78,45 3,45' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+.blk-turn { padding: 0.5rem 1.6rem; }
+.blk-turn::before, .blk-turn::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='18,3 82,3 82,10 97.5,24 82,38 82,45 18,45 18,38 2.5,24 18,10' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='18,3 82,3 82,10 97.5,24 82,38 82,45 18,45 18,38 2.5,24 18,10' fill='white'/%3E%3C/svg%3E");
+}
+.blk-turn::before { background: var(--node-turn); }
+.blk-turn::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='18,3 82,3 82,10 97.5,24 82,38 82,45 18,45 18,38 2.5,24 18,10' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+.blk-home { padding: 0.6rem 1.2rem 0.5rem; }
+.blk-home::before, .blk-home::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,20 97.5,45.5 2.5,45.5 2.5,20' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,20 97.5,45.5 2.5,45.5 2.5,20' fill='white'/%3E%3C/svg%3E");
+}
+.blk-home::before { background: var(--node-home); }
+.blk-home::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,20 97.5,45.5 2.5,45.5 2.5,20' fill='none' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+}
+
+/* P (round 15, Ismail): COERENZA palette <-> canvas.
+   (1) Nel tema bianco/nero il canvas disegna TUTTI i blocchi bianchi (rendering.js:
+       coloreNodo = "white" quando currentTheme === "bw"), non con --node-<tipo>. Le anteprime
+       della palette devono quindi essere bianche anch'esse, non colorate — altrimenti palette e
+       disegno reale sono completamente incoerenti (segnalato da Ismail). L'outline (::after) resta
+       nero, il testo pure -> identico al canvas. */
+body.theme-bw .blk::before { background: #fff; }
+/*   (2) Il testo dentro i blocchi sul canvas e' SEMPRE nero PURO (ctx.fillStyle = "black",
+       rendering.js): la scritta nell'anteprima della palette deve essere nero puro su TUTTI i
+       temi. Serve BATTERE la regola `#popup-window .section button { color: var(--primary) }`
+       (specificita' 1,1,1) che altrimenti tinge il testo dei blocchi col colore-accento del
+       tema (viola/arancio/... diverso dal nero del canvas). Questa (1,2,0) vince. */
+#popup-window .section .blk { color: var(--node-text) !important; }
 
 @media (max-width: 640px) {
   #popup-window .palette-grid { gap: 0.5rem; }
@@ -1903,6 +2064,10 @@ body.dark-mode #lang-select { background-color: #2a2444; color: #c9a9fa; }
   --arc-drag-color: #1e88e5;
   --node-selected-color: #1e88e5; /* C4 (round 11): bordo di selezione a click singolo */
   --exec-error-color: #e53935; /* riempimento blocco con contenuto invalido */
+  /* P (round 15, Ismail): colore del TESTO dentro i blocchi (canvas + anteprime palette) e
+     del testo su un blocco in errore -- variabili cosi' sono coerenti e personalizzabili. */
+  --node-text: #000;
+  --node-error-text: #fff;
   /* R12-E (Ismail 2026-07-11): var "danger" condivisa da modali/menu contestuale/pulsante
      Stop -- prima ognuno aveva il proprio rosso fisso (audit E4). --console-error-color e'
      SEPARATA e apposta SENZA override per tema/dark-mode: lo sfondo di #console-output e'
@@ -1940,7 +2105,7 @@ body.theme-retro { --if-true-color: #5b7a2e; --if-false-color: #a8431b; --arc-ho
    sono gia' forzati bianco/nero in rendering.js, vedi commento piu' sotto). Uniforma tutto a
    nero: la differenza fra i rami si legge dal TESTO ("True"/"False", "V"/"F", "Next"/"Done"),
    non dal colore -- coerente con la filosofia del tema (nessun colore, solo forma/testo). */
-body.theme-bw { --if-true-color: #000000; --if-false-color: #000000; --stop-btn-color: #000000; --bf-danger: #000000; }
+body.theme-bw { --if-true-color: #000000; --if-false-color: #000000; --stop-btn-color: #000000; --bf-danger: #000000; --exec-error-color: #9e9e9e; --node-error-text: #000; }
 
 
 /* Pulsanti di chiusura a "X" (Ismail 2026-07-07) + indicatore modifiche non salvate. */
@@ -1977,6 +2142,12 @@ body.dark-mode #console-popup.docked .console-x { color: #c9a9fa; background: rg
      cursore-indizio separato. */
   display: inline-block; padding: 3px; margin: -3px 0;
 }
+/* P1.1 (round 15, 2026-07-13): il pallino non spariva mai dopo il salvataggio. Causa: la regola
+   #unsaved-indicator sopra ha `display:inline-block` (specificita' di ID) che BATTE lo stile UA
+   [hidden]{display:none} (specificita' di attributo), quindi syncUnsavedIndicator() metteva
+   correttamente l'attributo `hidden` ma il CSS lo ignorava. Questa regola (ID+attributo) vince
+   sull'ID nudo e ripristina il rispetto di `hidden`. */
+#unsaved-indicator[hidden] { display: none; }
 /* Su temi chiari (toolbar comunque colorata) il bianco va bene; su alto contrasto meglio scuro. */
 body.theme-contrast #unsaved-indicator { color: #ffd400; text-shadow: none; }
 
@@ -2003,38 +2174,16 @@ body.theme-contrast #unsaved-indicator { color: #ffd400; text-shadow: none; }
 #popup-window .palette-grid .section button.blk { border: none !important; background: transparent !important;
   box-shadow: none !important; outline: none !important; } /* FIX #2 (Ismail): niente ombra/contorno rettangolare grigio attorno alla forma */
 #popup-window .palette-grid .section button.blk:focus, #popup-window .palette-grid .section button.blk:focus-visible { outline: none !important; box-shadow: none !important; }
-.blk::before {
-  filter:
-    drop-shadow(1px 0 0 #2a2a2a) drop-shadow(-1px 0 0 #2a2a2a)
-    drop-shadow(0 1px 0 #2a2a2a) drop-shadow(0 -1px 0 #2a2a2a)
-    drop-shadow(0 1px 1px rgba(0,0,0,0.15));
-}
-/* Commento: SOLO linea tratteggiata, nessun contorno pieno che segue la forma. */
-.blk-dashed::before {
-  /* FIX #2b (Ismail 2026-07-08): il tratteggio del Commento lo disegna GIA' l'SVG di sfondo
-     (.blk-comment::before). Qui NON aggiungiamo un secondo bordo tratteggiato, altrimenti si
-     vede un DOPPIO contorno. Solo neutralizzazione. */
-  filter: none;
-  border: none;
-  background: transparent;
-}
-
-/* ============================================================
-   FIX (Ismail 2026-07-07): forme della palette con BORDO NERO NETTO che segue la forma,
-   rese come SVG di sfondo (bordo uniforme via vector-effect:non-scaling-stroke) invece di
-   clip-path + ombra. Il testo del pulsante resta sopra e centrato.
-   ============================================================ */
-.blk::before { clip-path: none !important; filter: none !important; background: transparent !important; }
-.blk { background: transparent !important; border: none !important; }
-.blk-input::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='%23b0bec5' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-output::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='16,3 97,3 84,45 3,45' fill='%2390caf9' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-assign::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23fff59d' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-if::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,24 50,45.5 2.5,24' fill='%23ce93d8' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-do::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%239fa8da' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-while::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%2380cbc4' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-for::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%23ffcc80' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-pause::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='15,3 85,3 97.5,24 85,45 15,45 2.5,24' fill='%23f48fb1' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
-.blk-comment::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23fafafa' stroke='%238a8a8a' stroke-width='2.5' vector-effect='non-scaling-stroke' stroke-dasharray='6 4'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; }
+/* S8/P13.2 (Ismail 2026-07-13): il sistema "bordo nero netto via SVG di sfondo" (qui sotto
+   fino a poco fa) restava valido nell'idea (contorno vettoriale nitido, non un drop-shadow
+   sfocato sugli angoli) ma con colori di riempimento HARD-CODED nell'SVG stesso -- scollegati
+   dal tema. Sostituito dal sistema mask-image+var(--node-*) definito sopra (righe vicino a
+   .blk-parallelogram/.blk-rect/.blk-diamond/.blk-hex/.blk-dashed/.blk-forward/.blk-turn/
+   .blk-home): stesso contorno nitido (identica geometria SVG, invariata), ma ora su un
+   layer ::after separato e SEMPRE nero (fill="none", mai un colore da tema -- coerente con
+   ctx.strokeStyle="black" fisso anche sul canvas), mentre il riempimento (::before) segue
+   --node-<tipo>. Nessuna delle due regole precedenti (clip-path+drop-shadow, poi SVG a
+   colore fisso) resta piu' in questo file: un solo sistema, non tre sovrapposti. */
 
 /* Checkbox "Assign" nella cella valore (Ismail 2026-07-07): se OFF la variabile si dichiara
    senza valore. Piccola, accanto all'input; l'input si disabilita quando OFF. */
@@ -2326,33 +2475,48 @@ body.dark-mode .bf-modal-btn-ghost:hover { background: rgba(255,255,255,0.07); }
    applicato a .var-del (rimosso il suo override dark-mode duplicato). */
 body.dark-mode .bf-modal-btn-ghost-danger:hover { background: color-mix(in srgb, var(--bf-danger, #ff8a80) 10%, transparent); }
 
-/* ---- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay a schermo pieno con iframe
-   same-origin verso manual.html (prima: window.open in una nuova scheda). z-index sopra i
-   popup "normali" (edit-node/for/save/export, fino a 1480) e sopra le finestre "a schermo"
-   (console/palette/disegno, ux.js, fino a ~1478) ma SOTTO il menu contestuale (2200) e le
+/* ---- R14-D (Ismail 2026-07-13) + P10.1/P10.2 (round 15-B S10, Ismail 2026-07-15): manuale
+   IN-APP -- overlay con iframe same-origin verso manual.html (prima: window.open in una nuova
+   scheda). Da S10 e' una FINESTRA vera come console/palette/disegno (stessa banda z-index
+   1461-1478, raise-on-click via WINDOW_IDS in ux.js): niente piu' sfondo scurito a schermo
+   pieno ne' "click fuori chiude" (i popup a finestra non lo fanno), ma ridimensionabile e
+   spostabile (_manualSetupDragResize in popups.js, maniglie .tg-rz gia' condivise da
+   tartaruga + terminale mobile) e con la rotella confinata al manuale (P10.2, popups.js)
+   cosi' non scrolla/zooma il canvas sotto. Resta SOTTO il menu contestuale (2200) e le
    bf-modal di conferma/errore (2300): un errore runtime deve poter comparire sopra il
    manuale aperto, coerente con la gerarchia z-index gia' esistente. */
 #manual-overlay {
-  position: fixed; inset: 0; z-index: 2000;
-  display: none; align-items: center; justify-content: center;
-  background: rgba(28, 14, 52, 0.55); backdrop-filter: blur(2px);
-  padding: 2.5vh 2.5vw;
+  position: fixed;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(1100px, 94vw); height: min(78vh, 760px);
+  min-width: 420px; min-height: 320px;
+  max-width: 98vw; max-height: 96vh;
+  z-index: 1461;
+  display: none;
+  overscroll-behavior: contain;
+  /* overflow:visible (NON hidden): le maniglie .tg-rz sporgono di -3px oltre il bordo --
+     con overflow:hidden verrebbero tagliate e il click ci "passerebbe attraverso" avviando
+     il drag della finestra invece del resize (stesso bug gia' documentato per #console-popup,
+     vedi commento vicino a "Rilievo 17"/overflow:visible li' sotto). Angoli arrotondati e
+     ombra spostati su #manual-overlay-box (sotto), che non ha maniglie come figli diretti. */
+  overflow: visible;
 }
 #manual-overlay.active { display: flex; }
 #manual-overlay-box {
   display: flex; flex-direction: column;
-  width: 100%; height: 100%; max-width: 1400px;
+  width: 100%; height: 100%;
   background: #fff; border-radius: 1rem; overflow: hidden;
   box-shadow: 0 18px 54px rgba(0,0,0,0.34);
 }
 /* Barra sottile SOLO per la X (vedi commento in index.html: una X assoluta sopra l'iframe
    avrebbe coperto il selettore lingua del manuale, gia' in alto a destra in .man-topbar).
    Stesso sfondo/bordo dei popup generici (coerenza visiva), sempre chiara: il manuale
-   gestisce da solo il proprio tema INTERNO all'iframe, questa barra e' fuori dall'iframe. */
+   gestisce da solo il proprio tema INTERNO all'iframe, questa barra e' fuori dall'iframe.
+   cursor:move: e' la maniglia di trascinamento della finestra (vedi popups.js). */
 #manual-overlay-bar {
   display: flex; justify-content: flex-end; align-items: center;
   padding: 0.4rem 0.5rem; background: #ede7f6; border-bottom: 1px solid #d1c4e9;
-  flex: 0 0 auto;
+  flex: 0 0 auto; cursor: move; user-select: none;
 }
 body.dark-mode #manual-overlay-bar { background: #241f38; border-color: #4a4066; color: #e8e6f0; }
 #manual-overlay-box iframe { flex: 1 1 auto; width: 100%; border: none; display: block; }
@@ -2360,7 +2524,13 @@ body.dark-mode #manual-overlay-bar { background: #241f38; border-color: #4a4066;
 /* ---- TASK 8: i popup del canvas devono stare SOPRA il terminale (mobile e agganciato) ---- */
 #overlay { z-index: 1450 !important; }
 #popup-window { z-index: 1462; }  /* finestra non-modale; il focus lo alza (ux.js) */
-#edit-node-popup, #save-popup, #export-popup, #for-popup { z-index: 1480 !important; }
+/* P2.4 (round 15-B S1, Ismail 2026-07-15): tolto !important -- questi 4 popup condividevano
+   TUTTI lo stesso z-index fisso (invariabile da JS), quindi fra loro/col block-help-popup
+   (che apre SOPRA uno di essi) vinceva sempre l'ordine nel DOM, mai l'ultimo cliccato. Il
+   valore resta 1480 come base (sopra le finestre 1461-1478, sotto manuale/tema/menu/bf-modal),
+   ma ora bfBringToFrontPopup() (ux.js) puo' alzarli dinamicamente al click -- vedi anche
+   #for-popup/#draw-popup/#settings-popup (gia' senza !important) e #block-help-popup sotto. */
+#edit-node-popup, #save-popup, #export-popup, #for-popup { z-index: 1480; }
 #theme-editor { z-index: 1600 !important; }
 .ctx-menu { z-index: 2200 !important; }
 /* Il terminale (mobile/floating) resta sotto i popup ma sopra il canvas. */
@@ -2707,17 +2877,10 @@ body.dark-mode #console-popup .console-x { color: #c9a9fa; background: rgba(201,
 .tg-radios label { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 500; }
 #draw-popup .draw-row > div { display: flex; flex-direction: column; gap: 0.2rem; }
 
-/* ============================================================================
-   FORME PALETTE dei blocchi GRAFICA / turtle (Ismail 2026-07-08, round 2 fix): rese come
-   SVG di sfondo con lo STESSO meccanismo degli altri blocchi (il clip-path e' neutralizzato
-   piu' sopra con !important, quindi qui servono gli SVG con !important). Senza queste, i
-   blocchi Grafica apparivano nel pannello come solo testo, senza forma.
-   ============================================================================ */
-.blk-forward::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='3,3 78,3 97.5,24 78,45 3,45' fill='%23a5d6a7' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
-.blk-turn::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='18,3 82,3 82,10 97.5,24 82,38 82,45 18,45 18,38 2.5,24 18,10' fill='%23ffe082' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
-.blk-home::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Cpolygon points='50,2.5 97.5,20 97.5,45.5 2.5,45.5 2.5,20' fill='%23ffd54f' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
-.blk-pen::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%2380deea' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
-.blk-gclear::before { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 48' preserveAspectRatio='none'%3E%3Crect x='2.5' y='2.5' width='95' height='43' rx='4' fill='%23cfd8dc' stroke='black' stroke-width='2.5' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center/100% 100% no-repeat !important; clip-path: none !important; }
+/* S8/P13.2 (Ismail 2026-07-13): le forme dei blocchi GRAFICA/turtle (forward/turn/home,
+   pen/gclear via .blk-rect) sono ora definite una sola volta, insieme a tutte le altre,
+   nel blocco mask-image+var(--node-*) vicino a .blk-parallelogram/.blk-rect/ecc. (sopra in
+   questo file) -- rimossa la ridondanza di un secondo blocco SVG a colore fisso qui. */
 
 /* ---- Dialog di modifica nodo: layout coerente (× in alto a destra + riga azioni) ---- */
 /* (rimosso #edit-node-popup{position:relative}: sovrascriveva il position:fixed che centra il modale -> popup in fondo alla pagina. Il position:fixed base fa gia' da ancora per la .x-close absolute.) */
@@ -2940,8 +3103,12 @@ html[dir="rtl"] #console-popup:not(.docked) #console-titlebar .console-x { margi
    invece da 0 e scende fino a -maxScroll, il che avrebbe rotto silenziosamente il
    centraggio/pan del grafo in arabo. Risolve anche il Punto 11 (scrollbar orizzontale del
    canvas): la barra resta ancorata alla stessa semantica LTR indipendentemente dalla lingua.
-   Le etichette V/F e True/False (rendering.js, LOOP_LABELS) sono lettere latine fisse, MAI
-   tradotte: nessun problema di leggibilita' in arabo. */
+   Le etichette V/F e True/False (rendering.js, LOOP_LABELS) erano lettere latine fisse, MAI
+   tradotte -- decisione ORA RIBALTATA (Ismail, S3 P8.4 round 15-B 2026-07-15): sono tradotte
+   via edgeLabelText/i18nLabel (state.js) con le chiavi label_true/false/next/done. Restano
+   leggibili in arabo: `direction:ltr` sul canvas sopra riguarda solo il layout/scroll del
+   canvas stesso (Punto 8), non lo shaping dei glifi arabi disegnati da ctx.fillText, che resta
+   corretto indipendentemente dalla direzione del contenitore. */
 #canvas-container, #canvas { direction: ltr; }
 
 /* -- Punto 9 (Shepherd): i placement (on:'left'/'right'/...) passati a Shepherd/Floating-UI
@@ -3230,15 +3397,32 @@ body.dark-mode #draw-scroll::-webkit-scrollbar-thumb { background: #7c3aed; back
    ============================================================================ */
 /* --- 25: piu' respiro dal logo + pulsanti toolbar leggermente piu' piccoli del logo --- */
 #logo { margin-right: 1.8rem; }
-#toolbar .tb-icon { min-width: 34px; min-height: 32px; padding: 0.34rem; }
-.tb-icon svg { width: 18px; height: 18px; }
-#toolbar { gap: 0.28rem; }
+/* S4/P3.3 (Ismail 2026-07-13, "pulsanti si rimpiccioliscono in modo ordinato quando la
+   finestra si restringe"): da dimensioni fisse (che restavano IDENTICHE per tutta la
+   finestra fino al brusco salto della media query a 760px) a clamp() -- scala in modo
+   continuo gia' PRIMA di quel breakpoint, cosi' il restringimento e' graduale invece che
+   un salto secco. Il minimo (28px/26px) resta sempre sopra la soglia di leggibilita'/tocco
+   dell'icona (vedi anche @media (pointer:coarse) piu' sopra, che alza ancora il target su
+   touch); il massimo (34px/32px) e' il valore desktop originale, invariato. --toolbar-height
+   resta coerente automaticamente: e' letta da tb.offsetHeight a ogni resize (vedi
+   window.syncLayoutVars in init.js), non un numero fisso da aggiornare qui a mano. */
+#toolbar .tb-icon {
+  min-width: clamp(28px, 26px + 0.6vw, 34px);
+  min-height: clamp(26px, 24px + 0.55vw, 32px);
+  padding: clamp(0.22rem, 0.18rem + 0.35vw, 0.34rem);
+}
+.tb-icon svg { width: clamp(16px, 14px + 0.35vw, 18px); height: clamp(16px, 14px + 0.35vw, 18px); }
+#toolbar { gap: clamp(0.2rem, 0.15rem + 0.3vw, 0.28rem); }
 /* separatore un filo piu' marcato accanto al logo */
 #toolbar .tb-sep { margin: 0.25rem 0.5rem; }
 
 /* --- 32: selettore velocità nella toolbar, stessa altezza dei pulsanti --- */
 #toolbar .tb-select {
-  height: 32px; align-self: center; border: none; border-radius: 8px; cursor: pointer;
+  /* S4/P3.3: stessa logica clamp() dei pulsanti-icona qui sopra, cosi' il selettore non
+     resta a un'altezza fissa (32px) mentre i pulsanti accanto si rimpiccioliscono --
+     restava piu' alto/disallineato a finestra stretta ("in modo ordinato" = tutto scala
+     insieme, non solo una parte). */
+  height: clamp(26px, 24px + 0.55vw, 32px); align-self: center; border: none; border-radius: 8px; cursor: pointer;
   background: rgba(255,255,255,0.92); color: var(--primary); font-size: 0.8rem; font-weight: 600;
   padding: 0 0.5rem; margin: 0 0.1rem;
 }

@@ -51,6 +51,16 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
         }
 
         if (typeof clearHistory === 'function') clearHistory(); // reset Undo/Redo al caricamento
+        // WP-N2 (round 15-C, problema #3, Ismail 2026-07-15): aprire un file MENTRE
+        // un'esecuzione e' in corso o in pausa lasciava lo stato di esecuzione (currentNode/
+        // prevNode/_runtimeVars/executingEdge/executingNodeIndex) agganciato al VECCHIO grafo:
+        // col nuovo grafo caricato l'esecuzione "riprendeva" su indici stantii invece di
+        // fermarsi. Abort completo PRIMA di sostituire flow/nodi -- la prossima esecuzione
+        // riparte da Start (gate "if(currentNode==null)" in executeFlow/executeStep).
+        if (typeof _bfAbortExecOnEdit === 'function') _bfAbortExecOnEdit();
+        if (typeof _paused !== 'undefined') _paused = false;
+        if (typeof currentNode !== 'undefined') currentNode = null;
+        if (typeof prevNode !== 'undefined') prevNode = null;
         flow = json; // Aggiorna la struttura logica 'flow' con quella caricata
         // R13-D (Ismail 2026-07-12): campo `author` top-level, opzionale -- i file salvati
         // PRIMA di questo round non ce l'hanno (validateFlow valida solo nodes/variables, lo
@@ -113,6 +123,7 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
         // prossimo "Salva" lo riusera' (picker precompilato o download diretto, vedi saveOpen.js).
         currentFileName = file.name;
         currentFileHandle = null;
+        if (typeof markSaved === 'function') markSaved(); // P (round 15): l'hash di riferimento e' il file appena aperto
         if (typeof updateProjectIdentity === 'function') updateProjectIdentity(); // R13-D
       } catch (err) {
         // B1 (round 11): modale stilizzata invece di alert() nativo.

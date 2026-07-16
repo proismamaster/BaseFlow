@@ -26,7 +26,28 @@ let currentNode = "0"; // inizia dal primo nodo
 let prevNode = null;
 let runSpeed = 350;    // ms tra un blocco e l'altro durante Run (0 = istantaneo)
 function setRunSpeed(v){ runSpeed = parseInt(v, 10) || 0; }
-function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+// P2.6 (round 15-B S2, Ismail 2026-07-15): sleep() cancellabile. Tiene traccia del delay
+// ATTUALMENTE in corso (uno solo alla volta: l'esecuzione e' sempre sequenziale, dentro un
+// await) cosi' "Passo" premuto durante una run automatica puo' farlo scadere SUBITO invece di
+// aspettare il resto di ms -- vedi _bfSkipCurrentDelay() ed executeStep() sotto. Se nessuno lo
+// salta, il timer scade da solo esattamente come prima: nessun cambiamento di comportamento.
+let _bfPendingSleep = null;
+function sleep(ms){
+  return new Promise(function(r){
+    const timer = setTimeout(function () { _bfPendingSleep = null; r(); }, ms);
+    _bfPendingSleep = { resolve: r, timer: timer };
+  });
+}
+// Fa scadere IMMEDIATAMENTE il delay in corso, se presente. Usata SOLO per "velocizzare" una
+// run gia' attiva (mai per avviarne una seconda in parallelo): il loop di executeFlow resta
+// l'UNICO a gestire currentNode/prevNode/_runtimeVars, qui si tocca solo il timer del suo sleep.
+function _bfSkipCurrentDelay(){
+  if (!_bfPendingSleep) return;
+  const p = _bfPendingSleep;
+  _bfPendingSleep = null;
+  clearTimeout(p.timer);
+  p.resolve();
+}
 // FIX #12 (Ismail 2026-07-08): oltre al nodo, evidenzia anche l'ARCO percorso.
 // R12-F (Ismail 2026-07-12): execEdgeFrom sostituito da executingEdge (state.js) -- vedi
 // highlightExecNode/highlightExecEdge poco sotto per il nuovo modello a due fasi.
@@ -70,12 +91,47 @@ function highlightExecNode(idx){
   renderWatch(idx >= 0); // aggiorna/mostra il watch durante l'esecuzione, lo nasconde a fine run
   if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
 }
-function highlightExecEdge(from, to){
-  executingEdge = (typeof from === "number" && typeof to === "number" && from >= 0 && to >= 0) ? { from: from, to: to } : null;
+// P (round 15, Ismail): ramo effettivamente preso dall'ULTIMO nodo di diramazione eseguito
+// ('true'/'false'/null). Serve al disegno dell'highlight per accendere SOLO il ramo giusto
+// quando due archi condividono gli stessi estremi (es. if a rami entrambi vuoti che vanno
+// allo stesso punto: prima si accendevano ENTRAMBI + il back-edge del ciclo = "illumina tutto").
+var _execBranch = null;
+// P5.6 (round 15, Ismail 2026-07-14): `phase` opzionale ('out'|'back'|null) per animare in DUE
+// tempi le transizioni che rientrano in un header di ciclo (back-edge) -- prima l'arco in USCITA
+// dal nodo, poi il RITORNO all'header, MAI insieme (vedi animateExecEdge e il filtro in rendering).
+function highlightExecEdge(from, to, phase){
+  executingEdge = (typeof from === "number" && typeof to === "number" && from >= 0 && to >= 0) ? { from: from, to: to, branch: _execBranch, phase: phase || null } : null;
   executingNodeIndex = -1; // le due fasi non sono mai attive insieme
   // Niente renderWatch qui: la fase-arco e' puramente visiva, le variabili cambiano
   // all'esecuzione del nodo (refreshVariablesWatch), non durante la freccia (vedi trappola piano).
   if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
+}
+// P6 (round 15, Strategia A): evidenzia la transizione from->to come POLILINEA visiva esatta,
+// UN ARCO (gruppo) alla volta seguendo il flusso. computeEdgeGroups (rendering.js) restituisce i
+// gruppi ordinati (arco d'uscita di F, poi il back-edge CONDIVISO dell'header quando si rientra in
+// un ciclo -- incluso a QUALUNQUE profondita' di annidamento, indipendentemente dall'indice a cui
+// il layout ha attribuito quel back-edge). Ogni gruppo si accende intero (un blocco->while e' un
+// solo gesto, niente verticale|orizzontale); gruppi diversi si accendono in sequenza (uscita del
+// while, poi back-edge del for esterno). Fallback al vecchio highlightExecEdge se i gruppi mancano.
+async function animateExecEdge(from, to, dt, cameFrom){
+  let groups = null;
+  // La risalita del do-while si mostra solo sui RITORNI (condizione valutata), non alla prima entrata.
+  // `cameFrom` = nodo PRIMA di `from`, passato dal chiamante (il prevNode globale qui e' gia' aggiornato).
+  const _showRis = !(typeof _isFirstVisitDo === 'function' && _isFirstVisitDo(from, cameFrom));
+  try { groups = (typeof computeEdgeGroups === 'function') ? computeEdgeGroups(from, to, _execBranch, _showRis) : null; } catch (e) { groups = null; }
+  if (!groups || !groups.length) { highlightExecEdge(from, to); await sleep(dt); return; }
+  const per = Math.max(60, Math.round(dt));
+  // FIX (Ismail 2026-07-14): NIENTE esagono in mezzo qui. L'esagono del do-while si accende UNA
+  // volta come fase-NODO (dal loop d'esecuzione), non fra i gruppi dell'arco: inserirlo qui dava
+  // "blocco, laterale, blocco, verticale" (esagono fra risalita e discesa). I gruppi dell'arco
+  // (per il do-while: risalita poi discesa, DW-1) si accendono uno alla volta, senza nodo in mezzo.
+  for (let gi = 0; gi < groups.length; gi++) {
+    executingEdge = { from: from, to: to, branch: _execBranch, litGroup: groups[gi].segs };
+    executingNodeIndex = -1;
+    if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
+    if (typeof stopRequested !== "undefined" && stopRequested) return;
+    await sleep(per);
+  }
 }
 
 // --- Visual debugger: pannello Variabili "live" durante Step/Run ---
@@ -138,7 +194,12 @@ function restoreVariablesTable() {
     const valueInput = row.cells[2].querySelector ? (row.cells[2].querySelector('input.value-input') || row.cells[2].querySelector('input')) : null;
     if (!valueInput) continue;
     if (typeof document !== 'undefined' && document.activeElement === valueInput) continue; // non interrompere l'editing manuale
-    valueInput.value = flow.variables[i].value;
+    // P2.5 (round 15-B S2, Ismail 2026-07-15): una variabile DICHIARATA senza valore (checkbox
+    // "Assegna" non spuntata al momento della dichiarazione -- aggiungiVaribile in variables.js
+    // marca l'oggetto con `uninit: true` e usa 0/"" come placeholder INTERNO solo per
+    // l'esecuzione) torna VUOTA allo Stop, non al placeholder. Una variabile con un valore
+    // iniziale ESPLICITO (anche 0) mostra quel valore, invariato.
+    valueInput.value = flow.variables[i].uninit ? '' : flow.variables[i].value;
     // R13-L (Ismail 2026-07-12): tooltip nativo sincronizzato anche qui -- run finita/
     // fermata, il campo torna a mostrare (e a "spiegare" via hover) il valore di progetto.
     if (typeof _varSyncValueTitle === 'function') _varSyncValueTitle(valueInput); else valueInput.title = valueInput.value;
@@ -393,6 +454,15 @@ function resetFlow() {
 }
 
 async function executeStep(){
+  // P2.6 (round 15-B S2, Ismail 2026-07-15): "Passo" premuto mentre una RUN automatica e' gia'
+  // in corso (executeFlow, _bfRunning) NON deve avviare un secondo step indipendente sullo
+  // STESSO stato condiviso (currentNode/prevNode/_runtimeVars) -- duplicherebbe/corromperebbe
+  // il passo gia' in corso (trappola del piano). Si limita a far scadere SUBITO l'attesa
+  // (sleep) attualmente in corso nel loop di executeFlow: la run avanza di uno scatto e
+  // PROSEGUE DA SOLA alla velocita' impostata (non e' una pausa) -- "riprende da sola, serve
+  // solo a velocizzare" (richiesta esplicita). A run FERMA o IN PAUSA (_bfRunning false) il
+  // comportamento sotto resta quello storico, invariato.
+  if (typeof _bfRunning !== 'undefined' && _bfRunning) { _bfSkipCurrentDelay(); return; }
   if(currentNode== null){
     currentNode = "0"; // Reimposta al primo nodo se currentNode è nullo
     prevNode = null; // FIX B2: riavvio dall'inizio, nessun predecessore significativo
@@ -407,9 +477,12 @@ async function executeStep(){
   if (!_runtimeVars) _runtimeVars = JSON.parse(JSON.stringify((typeof flow !== 'undefined' && flow && flow.variables) || []));
   if (typeof _setStopEnabled === 'function') _setStopEnabled(true); // FIX #36: Stop attivo durante lo step-through
   const idxBeforeExec = parseInt(currentNode);
-  highlightExecNode(idxBeforeExec); // evidenzia il blocco che sta per essere eseguito
+  _highlightExecNodeSafe(idxBeforeExec, prevNode); // evidenzia il blocco (D1: salta l'esagono do-while alla 1a visita)
   const node = flow.nodes[idxBeforeExec];
   const nodeIdxBeforeExec = currentNode; // FIX B2: sara' il "prevNode" del prossimo giro
+  const _prevForEdge = prevNode; // FIX (Ismail 2026-07-14): il nodo PRIMA di questo, catturato PRIMA
+  // dell'aggiornamento sotto -- serve ad animateExecEdge per decidere la risalita del do-while
+  // (prima visita vs ritorno); usare il prevNode globale li' era sbagliato (gia' = nodo corrente).
   currentNode = await executeNode(node,currentNode,_runtimeVars,prevNode);
   prevNode = nodeIdxBeforeExec;
   refreshVariablesWatch(_runtimeVars, touchedVarName(node)); // aggiorna il pannello Variabili "live"
@@ -426,9 +499,10 @@ async function executeStep(){
     // all'utente di aspettare l'intera runSpeed a ogni click, ma l'arco resta comunque
     // visibile) poi sposta l'evidenziazione al blocco successivo.
     const idxAfterExec = parseInt(currentNode);
-    highlightExecEdge(idxBeforeExec, idxAfterExec);
-    await sleep(Math.min(300, runSpeed || 300));
-    highlightExecNode(idxAfterExec); // sposta l'evidenziazione al prossimo blocco
+    // P5.6: transizione a due fasi se e' un back-edge (ritorno in un header di ciclo) -> prima
+    // l'arco in uscita, poi il ritorno all'header. Altrimenti una fase sola (comportamento storico).
+    await animateExecEdge(idxBeforeExec, idxAfterExec, Math.min(300, runSpeed || 300), _prevForEdge);
+    _highlightExecNodeSafe(idxAfterExec, idxBeforeExec); // prossimo blocco (D1: salta l'esagono do-while alla 1a visita)
   }
   if (typeof _setStopEnabled === 'function') _setStopEnabled(currentNode != null); // FIX #36: a fine flusso Stop torna disabilitato
 }
@@ -469,6 +543,54 @@ function requestStop() {
   }
 }
 
+// G1+G2a (Ismail 2026-07-14, "se in esecuzione elimini un blocco resta un arco fantasma
+// evidenziato"): QUALUNQUE mutazione del grafo (insert/move/delete/edit) deve azzerare lo stato
+// di evidenziazione dell'esecuzione, altrimenti resta impostato executingEdge/executingNodeIndex
+// -- e col modello P6 executingEdge.litGroup contiene COORDINATE ASSOLUTE congelate, quindi alla
+// ridisegnata l'arco riappare nel punto vecchio, scollegato dal nuovo layout. Scelta G2a: l'edit
+// FERMA l'esecuzione (pulito e prevedibile). Agganciato a pushHistory() (hook universale pre-edit).
+// D1 (do-while, Ismail 2026-07-14 "appena entra nel do-while si colora subito il blocco"): alla
+// PRIMA visita di un do-while (si arriva da FUORI il corpo) l'esecuzione entra nel corpo SENZA
+// valutare la condizione -- l'esagono (che geometricamente sta in FONDO, dopo il corpo) NON deve
+// accendersi ancora. La fase-nodo dell'esagono va mostrata solo quando ci si torna dal corpo per
+// valutare la condizione (visita successiva). Corpo VUOTO: degenera a while, si evidenzia normale.
+function _isFirstVisitDo(idx, cameFrom){
+  const n = (typeof flow !== 'undefined' && flow.nodes) ? flow.nodes[idx] : null;
+  if (!n || n.type !== 'do') return false;
+  const body = (typeof collectLoopBody === 'function') ? collectLoopBody(idx) : { bodyList: [] };
+  if (!body.bodyList || !body.bodyList.length) return false; // corpo vuoto: self-loop stile while
+  const p = (cameFrom !== null && cameFrom !== undefined) ? parseInt(cameFrom, 10) : NaN;
+  return !body.bodyList.includes(p); // prima visita = NON si arriva dal corpo
+}
+// Evidenzia il nodo `idx` come fase-NODO, MA salta l'esagono di un do-while alla prima visita (D1).
+function _highlightExecNodeSafe(idx, cameFrom){
+  if (_isFirstVisitDo(idx, cameFrom)) { highlightExecNode(-1); return; } // niente esagono all'ingresso
+  highlightExecNode(idx);
+}
+function _bfAbortExecOnEdit(){
+  const active = (typeof _bfRunning !== 'undefined' && _bfRunning) ||
+    (typeof currentNode !== 'undefined' && currentNode != null) ||
+    (typeof executingEdge !== 'undefined' && executingEdge) ||
+    (typeof executingNodeIndex !== 'undefined' && executingNodeIndex >= 0);
+  if (!active) return; // nessuna esecuzione in corso/evidenziata: niente da azzerare
+  stopRequested = true;                 // se un Run e' in corso, il suo loop terminera'
+  if (typeof pauseRequested !== 'undefined') pauseRequested = false;
+  // WP-N2 (round 15-C, problema #3): copre anche il ramo "Svuota da pausa" -- se in futuro
+  // _paused dovesse uscire dallo scope locale di executeFlow (es. refactor WP-N3), questo
+  // azzeramento resta gia' pronto. Nessuna ristrutturazione della funzione.
+  if (typeof _paused !== 'undefined') _paused = false;
+  if (typeof currentNode !== 'undefined') currentNode = null;
+  if (typeof prevNode !== 'undefined') prevNode = null;
+  _runtimeVars = null;
+  if (typeof executingEdge !== 'undefined') executingEdge = null;        // via l'arco (fantasma) evidenziato
+  if (typeof executingNodeIndex !== 'undefined') executingNodeIndex = -1; // e il nodo evidenziato
+  if (typeof restoreVariablesTable === 'function') restoreVariablesTable();
+  if (typeof _setStopEnabled === 'function') _setStopEnabled(false);
+  if (typeof _setRunning === 'function') _setRunning(false);
+  // Nota: NON si chiama draw() qui -- la mutazione che ha invocato pushHistory ridisegna comunque
+  // subito dopo, e a quel punto executingEdge/Node sono gia' nulli -> nessun fantasma.
+}
+
 async function executeFlow(json){
     console.log(json)
     if(currentNode== null){
@@ -507,7 +629,7 @@ async function executeFlow(json){
             break;
         }
         const idxBeforeExec2 = parseInt(currentNode); // R12-F: indice del nodo di questa fase-nodo
-        highlightExecNode(idxBeforeExec2); // evidenzia il blocco corrente
+        _highlightExecNodeSafe(idxBeforeExec2, prevNode); // blocco corrente (D1: salta l'esagono do-while alla 1a visita)
         if (runSpeed > 0) await sleep(runSpeed); // velocità animazione (Lenta/Normale/Veloce/Istantanea)
         if (pauseRequested) { // Pausa: sospende QUI, il blocco resta evidenziato, si riprende con Esegui/Passo
             pauseRequested = false; _paused = true;
@@ -537,6 +659,7 @@ async function executeFlow(json){
             _paused = true;
             break;
         }
+        const _prevForEdge2 = prevNode; // nodo PRIMA di questo (per la risalita do-while), prima dell'update
         currentNode = await executeNode(node,currentNode,variables,prevNode);
         prevNode = nodeIdxBeforeExec;
         refreshVariablesWatch(variables, touchedVarName(node)); // aggiorna il pannello Variabili "live"
@@ -546,8 +669,9 @@ async function executeFlow(json){
         // scansione uniforme come richiesto dal piano.
         if (currentNode != null && runSpeed > 0) {
             const idxAfterExec2 = parseInt(currentNode);
-            highlightExecEdge(idxBeforeExec2, idxAfterExec2);
-            await sleep(runSpeed);
+            // P5.6: back-edge (ritorno in un header di ciclo) animato in due fasi (out -> back);
+            // in AVANTI resta una fase sola. Vale a qualunque annidamento (criterio per-arco).
+            await animateExecEdge(idxBeforeExec2, idxAfterExec2, runSpeed, _prevForEdge2);
             if (pauseRequested) { // Pausa durante la fase-arco: resta evidenziato l'ARCO (non il nodo)
                 pauseRequested = false; _paused = true;
                 printMessage((typeof i18nText === 'function' && i18nText('exec_paused')) || '⏸ Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
@@ -661,6 +785,7 @@ function clearConsole() {
 }
 
 async function executeNode(node,currentNode,variables,prevNodeArg){
+  _execBranch = null; // P (round 15): azzerato a ogni nodo; solo i case di diramazione lo settano
   // Tipi che NON richiedono contenuto: start/end, marcatori (comment/pause) e i blocchi
   // GRAFICA/turtle (forward/turn/pen usano valori di DEFAULT se vuoti; home/gclear non hanno
   // parametri) -> un blocco turtle non modificato resta VALIDO e non deve dare "nodo vuoto".
@@ -742,7 +867,16 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                         variable = "";
                       }
                     }
-                    string += safeEvaluate(expression);
+                    // P2.2 (round 15): il case Output NON era in try/catch -> una divisione
+                    // per zero (o altra espressione invalida) faceva propagare il throw e
+                    // CRASHARE l'esecuzione senza mai mostrare il popup ("si blocca ma non da'
+                    // errore"). Ora l'errore diventa un popup chiaro e l'esecuzione si ferma.
+                    try {
+                      string += safeEvaluate(expression);
+                    } catch (e) {
+                      throwError(_evalErrMsg(e, currentNode, 'err_invalid_expr'));
+                      return null;
+                    }
                   }
                 }
                 console.log("Print: " + string);
@@ -759,10 +893,12 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     console.log("If: " + condition + " is true");
                     printMessage("If: " + condition + " is true");
                     currentNode = node.next.true;
+                    _execBranch = 'true';
                 } else if(checkCondition(condition, variables) == false) {
                     console.log("If: " + condition + " is false");
                     printMessage("If: " + condition + " is false");
                     currentNode =  node.next.false;
+                    _execBranch = 'false';
                 }else{
                   return null;
                 }
@@ -775,12 +911,14 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     console.log("While: " + whileCondition + " is true");
                     printMessage("While: " + whileCondition + " is true");
                     currentNode = node.next.true; // Vai al ramo true
+                    _execBranch = 'true';
                 }else if(checkCondition(whileCondition, variables) == false){
                     console.log("While: " + whileCondition + " is false");
                     printMessage("While: " + whileCondition + " is false");
                     currentNode = node.next.false; // Vai al ramo false
+                    _execBranch = 'false';
                 }else{
-                    return null; 
+                    return null;
                 }
                 break;
               case "do": // NODO DO
@@ -803,6 +941,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     console.log("Do: prima esecuzione, corpo eseguito senza valutare la condizione");
                     printMessage("Do: entering body (executes at least once)");
                     currentNode = node.next.true; // Vai al ramo true SENZA valutare la condizione
+                    _execBranch = 'true';
                     break;
                 }
                 let doCondition = node.info;
@@ -812,10 +951,12 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     console.log("Do: " + doCondition + " is true");
                     printMessage("Do: " + doCondition + " is true");
                     currentNode = node.next.true; // Vai al ramo true
+                    _execBranch = 'true';
                 }else if (checkCondition(doCondition, variables) == false){
                     console.log("Do: " + doCondition + " is false");
                     printMessage("Do: " + doCondition + " is false");
                     currentNode = node.next.false; // Vai al ramo false
+                    _execBranch = 'false';
                 }else{
                   return null;
                 }
@@ -865,9 +1006,11 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                         return null;
                     }
                     try {
-                        getVariable(forVarName, variables).value = safeEvaluate(forInitExp);
+                        const _forInitVal = safeEvaluate(forInitExp);
+                        if (!_assertVarType(getVariable(forVarName, variables), _forInitVal, currentNode)) return null;
+                        getVariable(forVarName, variables).value = _forInitVal;
                     } catch (e) {
-                        throwError(errMsg('err_for_init_expr', {n: currentNode, e: e}));
+                        throwError(_evalErrMsg(e, currentNode, 'err_for_init_expr'));
                         return null;
                     }
                     console.log("For: " + forVarName + " = " + getVariable(forVarName, variables).value);
@@ -882,10 +1025,12 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     console.log("For Condition: " + forcondition + " is true");
                     printMessage("For Condition: " + forcondition + " is true");
                     currentNode = node.next.true;
+                    _execBranch = 'true';
                 } else if(checkCondition(forcondition, variables) == false) {
                     console.log("For Condition: " + forcondition + " is false");
                     printMessage("For Condition: " + forcondition + " is false");
                     currentNode = node.next.false;
+                    _execBranch = 'false';
                     node._forInitialized = false; // pronto per una futura ri-esecuzione (es. loop annidato in un altro ciclo)
                 }else{
                   return null;
@@ -923,9 +1068,15 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                   return null;
                 }
                 try{
-                  getVariable(varName,variables).value = safeEvaluate(exp);
+                  const _assignVal = safeEvaluate(exp);
+                  // P5.4/P3.1: blocca l'assegnazione di un tipo incompatibile (popup + stop).
+                  if (!_assertVarType(getVariable(varName,variables), _assignVal, currentNode)) return null;
+                  getVariable(varName,variables).value = _assignVal;
                 }catch(e){
-                  throwError(errMsg('err_invalid_expr', {n: currentNode, e: e}));
+                  // P2.2/P3.2: div0 e "non dichiarata" ricevono un messaggio chiaro; e su
+                  // QUALSIASI errore l'esecuzione ora si FERMA (prima proseguiva al nodo dopo).
+                  throwError(_evalErrMsg(e, currentNode, 'err_invalid_expr'));
+                  return null;
                 }
                 currentNode = node.next;
                 break;
@@ -978,7 +1129,7 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
         variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
-        try { v.value = v.value + safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
+        try { v.value = v.value + safeEvaluate(exp); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     if ((m = s.match(/^([A-Za-z_]\w*)\s*-=\s*(.+)$/))) {
@@ -986,7 +1137,7 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
         variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
-        try { v.value = v.value - safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
+        try { v.value = v.value - safeEvaluate(exp); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     if ((m = s.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/))) {
@@ -994,11 +1145,44 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
         variables.forEach(vv => { exp = exp.replace(new RegExp(`\\b${vv.name}\\b`, 'g'), _varValueForExpr(vv)); }); // R13-M
-        try { v.value = safeEvaluate(exp); } catch (e) { throwError(errMsg('err_incr_expr', {n: currentNode, e: e})); return false; }
+        try { v.value = safeEvaluate(exp); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     throwError(errMsg('err_incr_syntax', {n: currentNode, e: incrExpr}));
     return false;
+}
+
+// P2.2/P3.2 (round 15): traduce l'errore grezzo di safeEvaluate in un messaggio chiaro e
+// tradotto. '__DIV0__' (lanciato da safeEval.mul su /0 o %0) -> err_div_zero; il messaggio
+// "identificatore non permesso: X" (variabile non dichiarata rimasta nell'espressione) ->
+// err_not_declared_node, invece del testo tecnico. Altrimenti usa la chiave generica passata.
+function _evalErrMsg(e, nodeIdx, genericKey) {
+  const m = (e && e.message) ? String(e.message) : String(e);
+  if (m === '__DIV0__') return errMsg('err_div_zero', {n: nodeIdx});
+  const undecl = m.match(/^identificatore non permesso:\s*(.+)$/);
+  if (undecl) return errMsg('err_not_declared_node', {n: nodeIdx, v: undecl[1]});
+  return errMsg(genericKey, {n: nodeIdx, e: m});
+}
+
+// P5.4/P3.1 (round 15): coerenza dei tipi stile Flowgorithm (STRICT, nessuna conversione
+// implicita). Verifica che `value` sia compatibile col tipo dichiarato di `varObj`. Se lo e'
+// ritorna true; altrimenti mostra il popup d'errore (via throwError) e ritorna false, cosi'
+// il chiamante interrompe l'esecuzione del nodo. Tipi sconosciuti: nessuna validazione.
+function _assertVarType(varObj, value, nodeIdx) {
+  if (!varObj || !varObj.type) return true;
+  const t = varObj.type;
+  let ok;
+  if (t === 'int') ok = (typeof value === 'number' && Number.isInteger(value));
+  else if (t === 'float') ok = (typeof value === 'number');
+  else if (t === 'string') ok = (typeof value === 'string');
+  else if (t === 'bool' || t === 'boolean') ok = (typeof value === 'boolean');
+  else return true; // tipo non riconosciuto -> non validare (nessuna regressione)
+  if (ok) return true;
+  const got = (typeof value === 'number') ? (Number.isInteger(value) ? 'int' : 'float')
+            : (typeof value === 'string') ? 'string'
+            : (typeof value === 'boolean') ? 'bool' : String(typeof value);
+  throwError(errMsg('err_type_mismatch', {n: nodeIdx, type: t, got: got}));
+  return false;
 }
 
 // R13-M: quando una variabile String viene iniettata dentro un'espressione da passare a
@@ -1067,6 +1251,11 @@ function checkCondition(condition, variables) {
           return safeEvaluate(expression);
         }
     } catch (e) {
+        // P2.2: divisione per zero anche dentro una condizione -> messaggio chiaro.
+        if (e && e.message === '__DIV0__') {
+            throwError(errMsg('err_div_zero', {n: (typeof executingNodeIndex !== 'undefined' ? executingNodeIndex : '')}));
+            return {};
+        }
         throwError(errMsg('err_condition', {e: expression + '. ' + e.message}));
         return {};
     }
@@ -1324,17 +1513,42 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('beforeunload', function (e) {
     try {
       if (window._bfBypassUnload) return;
-      const dirty = (typeof saved !== 'undefined' && !saved) && !(typeof isEmpty === 'function' && isEmpty());
+      const dirty = isDirty() && !(typeof isEmpty === 'function' && isEmpty());
       if (dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
     } catch (_) {}
   });
 }
 
-// Sincronizza l'indicatore "modifiche non salvate" (pallino in header) col flag `saved`.
+// P (round 15, richiesta Ismail): il pallino "non salvato" ora si basa su un HASH del grafo,
+// non solo sul flag booleano `saved`. Cosi', se si torna allo stato SALVATO (undo, o modifiche
+// manuali che riportano alla disposizione iniziale), il pallino si SPEGNE, invece di restare
+// acceso solo perche' "c'e' stata una modifica". markSaved() fissa l'hash di riferimento:
+// va chiamata dopo un salvataggio riuscito, all'apertura di un file e all'avvio/nuovo progetto.
+var _bfSavedHash = null;
+function hashFlow() {
+  try {
+    if (typeof flow === 'undefined' || !flow || !Array.isArray(flow.nodes)) return '';
+    const nodes = flow.nodes.map(function (n) { return n ? { t: n.type, i: n.info, x: n.next, nl: n.newline } : null; });
+    const vars = (Array.isArray(flow.variables) ? flow.variables : []).map(function (v) { return v ? { n: v.name, t: v.type, v: v.value } : null; });
+    const s = JSON.stringify({ n: nodes, v: vars });
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+    return String(h >>> 0);
+  } catch (e) { return ''; }
+}
+function markSaved() { _bfSavedHash = hashFlow(); }
+function isDirty() {
+  // Prima che un riferimento sia fissato (primissimo avvio), ripiega sul flag `saved`.
+  if (_bfSavedHash === null) return (typeof saved !== 'undefined') ? !saved : false;
+  return hashFlow() !== _bfSavedHash;
+}
+if (typeof window !== 'undefined') { window.markSaved = markSaved; window.isDirty = isDirty; window.hashFlow = hashFlow; }
+
+// Sincronizza l'indicatore "modifiche non salvate" (pallino in header) con lo stato reale (hash).
 function syncUnsavedIndicator() {
   const el = (typeof document !== 'undefined') ? document.getElementById('unsaved-indicator') : null;
   if (!el) return;
-  const dirty = (typeof saved !== 'undefined') && !saved && !(typeof isEmpty === 'function' && isEmpty());
+  const dirty = isDirty(); // P: hash-based -- clear canvas resta "sporco", undo-a-salvato torna pulito
   if (dirty) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
   // R13-D: il pallino ora vive DENTRO #project-identity (index.html) -- lo stato "sporco"
   // aggiorna anche il tooltip del blocco intero, non solo la sua visibilita'.
@@ -1358,15 +1572,29 @@ function updateProjectIdentity() {
   const wrap = document.getElementById('project-identity');
   if (!txt && !wrap) return;
   const t = function (k, fb) { return (typeof i18nText === 'function' && i18nText(k)) || fb; };
-  const name = (typeof currentFileName === 'string' && currentFileName)
+  const rawName = (typeof currentFileName === 'string' && currentFileName)
     ? currentFileName.replace(/\.json$/i, '')
     : t('untitled_project', 'Untitled');
-  const author = (typeof currentAuthor === 'string' && currentAuthor)
+  const rawAuthor = (typeof currentAuthor === 'string' && currentAuthor)
     ? currentAuthor
     : t('unknown_author', 'Unknown author');
+  // S7 P7.1 (round 15-B, Ismail 2026-07-15, "[= R14-B parte]"): tronca nome/autore PRIMA di
+  // comporre il testo VISIBILE, cosi' l'ellissi CSS (#project-identity-text, style.css:
+  // overflow:hidden/text-overflow:ellipsis/white-space:nowrap) non taglia mai una parola a
+  // meta' (es. "Autore sconosciuto" -> "Autore scon..."). Riusa lo stesso truncateName()
+  // gia' introdotto da R14-B.3 (popups.js) per showUnsavedDialog/saveFileAs -- qui si
+  // applica SOLO al testo visibile: il tooltip (data-tip sotto) resta sui valori INTERI
+  // (rawName/rawAuthor) apposta, e' li' che l'utente legge nome/autore completi al hover.
+  // WP-N12 (round 15-C, Ismail 2026-07-15): limiti alzati (24->30 / 20->24) per sfruttare
+  // lo spazio maggiore ora dato a #project-identity in style.css (max-width 30ch->58ch) --
+  // vedi anche il fix li' che, se lo spazio sulla riga della toolbar non basta comunque,
+  // fa andare il blocco a capo invece di schiacciarlo/nasconderlo (min-width 0->14ch, tolto
+  // il display:none sotto i 900px).
+  const name = (typeof truncateName === 'function') ? truncateName(rawName, 30) : rawName;
+  const author = (typeof truncateName === 'function') ? truncateName(rawAuthor, 24) : rawAuthor;
   if (txt) txt.textContent = name + ' — ' + author;
   if (wrap) {
-    const dirty = (typeof saved !== 'undefined') && !saved && !(typeof isEmpty === 'function' && isEmpty());
+    const dirty = isDirty();
     const stateTxt = dirty ? t('unsaved_dot', 'Unsaved changes') : t('saved_state', 'Saved');
     // R14-B.2 (Ismail 2026-07-13): data-tip (non piu' title) -- letto live dal tooltip
     // istantaneo di js/core/ux.js (stesso meccanismo dei pulsanti .bf-icon, niente
@@ -1374,7 +1602,7 @@ function updateProjectIdentity() {
     // traduzione statica sbagliata finche' applyLanguage() non veniva rieseguito
     // (data-i18n-title), oltre al ritardo OS -- entrambi i problemi spariscono qui
     // perche' data-tip non e' mai toccato da applyLanguage().
-    wrap.setAttribute('data-tip', name + ' — ' + author + ' — ' + stateTxt);
+    wrap.setAttribute('data-tip', rawName + ' — ' + rawAuthor + ' — ' + stateTxt);
   }
 }
 if (typeof window !== 'undefined') window.updateProjectIdentity = updateProjectIdentity;

@@ -25,11 +25,52 @@
           } catch (e) { /* API non disponibili: file caricati freschi comunque */ }
         })();
         </script>
-        <link rel="stylesheet" href="style.css?v=20260713f">
+        <script>
+        /* WP-N5 (round 15-C, Ismail 2026-07-15, batch2 #1): niente flash del tema di default
+           al reload (FOUC). Il tema salvato viene applicato da loadDarkModePreference()
+           (theme.js), caricato come <script> a fondo pagina -- gira DOPO il primo paint, quindi
+           per un attimo si vedeva sempre il tema chiaro di :root. loadDarkModePreference()
+           resta l'UNICA fonte di verita' per lo stato applicativo (darkMode globale,
+           refreshThemeSelect ecc.) e gira comunque in init.js PRIMA del primo calcoloY/draw
+           (gia' cosi' da prima di questo WP -- i colori canvas partivano gia' giusti).
+           Qui si replica SOLO l'effetto VISIVO minimo di applyThemeClass() (theme.js:16), il
+           piu' presto possibile, in due punti che condividono questa stessa funzione:
+           1) SUBITO qui su document.documentElement, PRIMA del <link> CSS -- per i temi
+              PERSONALIZZATI le variabili CSS (style inline sull'elemento) hanno gia' effetto
+              per ereditarieta' sui discendenti, indipendentemente dalle classi/dal CSS esterno.
+           2) Sul <body>, appena creato (vedi lo <script> identico subito dopo <body> qui sotto)
+              -- le regole dei temi builtin in style.css sono TUTTE su body.dark-mode/body.theme-X
+              (decine di selettori sparsi): riscriverle per document.documentElement non sarebbe
+              chirurgico, mentre il <link> CSS e' comunque render-blocking, quindi il browser non
+              dipinge nulla finche' lo stylesheet non e' caricato -- in quella finestra questo
+              script sincrono, eseguito come primissimo contenuto del body, ha gia' finito. */
+        function _bfApplyEarlyTheme(target) {
+          try {
+            var THEMES = ['light', 'dark', 'retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'];
+            var stored = localStorage.getItem('baseflow-theme');
+            var base = stored, customColors = null;
+            if (stored && stored.indexOf('custom:') === 0) {
+              var ct = (JSON.parse(localStorage.getItem('baseflow-custom-themes') || '{}') || {})[stored.slice(7)];
+              if (ct) { base = (THEMES.indexOf(ct.base) !== -1) ? ct.base : 'light'; customColors = ct.colors || null; }
+              else base = 'light';
+            }
+            if (!base || THEMES.indexOf(base) === -1) base = (localStorage.getItem('baseflow-dark-mode') === '1') ? 'dark' : 'light';
+            var cl = target.classList;
+            cl.toggle('dark-mode', base === 'dark' || base === 'chalk' || base === 'neon');
+            ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (t) { cl.toggle('theme-' + t, base === t); });
+            if (customColors && target.style && target.style.setProperty) {
+              Object.keys(customColors).forEach(function (k) { target.style.setProperty(k, customColors[k]); });
+            }
+          } catch (e) { /* localStorage non disponibile: resta il tema di default, nessun blocco */ }
+        }
+        _bfApplyEarlyTheme(document.documentElement);
+        </script>
+        <link rel="stylesheet" href="style.css?v=20260715e">
         <link rel="icon" type="image/png" href="img/icon.png" />
         <link rel="manifest" href="manifest.json">
     </head>
     <body>
+        <script>if (typeof _bfApplyEarlyTheme === 'function') _bfApplyEarlyTheme(document.body);</script>
         <!-- Service worker DISATTIVATO in sviluppo per evitare cache stantie (vedi script no-cache in <head>). -->
 
         <div id="container">
@@ -50,8 +91,8 @@
             "><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
             <button class="tb-icon bf-icon" id="open-btn" data-i18n-title="open" title="Apri" onclick="openFileWithGuard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
             <input type="file" id="fileInput" style="display:none;" accept=".json" multiple="false" />
-            <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="tip_save" title="Salva: silenzioso se il progetto ha gia' un nome, altrimenti chiede nome e autore" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
-            <button class="tb-icon bf-icon" id="save-as-btn" data-i18n-title="tip_save_as" title="Salva con nome: chiede sempre nome e autore" onclick="saveFileAs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l4 4v3"/><polyline points="15 21 15 14 7 14 7 21"/><polyline points="7 3 7 8 13 8"/><path d="M21.7 13.3a1.5 1.5 0 0 0-2.1 0L15 18v3h3l4.6-4.6a1.5 1.5 0 0 0 0-2.1z"/></svg></button>
+            <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="save" title="Salva" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
+            <button class="tb-icon bf-icon" id="save-as-btn" data-i18n-title="save_as" title="Salva con nome" onclick="saveFileAs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l4 4v3"/><polyline points="15 21 15 14 7 14 7 21"/><polyline points="7 3 7 8 13 8"/><path d="M21.7 13.3a1.5 1.5 0 0 0-2.1 0L15 18v3h3l4.6-4.6a1.5 1.5 0 0 0 0-2.1z"/></svg></button>
             <button class="tb-icon bf-icon" id="clear-btn" onclick="clearCanvas()" data-i18n-title="tip_clear" title="Svuota il canvas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
             <button class="tb-icon bf-icon" id="undo-btn" onclick="undo()" data-i18n-title="undo" title="Annulla (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
             <button class="tb-icon bf-icon" id="redo-btn" onclick="redo()" data-i18n-title="redo" title="Ripeti (Ctrl+Y)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
@@ -230,11 +271,15 @@
                     <!-- R14-C (Ismail 2026-07-13): redesign per allinearlo alla famiglia bf-modal
                          (showStyledConfirm/showUnsavedDialog) -- icona floppy in cerchio + titolo,
                          X di chiusura (riusa closeSavePopup(), gia' nello stack Esc R13-F tramite
-                         _bfPushOverlay('save-popup') in saveFileAs()/_bfCloseOverlayById), pulsanti
-                         Salva/Annulla con le stesse classi .bf-modal-btn/.bf-modal-ok/.bf-modal-btn-ghost
-                         (nessuna nuova regola tema/dark-mode necessaria: sono gia' generiche). Il
-                         popup resta un componente A PARTE da .bf-modal (overlay/#overlay/logica di
-                         apertura in popups.js INVARIATI) -- solo l'aspetto e' allineato. -->
+                         _bfPushOverlay('save-popup') in saveFileAs()/_bfCloseOverlayById), pulsante
+                         Salva con la stessa classe .bf-modal-btn/.bf-modal-ok (nessuna nuova regola
+                         tema/dark-mode necessaria: e' gia' generica). Il popup resta un componente A
+                         PARTE da .bf-modal (overlay/#overlay/logica di apertura in popups.js
+                         INVARIATI) -- solo l'aspetto e' allineato.
+                         P2.1 (round 15-B S1, Ismail 2026-07-15): tolto il pulsante "Annulla" -- la X
+                         in alto a destra fa gia' da annulla (closeSavePopup, gia' nello stack Esc),
+                         resta un solo pulsante primario centrato, pattern uniforme con showUnsavedDialog
+                         (niente "Annulla" testuale in nessun popup del flusso salvataggio). -->
                     <div id="save-popup">
                     <button type="button" class="x-close" id="save-popup-xclose" onclick="closeSavePopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                     <div class="bf-modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></div>
@@ -243,27 +288,40 @@
                          nome puo' anche solo rinominare/cambiare autore dello stesso progetto). -->
                     <p id="save-popup-current" hidden></p>
                     <label for="filename-input" data-i18n="filename_label">File name (without extension):</label><br>
-                    <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name"><br><br>
+                    <!-- WP-N12 (round 15-C, Ismail 2026-07-15): maxlength a monte, cosi' il
+                         nome non diventa mai assurdamente lungo (vedi anche il fix su
+                         #project-identity in style.css e i limiti di truncateName() in
+                         updateProjectIdentity(), execute.js). -->
+                    <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name" maxlength="60"><br><br>
                     <!-- R13-D (Ismail 2026-07-12): campo Autore, precompilato da currentAuthor o
                          dall'ultimo autore usato (localStorage['baseflow-author']) -- vedi saveFileAs()/
-                         confirmSaveFromPopup() in popups.js. -->
-                    <label for="save-author-input" data-i18n="author_label">Author:</label><br>
-                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name"><br><br>
+                         confirmSaveFromPopup() in popups.js.
+                         WP-N8 (round 15-C, Ismail 2026-07-15): rimossa la label "Autore:" -- solo
+                         l'input, come quello del Nome sopra, col placeholder (author_ph) a fare da
+                         etichetta. author_label resta in i18n.js ma senza piu' alcun uso nel markup. -->
+                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name" maxlength="40"><br><br>
                     <div id="save-popup-actions">
                     <button id="save-confirm-btn" class="bf-modal-btn bf-modal-ok" onclick="confirmSaveFromPopup()" data-i18n="save">Save</button>
-                    <button id="save-cancel-btn" class="bf-modal-btn bf-modal-btn-ghost" onclick="closeSavePopup()" data-i18n="cancel">Cancel</button>
                     </div>
                     </div>
 
-                    <!-- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay a schermo pieno con
-                         un iframe same-origin verso manual.html (invece di window.open in una
-                         nuova scheda). X di chiusura + Esc (stack condiviso R13-F, vedi
+                    <!-- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay con un iframe
+                         same-origin verso manual.html (invece di window.open in una nuova
+                         scheda). X di chiusura + Esc (stack condiviso R13-F, vedi
                          openManualOverlay/closeManualOverlay e _bfCloseOverlayById in popups.js).
                          manual.html nasconde da solo il suo link "← BaseFlow" quando rileva di
                          essere in un iframe (window.self !== window.top, vedi script inline in
                          testa a manual.html) -- navigare "indietro" dentro l'iframe non avrebbe
-                         senso, si chiude l'overlay con X/Esc invece. -->
+                         senso, si chiude l'overlay con X/Esc invece.
+                         P10.1 (round 15-B S10, Ismail 2026-07-15): ora e' una finestra vera,
+                         ridimensionabile (8 maniglie .tg-rz, stesse di console/tartaruga) e
+                         spostabile (trascinando #manual-overlay-bar) con raise-on-click
+                         (WINDOW_IDS in ux.js) -- vedi _manualSetupDragResize in popups.js. -->
                     <div id="manual-overlay">
+                      <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                      <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                      <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                      <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
                       <div id="manual-overlay-box">
                         <!-- Barra dedicata SOLO per la X, sopra l'iframe: la X assoluta sull'iframe
                              avrebbe coperto il selettore lingua del manuale (.man-lang, gia' in alto
@@ -295,7 +353,7 @@
                         <button onclick="clearConsole()" id="console-clear-term" class="term-badge" data-i18n-title="clear" title="Pulisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
                       </div>
                       <div id="console-output" role="log">
-                        <p>> Console ready...</p>
+                        <p data-i18n="console_ready">> Console ready...</p>
                       </div>
                       <div id="console-bottombar">
                         <button id="console-mobile-toggle" class="term-icon" onclick="toggleConsoleDock()" data-i18n-title="tip_mobile" title="Terminale mobile" aria-label="Terminale mobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
@@ -427,8 +485,8 @@
         <footer id="credits-section">
             <div>
                 <strong>BaseFlow</strong> &copy; 2025<br>
-                Created by Matteo Artifoni and Ismail Barakat | Open source educational project.<br>
-                Thanks to <a href="https://shepherdjs.dev/" target="_blank" rel="noopener">Shepherd.js</a> and other open source libraries.<br>
+                <span data-i18n="footer_credits">Created by Matteo Artifoni and Ismail Barakat | Open source educational project.</span><br>
+                <span data-i18n="footer_thanks_pre">Thanks to</span> <a href="https://shepherdjs.dev/" target="_blank" rel="noopener">Shepherd.js</a> <span data-i18n="footer_thanks_post">and other open source libraries.</span><br>
                 <div id="github-links"></div>
                     <a href="https://github.com/proismamaster/BaseFlow" id="github-logo" target="_blank" rel="noopener" title="View on GitHub">
                         <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub" width="24" height="24">
@@ -439,13 +497,13 @@
                     <!-- R13-K (Ismail 2026-07-12): voce "Manuale" rimossa da qui -- ora e' un
                          pulsante libro in toolbar (id="manual-btn"), non una pagina nel footer
                          (richiesta esplicita). Privacy/Cookie restano qui. -->
-                    <a href="privacy.html">Privacy Policy</a>
+                    <a href="privacy.html" data-i18n="footer_privacy">Privacy Policy</a>
                     <span class="footer-dot" aria-hidden="true">&middot;</span>
-                    <a href="cookies.html">Cookie Policy</a>
+                    <a href="cookies.html" data-i18n="footer_cookie">Cookie Policy</a>
                     <span class="footer-dot" aria-hidden="true">&middot;</span>
                     <a href="https://github.com/proismamaster/BaseFlow" target="_blank" rel="noopener">GitHub</a>
                     <span class="footer-dot" aria-hidden="true">&middot;</span>
-                    <a href="https://ismailbarakat.dev" target="_blank" rel="noopener">Portfolio</a>
+                    <a href="https://ismailbarakat.dev" target="_blank" rel="noopener" data-i18n="footer_portfolio">Portfolio</a>
                 </nav>
                 <script>
                 // fetch contributors from GitHub API and display their avatars
@@ -478,28 +536,32 @@
         </footer>
 
         <!-- Core modules (refactored from script.js) -->
-        <script src="js/core/state.js?v=20260713c"></script>
+        <script src="js/core/state.js?v=20260715b"></script>
         <script src="js/core/utils.js?v=20260712a"></script>
-        <script src="js/core/variables.js?v=20260713b"></script>
-        <script src="js/core/layout.js?v=20260713b"></script>
-        <script src="js/core/rendering.js?v=20260713c"></script>
-        <script src="js/core/popups.js?v=20260713c"></script>
-        <script src="js/core/interaction.js?v=20260713c"></script>
-        <script src="js/core/fileIO.js?v=20260712x"></script>
-        <script src="js/core/theme.js?v=20260712a"></script>
-        <script src="js/core/i18n.js?v=20260713d"></script>
-        <script src="js/core/draw.js?v=20260712q"></script>
-        <script src="js/core/ux.js?v=20260713a"></script>
-        <script src="js/core/settings.js?v=20260712r"></script>
-        <script src="js/core/init.js?v=20260713d"></script>
+        <script src="js/core/variables.js?v=20260713c"></script>
+        <script src="js/core/layout.js?v=20260715b"></script>
+        <script src="js/core/rendering.js?v=20260715b"></script>
+        <script src="js/core/popups.js?v=20260715b"></script>
+        <script src="js/core/interaction.js?v=20260715d"></script>
+        <script src="js/core/fileIO.js?v=20260715a"></script>
+        <script src="js/core/theme.js?v=20260713b"></script>
+        <script src="js/core/i18n.js?v=20260715c"></script>
+        <script src="js/core/draw.js?v=20260715b"></script>
+        <script src="js/core/ux.js?v=20260715b"></script>
+        <script src="js/core/settings.js?v=20260715a"></script>
+        <script src="js/core/init.js?v=20260715a"></script>
 
-        <script src="js/core/safeEval.js?v=20260709g"></script>
-        <script src="js/execute.js?v=20260713i"></script>
-        <script src="js/saveOpen.js?v=20260713e"></script>
-        <script src="js/pythonTranslation.js?v=20260713a"></script>
-        <script src="js/multiTranslation.js?v=20260713a"></script>
+        <script src="js/core/safeEval.js?v=20260713a"></script>
+        <script src="js/execute.js?v=20260715d"></script>
+        <script src="js/saveOpen.js?v=20260713g"></script>
+        <script src="js/pythonTranslation.js?v=20260715a"></script>
+        <script src="js/multiTranslation.js?v=20260715a"></script>
 
-        <script src="js/exportUnified.js?v=20260712t"></script>
+        <!-- S9 P9.1 (round 15-B, Ismail 2026-07-15): jsPDF servito LOCALMENTE (js/vendor/,
+             MIT license, vedi js/vendor/jspdf.LICENSE.txt) invece che da CDN -- l'export PDF
+             (exportUnified.js downloadDiagramAsPdf) ora funziona anche offline. -->
+        <script src="js/vendor/jspdf.umd.min.js?v=2.5.1"></script>
+        <script src="js/exportUnified.js?v=20260715b"></script>
 
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js/dist/css/shepherd.css" />
         <script src="https://cdn.jsdelivr.net/npm/shepherd.js/dist/js/shepherd.min.js"></script>

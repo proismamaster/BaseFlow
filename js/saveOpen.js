@@ -37,6 +37,7 @@ async function save(json, name) {
         currentFileHandle = null; // il download non da' un handle riscrivibile
         saved = true;
         savedThisSession = true; // R14-A: scrittura riuscita -- i prossimi Salva in questa sessione sono silenziosi
+        if (typeof markSaved === 'function') markSaved(); // P (round 15): fissa l'hash "salvato" per il pallino
         if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
     }
 
@@ -59,6 +60,7 @@ async function save(json, name) {
             currentFileName = handle.name || name;
             saved = true;
             savedThisSession = true; // R14-A: scrittura riuscita -- i prossimi Salva in questa sessione sono silenziosi
+            if (typeof markSaved === 'function') markSaved(); // P (round 15): fissa l'hash "salvato" per il pallino
             if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
         } catch (err) {
             if (err && err.name === 'AbortError') return; // FIX round 11: annullato -> NIENTE download, NIENTE saved
@@ -74,15 +76,12 @@ if (typeof window !== 'undefined') { window.save = save; }
 // B3 (round 11): "Salva" silenzioso -- riusa l'handle/nome del file gia' aperto o salvato in
 // questa sessione, senza chiedere nulla quando possibile.
 async function saveToCurrentFile() {
-    // R14-A (Ismail 2026-07-13): il PRIMO Salva di ogni sessione chiede SEMPRE il popup
-    // nome+autore, anche se currentFileName e' gia' noto (es. da un file appena aperto con
-    // "Apri" -- fileIO.js setta currentFileName ma MAI savedThisSession). Senza questo gate,
-    // aprire un file esistente e premere subito "Salva" scriveva silenziosamente riusando il
-    // nome del file aperto, saltando la conferma nome/autore che la regola vuole al primo giro.
-    if (!savedThisSession) {
-        if (typeof saveFileAs === 'function') saveFileAs();
-        return;
-    }
+    // P1.2 (round 15, 2026-07-13): "Salva" e' SILENZIOSO quando nome/handle sono gia' noti.
+    // Ribalta il gate R14-A (che riapriva SEMPRE il popup al primo Salva di sessione): un file
+    // con nome+autore gia' noti non deve richiedere di nuovo nome/autore. Il popup nome+autore
+    // resta solo per "Salva con nome" (saveFileAs) e per il PRIMO salvataggio di un progetto
+    // NUOVO senza nome (ramo finale in fondo a questa funzione). Il flag savedThisSession non
+    // e' piu' usato come gate qui (resta settato altrove, innocuo).
     if (currentFileHandle) {
         try {
             // Alcuni browser richiedono ri-conferma del permesso di scrittura su handle riusati
@@ -99,6 +98,7 @@ async function saveToCurrentFile() {
             await writable.close();
             saved = true;
             savedThisSession = true; // R14-A: scrittura riuscita -- i prossimi Salva in questa sessione sono silenziosi
+            if (typeof markSaved === 'function') markSaved(); // P (round 15): fissa l'hash "salvato" per il pallino
             if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
             return;
         } catch (err) {

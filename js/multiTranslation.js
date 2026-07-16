@@ -71,8 +71,13 @@ function convertExprForLang(expr, lang) {
   return toDoubleQuotes(expr);
 }
 
+// S9 P9.2 (round 15-B, Ismail 2026-07-15): prima il chiamante scriveva questa stringa in
+// multiCodeLines[0], azzerando l'INTERO output gia' generato per il resto del flow (vedi
+// renderExportPopup in exportUnified.js, check "startsWith('// Error')"). Ora e' solo un
+// placeholder per QUESTO nodo (il chiamante usa addMultiLine, non piu' l'assegnazione a
+// multiCodeLines[0]): l'export del resto del flow prosegue normalmente.
 function errorLineMulti(nodeType, lang) {
-  return '// Error: node ' + nodeType + ' is empty. Please edit its informations to translate the chart.';
+  return '// (empty ' + nodeType + ' block, not translated)';
 }
 
 // Ricerca locale di una variabile per nome: evita una dipendenza rigida su
@@ -116,21 +121,26 @@ function splitStringsMulti(input) {
 function translateVariableMulti(v, lang) {
   const isString = v.type === 'string';
   const valueLiteral = isString ? JSON.stringify(String(v.value)) : v.value;
+  // P (round 15, Ismail): una variabile DICHIARATA SENZA valore (flag `uninit`, checkbox
+  // "Assign" off) va emessa come SOLA dichiarazione, stile Flowgorithm ("int x;"), non
+  // "int x = 0;" -- il "= 0" non ha senso e in C/Java lascia intendere un valore voluto.
+  const uninit = !!v.uninit;
+  const init = ' = ' + valueLiteral;
   switch (lang) {
     case 'javascript':
-      return 'let ' + v.name + ' = ' + valueLiteral + ';';
+      return uninit ? ('let ' + v.name + ';') : ('let ' + v.name + init + ';');
     case 'c': {
-      if (v.type === 'string') return 'char ' + v.name + '[100] = ' + valueLiteral + ';';
+      if (v.type === 'string') return uninit ? ('char ' + v.name + '[100];') : ('char ' + v.name + '[100] = ' + valueLiteral + ';');
       const cType = v.type === 'int' ? 'int' : 'float';
-      return cType + ' ' + v.name + ' = ' + valueLiteral + ';';
+      return uninit ? (cType + ' ' + v.name + ';') : (cType + ' ' + v.name + init + ';');
     }
     case 'cpp': {
       const cppType = v.type === 'int' ? 'int' : (v.type === 'float' ? 'double' : 'string');
-      return cppType + ' ' + v.name + ' = ' + valueLiteral + ';';
+      return uninit ? (cppType + ' ' + v.name + ';') : (cppType + ' ' + v.name + init + ';');
     }
     case 'java': {
       const javaType = v.type === 'int' ? 'int' : (v.type === 'float' ? 'double' : 'String');
-      return javaType + ' ' + v.name + ' = ' + valueLiteral + ';';
+      return uninit ? (javaType + ' ' + v.name + ';') : (javaType + ' ' + v.name + init + ';');
     }
   }
   return '';
@@ -246,15 +256,15 @@ function translateNodeMulti(node, lang, idx) {
     case 'end':
       return;
     case 'assign':
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       addMultiLine(convertExprForLang(node.info, lang) + ';');
       return;
     case 'input':
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       translateInputMulti(findVariableMulti(node.info, flow.variables), lang);
       return;
     case 'print':
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       addMultiLine(translatePrintMulti(node.info, lang, node.newline !== false));
       return;
     case 'forward':
@@ -265,14 +275,14 @@ function translateNodeMulti(node, lang, idx) {
       addMultiLine('// ' + ((typeof turtleCommentText === 'function') ? turtleCommentText(node.type, node.info) : 'Turtle'));
       return;
     case 'if':
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       addMultiLine('');
       addMultiLine('if (' + convertExprForLang(node.info, lang) + ') {');
       multiTabsCount++;
       recreateIfBranchesMulti(idx, lang);
       return;
     case 'while':
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       addMultiLine('');
       addMultiLine('while (' + convertExprForLang(node.info, lang) + ') {');
       multiTabsCount++;
@@ -284,7 +294,7 @@ function translateNodeMulti(node, lang, idx) {
       // pythonTranslation.js), JS/C/C++/Java hanno tutti la stessa sintassi
       // "for (init; cond; incr) { ... }" dell'editor -- traduzione DIRETTA, nessuna
       // riscrittura necessaria (l'incremento resta nell'intestazione del for, non nel corpo).
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       var forPartsMulti = node.info.split(';');
       if (forPartsMulti.length !== 3) {
         multiCodeLines[0] = '// Error: node for has invalid syntax (expected init;condition;increment). Please edit its informations to translate the chart.';
@@ -305,7 +315,7 @@ function translateNodeMulti(node, lang, idx) {
       // FIX B2 (review Fable, 2026-07-05, piano Do-While/For): JS/C/C++/Java hanno
       // tutti un do-while nativo -- traduzione DIRETTA "do { ... } while (cond);",
       // stessa semantica del fix executor (corpo eseguito almeno una volta).
-      if (node.info === '') { multiCodeLines[0] = errorLineMulti(node.type, lang); return; }
+      if (node.info === '') { addMultiLine(errorLineMulti(node.type, lang)); return; }
       addMultiLine('');
       addMultiLine('do {');
       multiTabsCount++;

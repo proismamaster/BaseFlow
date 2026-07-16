@@ -81,15 +81,17 @@ function translateNode(node){
         case 'end':
             return '';
         case 'assign':
+            // S9 P9.2 (round 15-B, Ismail 2026-07-15): un nodo vuoto NON blocca piu' tutto
+            // l'export (prima sovrascriveva codeLines[0] con un errore globale, cancellando
+            // il codice gia' generato per gli altri nodi) -- diventa solo un commento
+            // placeholder per QUESTO nodo, il resto del flow continua a essere tradotto.
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty assign block)';
             }
             return pyCondSyntax(node.info); // R13-M: && || true/false -> and/or/True/False
         case 'input':
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty input block)';
             }
             const variable = getVariable(node.info,flow.variables);
             switch(variable.type) {
@@ -102,15 +104,13 @@ function translateNode(node){
             }
         case 'print':
             if(node.info == ""){
-                codeLines[0] = "Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python";
-                return '';
+                return '# (empty print block)';
             }
             // A4 (round 11): opzione "a capo dopo la stampa" (node.newline, assente = true).
             return (node.newline === false) ? ('print(' + pyCondSyntax(node.info) + ", end='')") : ('print(' + pyCondSyntax(node.info) + ')');
         case 'if':
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty if block, condition not set -- branches not translated)';
             }
             addLine('');
             addLine('if ' + pyCondSyntax(node.info) + ':');
@@ -119,8 +119,7 @@ function translateNode(node){
             return '';
         case 'while':
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty while block, condition not set -- body not translated)';
             }
             addLine('');
             addLine('while ' + pyCondSyntax(node.info) + ':');
@@ -135,8 +134,7 @@ function translateNode(node){
             // l'incremento va emesso come ULTIMA riga del corpo (dentro il while) --
             // esattamente come un umano tradurrebbe a mano un for C-style in Python.
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty for block, parameters not set -- body not translated)';
             }
             const forParts = node.info.split(';');
             if (forParts.length !== 3) {
@@ -159,8 +157,7 @@ function translateNode(node){
             // l'esecuzione ALMENO una volta, esattamente come il fix semantico
             // dell'executor (B2, vedi execute.js).
             if(node.info == ""){
-                codeLines[0] = ("Error: node " + node.type + " is empty. Please edit its informations to translate the chart into Python");
-                return '';
+                return '# (empty do-while block, condition not set -- body not translated)';
             }
             addLine('');
             addLine('while True:');

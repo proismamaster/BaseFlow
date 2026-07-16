@@ -127,8 +127,47 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType, 
   // (fase-nodo vs fase-arco, mai attive insieme). Questo e' l'UNICO aggancio che evidenzia i
   // back-edge dei cicli (non in frecce[]: drawLoopBranches/drawDoWhileBranches passano
   // lastBodyIdx/loopIdx come fromNodeIndex/toNodeIndex proprio per intercettare questo check).
-  var _execHl = (typeof executingEdge !== "undefined" && executingEdge
+  var _execHl = (typeof executingEdge !== "undefined" && executingEdge && !executingEdge.litGroup
     && fromNodeIndex === executingEdge.from && toNodeIndex === executingEdge.to);
+  // P5.5 (round 15, Ismail 2026-07-14 "voglio un arco alla volta, anche coi rami vuoti"):
+  // questo check _execHl per-segmento (FIX #12) ignorava il RAMO preso. Con i due rami di un
+  // IF ENTRAMBI VUOTI che rientrano nello stesso header di ciclo, if_true / if_false / back-edge
+  // condividono TUTTI (from=IF, to=WHILE): prendere il ramo 'true' accendeva anche la verticale
+  // del ramo 'false' (bug confermato a pixel). Si spegne quindi SOLO l'arco del ramo NON preso
+  // (l'altro ramo dell'if/ciclo). ATTENZIONE (Ismail 2026-07-14, secondo giro: "ora non si colora
+  // piu' nemmeno l'arco del while dopo l'if"): il ramo PRESO e soprattutto il BACK-EDGE del ciclo
+  // (arrowType null o 'loop_body_end' -- il "ritorno al while") DEVONO restare accesi: la
+  // transizione if.ramo->while illumina il ramo giusto + il ritorno al while, mai l'altro ramo.
+  // Percio' qui si NEGA solo l'arco del ramo opposto, senza toccare back-edge/ramo-preso.
+  if (_execHl && executingEdge.branch) {
+    if (executingEdge.branch === 'true'  && (arrowType === 'if_false' || arrowType === 'loop_exit')) _execHl = false;
+    if (executingEdge.branch === 'false' && (arrowType === 'if_true'  || arrowType === 'loop_body')) _execHl = false;
+  }
+  // P5.6 (round 15, Ismail 2026-07-14 "PRIMA l'arco dell'if POI il while, mai insieme; per TUTTI
+  // gli annidamenti"): una transizione che RIENTRA in un header di ciclo (back-edge) e' animata
+  // in DUE fasi da animateExecEdge (execute.js): executingEdge.phase='out' (l'arco che ESCE dal
+  // nodo, in giu') e poi 'back' (il RITORNO all'header: orizzontale in basso + risalita). Il
+  // ritorno e' fatto dai segmenti disegnati con arrowType null e from>to (i due drawLine di
+  // continuazione del back-edge, piu' in basso). Fase 'out' => tutto TRANNE quei segmenti; fase
+  // 'back' => SOLO quei segmenti. Classificazione per-segmento (indipendente dagli indici) =>
+  // vale a qualunque profondita' di annidamento di if/cicli.
+  if (_execHl && executingEdge.phase) {
+    var _fromIsBranch = !!(typeof flow !== "undefined" && flow.nodes && flow.nodes[executingEdge.from]
+      && typeof isBranchingNodeType === "function" && isBranchingNodeType(flow.nodes[executingEdge.from].type));
+    var _isReturnSeg;
+    if (arrowType === 'loop_body_end') {
+      // FIX (Ismail 2026-07-14, "viene colorato insieme all'if la parte verticale del while"):
+      // il MAIN del back-edge (loop_body_end, lo stelo verticale) e' "uscita in giu'" (fase out)
+      // SOLO quando e' l'uscita DIRETTA di un blocco semplice ultimo del corpo (il nodo eseguito e'
+      // quel blocco, non un nodo di diramazione). Se il nodo eseguito e' un IF/ciclo, quello stelo
+      // sta SOTTO la ricongiunzione dei rami => e' gia' "ritorno al while" e va in fase 'back',
+      // cosi' non si accende insieme all'arco del ramo.
+      _isReturnSeg = _fromIsBranch;
+    } else {
+      _isReturnSeg = (arrowType == null) && (fromNodeIndex > toNodeIndex);
+    }
+    _execHl = (executingEdge.phase === 'back') ? _isReturnSeg : !_isReturnSeg;
+  }
   var _execEdgeCol = (typeof cssVar === "function") ? cssVar('--exec-edge-color', '#ff9800') : '#ff9800';
   ctx.beginPath();
   ctx.moveTo(x1, y1);
@@ -139,6 +178,199 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType, 
   ctx.lineWidth = _execHl ? 3 : 2;
   ctx.stroke();
   if (arrow) drawArrowhead(x1, y1, x2, y2, _execHl ? _execEdgeCol : undefined);
+}
+
+// ============================================================================
+// P6 (round 15, Ismail 2026-07-14) — EVIDENZIAZIONE PER PERCORSO (Strategia A).
+// Invece di INDOVINARE quali archi appartengono a una transizione confrontando
+// (from,to)+branch+fase (che si rompe con gli annidamenti: back-edge condivisi
+// attribuiti all'ultimo membro del corpo, geometrie invertite, molti-a-molti),
+// si COSTRUISCE la polilinea visiva ORDINATA F->T e la si evidenzia un tratto
+// alla volta seguendo il flusso. Vedi PLANS/2026-07-14-analisi-highlight-esecuzione.md.
+//
+// computeEdgePath(from,to,branch) -> [ {x1,y1,x2,y2,a}... ] ordinati dal punto di
+// USCITA di F fino all'INGRESSO di T. Sorgente: frecce[] (main + visualExtra), piu'
+// il back-edge CONDIVISO dell'header quando la transizione rientra in un ciclo
+// (indipendentemente dall'indice `from` a cui il layout ha attribuito quel back-edge).
+function _segsOfArc(f) {
+  const out = [{ x1: Math.round(f.inzioX), y1: Math.round(f.inzioY), x2: Math.round(f.fineX), y2: Math.round(f.fineY), a: !!f.hasArrow }];
+  if (f.visualExtra) for (const s of f.visualExtra) out.push({ x1: Math.round(s[0]), y1: Math.round(s[1]), x2: Math.round(s[2]), y2: Math.round(s[3]), a: !!s[4] });
+  return out;
+}
+function _segKey(s) { return (s.x1 < s.x2 || (s.x1 === s.x2 && s.y1 <= s.y2)) ? (s.x1 + ',' + s.y1 + ',' + s.x2 + ',' + s.y2) : (s.x2 + ',' + s.y2 + ',' + s.x1 + ',' + s.y1); }
+function _dedupeSegs(segs) { const seen = new Set(); const out = []; for (const s of segs) { if (s.x1 === s.x2 && s.y1 === s.y2) continue; const k = _segKey(s); if (seen.has(k)) continue; seen.add(k); out.push(s); } return out; }
+// Ordina i segmenti in una polilinea connessa, partendo dal punto piu' vicino al nodo F.
+function _orderSegsFromNode(segs, fromIdx) {
+  if (segs.length <= 1) return segs.slice();
+  const near = (a, b) => Math.abs(a - b) <= 3;
+  const fn = (typeof nodi !== "undefined" && nodi[fromIdx]) ? nodi[fromIdx] : null;
+  const _fromType = (typeof flow !== "undefined" && flow.nodes && flow.nodes[fromIdx]) ? flow.nodes[fromIdx].type : null;
+  let fx, fy;
+  if (fn && _fromType === 'do') {
+    // D2 (do-while): la transizione ESCE dal vertice SINISTRO dell'esagono (inizio della risalita),
+    // non dal fondo -- geometria capovolta. Ancorando qui l'ordine e' risalita -> rientro nel corpo,
+    // non discesa-al-contrario. (Ismail: "prima freccia sinistra, poi tratto verticale verso il figlio".)
+    fx = Math.round(fn.relX * w - (fn.width || 0) / 2); fy = Math.round(fn.relY * h);
+  } else {
+    fx = fn ? Math.round(fn.relX * w) : (segs[0].x1);
+    fy = fn ? Math.round(fn.relY * h + fn.height / 2) : (segs[0].y1);
+  }
+  // punto di partenza: l'estremo di un segmento piu' vicino a (fx,fy)
+  let best = null, bestD = Infinity;
+  for (const s of segs) { for (const p of [[s.x1, s.y1], [s.x2, s.y2]]) { const d = Math.abs(p[0] - fx) + Math.abs(p[1] - fy); if (d < bestD) { bestD = d; best = p; } } }
+  const used = new Array(segs.length).fill(false);
+  const out = []; let cur = best;
+  for (let n = 0; n < segs.length; n++) {
+    let pick = -1, orient = null;
+    for (let i = 0; i < segs.length; i++) {
+      if (used[i]) continue; const s = segs[i];
+      if (near(s.x1, cur[0]) && near(s.y1, cur[1])) { pick = i; orient = s; break; }
+      if (near(s.x2, cur[0]) && near(s.y2, cur[1])) { pick = i; orient = { x1: s.x2, y1: s.y2, x2: s.x1, y2: s.y1, a: s.a }; break; }
+    }
+    if (pick === -1) { // catena spezzata: aggiungi i restanti nell'ordine dato (robustezza)
+      for (let i = 0; i < segs.length; i++) if (!used[i]) { out.push(segs[i]); used[i] = true; }
+      break;
+    }
+    used[pick] = true; out.push(orient); cur = [orient.x2, orient.y2];
+  }
+  return out;
+}
+// P6 (Ismail 2026-07-14, "deve essere solida la logica non forzata, prevedere tutti i casi"):
+// path-finder GEOMETRICO GENERALE. Costruisce il grafo degli estremi di TUTTI i segmenti disegnati
+// (frecce main+visualExtra, con tolleranza per il JOIN_DOT_GAP), e trova col BFS il percorso piu'
+// corto dal punto startPt all'INGRESSO del nodo goalPt. Ritorna i segmenti ORDINATI in avanti, con
+// l'arcId di provenienza. Indipendente da tipo/attribuzione degli archi -> vale a QUALSIASI caso di
+// ricongiunzione/annidamento (if_join, loop_exit, back-edge...), non solo quelli previsti a mano.
+function _bfsSegPath(startPt, goalPt, excludeArcIds) {
+  if (typeof frecce === "undefined" || !Array.isArray(frecce)) return [];
+  const TOL = 8; // > JOIN_DOT_GAP (5px): i ponti si fermano poco prima del pallino di ricongiunzione
+  const segs = [];
+  for (const f of frecce) {
+    const aid = f.id != null ? f.id : (f.fromNodeIndex + '-' + f.toNodeIndex + '-' + f.type);
+    if (excludeArcIds && excludeArcIds.has(aid)) continue;
+    for (const s of _segsOfArc(f)) segs.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, a: s.a, arcId: aid });
+  }
+  if (!segs.length) return [];
+  // Estremi come indici 2k / 2k+1, poi UNION-FIND per unire i punti entro TOL in modo TRANSITIVO
+  // (il merge point-a-point non transitivo spezzava il percorso quando tre punti erano a catena
+  // sotto tolleranza ma i due estremi oltre: es. 273/268/263 con TOL 8).
+  const pts = [];
+  for (const s of segs) { pts.push([s.x1, s.y1]); pts.push([s.x2, s.y2]); }
+  const parent = pts.map((_, i) => i);
+  const find = (i) => { let r = i; while (parent[r] !== r) r = parent[r]; while (parent[i] !== r) { const n = parent[i]; parent[i] = r; i = n; } return r; };
+  const union = (i, j) => { const a = find(i), b = find(j); if (a !== b) parent[a] = b; };
+  for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (Math.abs(pts[i][0] - pts[j][0]) <= TOL && Math.abs(pts[i][1] - pts[j][1]) <= TOL) union(i, j);
+  const adj = {};
+  for (let k = 0; k < segs.length; k++) { const a = find(2 * k), b = find(2 * k + 1); if (a === b) continue; (adj[a] = adj[a] || []).push({ to: b, seg: segs[k], dir: 1 }); (adj[b] = adj[b] || []).push({ to: a, seg: segs[k], dir: -1 }); }
+  const roots = Object.keys(adj).map(Number);
+  const nearest = (pt) => { let br = -1, bd = Infinity; for (const r of roots) { const d = Math.abs(pts[r][0] - pt[0]) + Math.abs(pts[r][1] - pt[1]); if (d < bd) { bd = d; br = r; } } return br; };
+  const start = nearest(startPt), goal = nearest(goalPt);
+  if (start < 0 || goal < 0 || start === goal) return [];
+  const prev = {}; const seen = new Set([start]); const q = [start];
+  while (q.length) { const u = q.shift(); if (u === goal) break; for (const e of (adj[u] || [])) { if (seen.has(e.to)) continue; seen.add(e.to); prev[e.to] = { from: u, edge: e }; q.push(e.to); } }
+  if (!(goal in prev)) return [];
+  const path = []; let cur = goal;
+  while (cur !== start && (cur in prev)) { const p = prev[cur]; const s = p.edge.seg; path.push(p.edge.dir === 1 ? { x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, a: s.a, arcId: s.arcId } : { x1: s.x2, y1: s.y2, x2: s.x1, y2: s.y1, a: s.a, arcId: s.arcId }); cur = p.from; }
+  path.reverse();
+  return path;
+}
+// Ritorna i GRUPPI ordinati della transizione: un gruppo = un arco sorgente (i suoi segmenti
+// main+visualExtra, ordinati), da illuminare INSIEME come un'unica unita' ("uno alla volta" =
+// un arco alla volta). Ordine: arco d'uscita di F, poi il back-edge condiviso dell'header.
+// Cosi' un blocco->while e' UN solo gesto (niente verticale|orizzontale, S1), mentre
+// while.false->for esterno e' "uscita while" poi "back-edge del for" (S2, back-edge incluso).
+function computeEdgeGroups(from, to, branch, showRisalita) {
+  if (typeof frecce === "undefined" || !Array.isArray(frecce)) return [];
+  if (showRisalita === undefined) showRisalita = true; // default: mostra la risalita (compat/harness)
+  const typeOkForBranch = (t) => {
+    if (branch === 'true') return t === 'if_true' || t === 'loop_body';
+    if (branch === 'false') return t === 'if_false' || t === 'loop_exit';
+    return t === 'normal' || t === 'loop_body_end' || t === 'if_join' || t === 'loop_exit'; // branch null: blocco/ritorno
+  };
+  const groups = []; const usedArc = new Set();
+  const _fromNode = (typeof flow !== "undefined" && flow.nodes) ? flow.nodes[from] : null;
+  const addArc = (f, order) => {
+    const id = f.id != null ? f.id : (f.fromNodeIndex + '-' + f.toNodeIndex + '-' + f.type); if (usedArc.has(id)) return; usedArc.add(id);
+    // DW-1 (Ismail 2026-07-14, "do-while: le frecce si accendono tutte insieme"): per una transizione
+    // da un `do`, la RISALITA (freccia sinistra, agganciata come visualExtra dell'arco di discesa) e
+    // la DISCESA (main) sono DUE archi visivi distinti -> DUE gruppi separati, animati uno alla volta
+    // (prima la risalita, poi la discesa). Senza questo erano un gruppo solo = tutto insieme.
+    if (_fromNode && _fromNode.type === 'do' && f.type === 'loop_body' && f.visualExtra && f.visualExtra.length) {
+      const risalita = f.visualExtra.map(s => ({ x1: Math.round(s[0]), y1: Math.round(s[1]), x2: Math.round(s[2]), y2: Math.round(s[3]), a: !!s[4] }));
+      const discesa = [{ x1: Math.round(f.inzioX), y1: Math.round(f.inzioY), x2: Math.round(f.fineX), y2: Math.round(f.fineY), a: !!f.hasArrow }];
+      // La RISALITA si mostra solo sui RITORNI (condizione valutata dopo il corpo), NON alla prima
+      // entrata: showRisalita=false (passato da animateExecEdge quando e' la prima visita del do-while).
+      if (showRisalita !== false) groups.push({ order: order, from: f.fromNodeIndex, to: f.toNodeIndex, type: 'do_risalita', segs: _orderSegsFromNode(_dedupeSegs(risalita), from) });
+      groups.push({ order: order + 0.5, from: f.fromNodeIndex, to: f.toNodeIndex, type: 'do_discesa', segs: _dedupeSegs(discesa) });
+      return;
+    }
+    groups.push({ order: order, from: f.fromNodeIndex, to: f.toNodeIndex, type: f.type, segs: _orderSegsFromNode(_dedupeSegs(_segsOfArc(f)), from) });
+  };
+  // 1) arco d'USCITA di F verso T (specifico del ramo preso)
+  for (const f of frecce) if (f.fromNodeIndex === from && f.toNodeIndex === to && typeOkForBranch(f.type)) addArc(f, 0);
+  const tNode = (typeof flow !== "undefined" && flow.nodes) ? flow.nodes[to] : null;
+  // (Il vecchio blocco "back-edge condiviso" e' stato rimosso: il BFS generale al punto 4 copre
+  //  sia i ritorni in un header di ciclo sia le uscite forward da strutture annidate, in modo
+  //  unificato e senza casi speciali per tipo d'arco.)
+  // 3) INGRESSO in un do-while dall'esterno (to = do, from != to): l'arco d'ingresso arriva alla CIMA
+  //    del corpo, ma l'esagono e' in FONDO. Si aggiunge la DISCESA (cima corpo -> esagono, il MAIN del
+  //    loop_body, NON la risalita) come gruppo dopo l'ingresso, cosi' la sequenza e'
+  //    "arco d'ingresso -> discesa -> esagono" invece di saltare la verticale (Ismail: "la prima volta
+  //    che entra dentro deve essere discesa, esagono, risalita").
+  const _doIsEmpty = tNode && tNode.type === 'do' && tNode.next && parseInt(tNode.next.true, 10) === to; // self-loop = corpo vuoto
+  if (tNode && tNode.type === 'do' && from !== to && _doIsEmpty) {
+    for (const f of frecce) {
+      if (f.fromNodeIndex === to && f.type === 'loop_body') {
+        const id = 'do-entry-descent-' + to;
+        if (!usedArc.has(id)) { usedArc.add(id);
+          groups.push({ order: 2, from: to, to: to, type: 'do_discesa', segs: [{ x1: Math.round(f.inzioX), y1: Math.round(f.inzioY), x2: Math.round(f.fineX), y2: Math.round(f.fineY), a: !!f.hasArrow }] });
+        }
+      }
+    }
+  }
+  // 4) CONTINUAZIONE GENERALE (BFS geometrico). Se l'arco d'uscita di F non arriva da solo a T
+  //    (tipico uscendo da IF/cicli ANNIDATI: il percorso passa per ricongiunzioni attribuite ad altri
+  //    nodi), si trova il resto del percorso F->T col path-finder su TUTTI i segmenti e lo si aggiunge
+  //    raggruppato per arco, un arco alla volta. Non per il do-while (la sua geometria capovolta e la
+  //    risalita sono gia' gestite sopra) e non sui rientri in ciclo (gestiti dal back-edge condiviso).
+  if (tNode && !(_fromNode && _fromNode.type === 'do') && groups.length &&
+      typeof nodi !== "undefined" && nodi[to]) {
+    const last = groups[groups.length - 1].segs;
+    const startPt = last.length ? [last[last.length - 1].x2, last[last.length - 1].y2] : null;
+    // GOAL del BFS. Forward: la CIMA di T (unico punto d'ingresso). RITORNO in un header di ciclo
+    // (to<=from): l'header ha PIU' archi entranti (ingresso da fuori, back-edge, entrata nel corpo)
+    // -> agganciare la "cima di T" e' ambiguo e il BFS puo' prendere l'arco sbagliato. Si usa allora
+    // l'estremo del BACK-EDGE (loop_body_end, to=T) piu' vicino all'header: cosi' il BFS include per
+    // forza il back-edge condiviso + le eventuali ricongiunzioni annidate in mezzo, fino all'header.
+    const _hx = Math.round(nodi[to].relX * w), _hy = Math.round(nodi[to].relY * h);
+    let goalPt = [_hx, Math.round(nodi[to].relY * h - (nodi[to].height || 0) / 2)];
+    const _isReturn = tNode && typeof isBranchingNodeType === "function" && isBranchingNodeType(tNode.type) && tNode.type !== 'if' && to <= from;
+    if (_isReturn) {
+      const be = frecce.find(f => f.toNodeIndex === to && f.type === 'loop_body_end');
+      if (be) {
+        const ss = _segsOfArc(be); const ends = [[ss[0].x1, ss[0].y1], [ss[ss.length - 1].x2, ss[ss.length - 1].y2]];
+        goalPt = ends.reduce((b, e) => (Math.abs(e[0] - _hx) + Math.abs(e[1] - _hy) < Math.abs(b[0] - _hx) + Math.abs(b[1] - _hy)) ? e : b);
+        goalPt = [Math.round(goalPt[0]), Math.round(goalPt[1])];
+      }
+    }
+    if (startPt) {
+      const bpath = _bfsSegPath(startPt, goalPt, usedArc);
+      let order2 = 10, curArc = null, curSegs = null;
+      for (const s of bpath) {
+        if (s.arcId !== curArc) { if (curSegs && curSegs.length) groups.push({ order: order2++, from: -1, to: to, type: 'reconnect', segs: curSegs }); curArc = s.arcId; curSegs = []; }
+        curSegs.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, a: s.a });
+      }
+      if (curSegs && curSegs.length) groups.push({ order: order2++, from: -1, to: to, type: 'reconnect', segs: curSegs });
+    }
+  }
+  groups.sort((a, b) => a.order - b.order);
+  return groups;
+}
+// Compat/verifica: la polilinea PIATTA ordinata (tutti i segmenti dei gruppi in fila).
+function computeEdgePath(from, to, branch) {
+  const groups = computeEdgeGroups(from, to, branch);
+  let segs = []; for (const g of groups) segs = segs.concat(g.segs);
+  return _orderSegsFromNode(_dedupeSegs(segs), from);
 }
 
 
@@ -370,7 +602,12 @@ function draw(forme) {
 
     if (node.text) {
       ctx.font = `bold 16px Arial`;
-      ctx.fillStyle = node._error ? "white" : "black"; // testo nero; bianco se il nodo e' in errore (sfondo rosso)
+      // P (round 15, Ismail): colore del testo dei blocchi via VARIABILE CSS (--node-text,
+      // default nero) -- cosi' e' personalizzabile in "crea tema" ed e' la STESSA sorgente
+      // usata dalla palette (coerenza garantita su ogni tema). Testo d'errore: --node-error-text.
+      ctx.fillStyle = node._error
+        ? ((typeof cssVar === "function") ? cssVar('--node-error-text', 'white') : 'white')
+        : ((typeof cssVar === "function") ? cssVar('--node-text', 'black') : 'black');
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       // Testo multi-riga: usa le righe pre-calcolate da computeNodeSizes (wrap del contenuto lungo).
@@ -544,17 +781,74 @@ function draw(forme) {
     ctx.save();
     ctx.strokeStyle = _execEdgeCol2;
     ctx.lineWidth = 3;
+    // P6 (Strategia A): se executingEdge porta un GRUPPO gia' calcolato (segmenti da accendere
+    // questo frame), lo si disegna e basta -- niente matching euristico (from,to)+branch+fase.
+    // computeEdgeGroups/animateExecEdge forniscono la polilinea esatta F->T (back-edge condivisi
+    // inclusi), un arco alla volta. Il vecchio percorso sotto resta come FALLBACK quando litGroup
+    // non c'e' (compatibilita' con eventuali chiamate diverse).
+    if (executingEdge.litGroup && executingEdge.litGroup.length) {
+      for (const s of executingEdge.litGroup) {
+        ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+        if (s.a) drawArrowhead(s.x1, s.y1, s.x2, s.y2, _execEdgeCol2, 1);
+      }
+      ctx.restore();
+      return; // salta il matching legacy sotto (durante l'esecuzione non c'e' drag-ghost da disegnare)
+    }
+    // P5.2/P5.3 (round 15): una singola transizione logica (from->to) puo' essere
+    // rappresentata da PIU' archi visivi che condividono gli stessi estremi -- es. un ramo
+    // if vuoto che rientra nel while coincide col back-edge del ciclo (loop_body_end +
+    // if_false, entrambi from=if to=while). Prima il `break` accendeva solo il PRIMO,
+    // lasciando spenta meta' del percorso. Ora si evidenziano TUTTI gli archi che combaciano
+    // (ognuno con segmento principale + bracci orizzontali visualExtra + punta), cosi' il
+    // percorso della transizione si illumina PER INTERO, non solo il tratto verticale.
+    // P5.2 (round 15): quando l'esecuzione RIENTRA nel ciclo con una transizione "normale" di
+    // ritorno (un nodo del corpo -> header, branch NULL, es. assign 3->while 1), il ritorno
+    // visivo e' composto da due archi con `from` diversi: quello dall'ultimo nodo eseguito E il
+    // back-edge strutturale del ciclo (loop_body_end, attribuito dal layout all'ULTIMO elemento
+    // del corpo). Il back-edge si accende SOLO in questo caso (branch null).
+    // OVER-LIGHT FIX (round 15, Ismail): se invece si sta prendendo un RAMO (branch 'true'/'false'),
+    // si accende SOLO l'arco di quel ramo -- non l'altro ramo, non il back-edge del ciclo. Prima,
+    // con due rami if VUOTI verso lo stesso punto, si accendevano ENTRAMBI i rami + il back-edge
+    // ("illumina tutto"). Ora il ramo preso e' l'unico ad accendersi.
+    const _backIntoLoop = (executingEdge.from > executingEdge.to);
+    const _br = executingEdge.branch || null;
+    const _arcOkBranch = function (t) {
+      if (!_br) return true;                                   // transizione normale: nessun filtro
+      if (_br === 'true')  return t === 'if_true'  || t === 'loop_body';
+      return t === 'if_false' || t === 'loop_exit';           // 'false'
+    };
+    // P5.6 (round 15): animazione a due fasi del back-edge (vedi drawLine e execute.js).
+    // executingEdge.phase: 'out' (uscita/discesa) | 'back' (ritorno all'header) | null (una fase).
+    // Il MAIN di ogni arco e' la parte in USCITA (discesa) => solo 'out'/null. Il visualExtra di
+    // un loop_body_end e' il RITORNO all'header => solo 'back'/null; il visualExtra dei rami
+    // (fork/ponte di if_true/if_false) resta parte dell'uscita => 'out'/null.
+    const _phase = executingEdge.phase || null;
+    const _fromIsBranch = !!(typeof flow !== "undefined" && flow.nodes && flow.nodes[executingEdge.from]
+      && typeof isBranchingNodeType === "function" && isBranchingNodeType(flow.nodes[executingEdge.from].type));
     for (const f of frecce) {
-      if (f.fromNodeIndex === executingEdge.from && f.toNodeIndex === executingEdge.to) {
-        ctx.beginPath(); ctx.moveTo(f.inzioX, f.inzioY); ctx.lineTo(f.fineX, f.fineY); ctx.stroke();
-        if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, _execEdgeCol2, 1);
-        if (f.visualExtra) {
+      const _direct = (f.fromNodeIndex === executingEdge.from && f.toNodeIndex === executingEdge.to) && _arcOkBranch(f.type);
+      const _loopBack = (!_br) && _backIntoLoop && f.type === 'loop_body_end' && f.toNodeIndex === executingEdge.to;
+      if (_direct || _loopBack) {
+        // P5.6 fase-aware: MAIN e visualExtra di un loop_body_end (back-edge del ciclo) sono il
+        // RITORNO al while (fase 'back') -- inclusa la sua verticale ("parte verticale del while")
+        // -- TRANNE quando il loop_body_end e' l'uscita DIRETTA di un blocco semplice ultimo del
+        // corpo (from === nodo eseguito, non di diramazione): in quel caso il MAIN e' l'uscita in
+        // giu' del blocco (fase 'out') e solo il visualExtra (ponte+risalita) e' ritorno.
+        const _isLBE = (f.type === 'loop_body_end');
+        const _lbeMainOut = _isLBE && (f.fromNodeIndex === executingEdge.from) && !_fromIsBranch;
+        const _mainPhase = (_isLBE && !_lbeMainOut) ? 'back' : 'out';
+        const _extraPhase = _isLBE ? 'back' : 'out'; // visualExtra: ritorno per il back-edge, uscita per i rami
+        if (!_phase || _phase === _mainPhase) {
+          ctx.beginPath(); ctx.moveTo(f.inzioX, f.inzioY); ctx.lineTo(f.fineX, f.fineY); ctx.stroke();
+          if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, _execEdgeCol2, 1);
+        }
+        if (f.visualExtra && (!_phase || _phase === _extraPhase)) {
           for (const seg of f.visualExtra) {
             ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
             if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], _execEdgeCol2, 1);
           }
         }
-        break; // una sola coppia from/to puo' corrispondere a un arco
+        // niente break: piu' archi possono rappresentare la stessa transizione.
       }
     }
     ctx.restore();
@@ -770,6 +1064,11 @@ function drawIfBranches(ifIdx, node) {
   const reconnectY = (typeof node.reconnectPxY === 'number')
     ? node.reconnectPxY - NODE_BASE_HEIGHT_PX / 2
     : Math.max(trueBottomY, falseBottomY) + IF_RECONNECT_GAP_PX;
+  // R13-G/P6.1: JOIN_DOT_GAP_PX (state.js) -- gap in px fra il pallino di ricongiunzione e
+  // QUALSIASI arco che lo tocca. Costante GLOBALE (non piu' locale a questa funzione, vedi
+  // FIX Ismail 2026-07-15 sotto): serve anche a drawLoopBranches/drawDoWhileBranches quando
+  // un IF annidato e' l'ultimo membro del loro corpo -- loro non potrebbero chiuderla per
+  // closure, essendo funzioni separate.
 
   // Archi verticali cliccabili dalle colonne dei rami verso il basso
   // FIX round-4q (Ismail 2026-07-06, "quando clicchi sotto per piazzarne sotto ti
@@ -858,8 +1157,16 @@ function drawIfBranches(ifIdx, node) {
       // Per un ciclo, invece, il punto di uscita e' semplicemente il fondo dell'esagono
       // (diaBottom), esattamente come per un nodo normale: reconnectPxY di un ciclo
       // rappresenta il fondo del CORPO (per il back-edge), non un punto di uscita.
+      // P6.1 fix (round 15-B S6, Ismail 2026-07-15, segnalato dopo test a mano: "il gap non
+      // c'e' se annidi un if in un altro if o in un ciclo"): quando lastIsIf, questo fromY E'
+      // il pallino di ricongiunzione dell'IF interno (stesso punto di drawIfBranches,
+      // reconnectY) -- l'arco che parte da qui verso il basso e' esattamente "l'arco che esce
+      // sotto il pallino" del P6.1 originale, solo disegnato dall'ANTENATO invece che dall'IF
+      // interno stesso (per via del guard hasSoleBranchAncestor, che nell'IF interno
+      // disabilita il proprio if_join proprio perche' ci pensa questo posto). Stesso
+      // JOIN_DOT_GAP_PX applicato qui, altrimenti il gap "sparisce" in ogni caso annidato.
       const fromY = (lastIsIf && typeof last.reconnectPxY === "number")
-        ? last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2
+        ? last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2 + JOIN_DOT_GAP_PX
         : last.relY * h + last.height / 2;
       // Cliccabile per inserire dopo l'ultimo. Se l'ultimo del ramo e' un IF annidato,
       // questo segmento e' IN REALTA' l'arco di ricongiunzione (if_join) di quell'IF
@@ -916,10 +1223,22 @@ function drawIfBranches(ifIdx, node) {
       // round-4h) era troppo conservativo: nessuna sovrapposizione reale del segmento
       // CLICCABILE (verticale sulla colonna del ramo). Ora un Do-While ultimo membro e'
       // cliccabile esattamente come While/For -> si puo' inserire dopo di lui nel ramo.
-      // Resta guardato solo l'IF annidato come ultimo membro (la sua coda converge al
-      // centro, dove sta davvero l'arco unificato: quello si inserisce con l'arco unificato).
-      const canInsertAfter = sub.joinIndex !== null &&
-        (!hasSoleBranchAncestor(ifIdx) || !lastIsIf);
+      // FIX P4.1 (Ismail 2026-07-14, "arco dopo if figlio piu interno non e' cliccabile"):
+      // rimosso anche l'ultimo residuo del guard round-4h (l'IF annidato come ultimo membro).
+      // La premessa "la sua coda converge al CENTRO cx (dove sta l'arco unificato dell'antenato)"
+      // era sbagliata quanto lo era per i cicli: il segmento CLICCABILE va da (last.relX*w, fromY)
+      // a (sideX, reconnectY), e last.relX*w e' il CENTRO dell'IF interno -- che COINCIDE con
+      // sideX (l'IF interno sta centrato nella COLONNA del ramo trueX/falseX), NON col centro cx
+      // dell'IF esterno. Nessuna sovrapposizione reale del tratto cliccabile con l'arco unificato
+      // dell'antenato (che sta sulla colonna centrale, a un'altra reconnectY): stessa identica
+      // giustificazione gia' accettata sopra per While/For/Do-While ultimi membri. Il guard mordeva
+      // in un caso reale: con >=3 IF annidati "figlio unico" (ognuno unico membro del ramo del
+      // padre) la delega all'antenato si INCATENAVA fino all'IF piu' esterno -- l'antenato
+      // disegna "dopo <IF di mezzo>", MAI "dopo <IF interno>", posizionato a un'altra reconnectY --
+      // lasciando l'IF piu' interno SENZA alcun arco "dopo" cliccabile. L'inserimento if_join
+      // redirige comunque ENTRAMBI i rami dell'IF interno (interaction.js: redirectBranchToNew su
+      // true E false), quindi resta impossibile il sintomo round-4h "un ramo si allunga, l'altro no".
+      const canInsertAfter = sub.joinIndex !== null;
       const afterLastArcType = lastIsIf ? 'if_join' : (lastIsLoop ? 'loop_exit' : 'normal');
       drawLine(
         last.relX * w, fromY,
@@ -951,8 +1270,10 @@ function drawIfBranches(ifIdx, node) {
     // lunghezza). Stesso identico endX va nel visualExtra subito sotto -- altrimenti hover/
     // hit-test (arcHitTest, interaction.js) userebbero ancora il vecchio endpoint non
     // accorciato, disallineati dal segmento REALMENTE disegnato.
-    const JOIN_DOT_GAP = 5;
-    const bridgeEndX = (sideX <= cx) ? (cx - JOIN_DOT_GAP) : (cx + JOIN_DOT_GAP);
+    // JOIN_DOT_GAP_PX (state.js, P6.1): costante globale, la STESSA usata anche dall'arco di
+    // uscita sotto il pallino (vedi piu' sotto, dopo drawBranchConnections) e da
+    // drawLoopBranches/drawDoWhileBranches per il caso "IF annidato ultimo membro".
+    const bridgeEndX = (sideX <= cx) ? (cx - JOIN_DOT_GAP_PX) : (cx + JOIN_DOT_GAP_PX);
     drawLine(sideX, reconnectY, bridgeEndX, reconnectY, false, null, null, null, null, true);
     // FIX round-4q: aggancia il ponte appena disegnato come visualExtra dell'arco
     // proprietario (vedi sopra) -- hover/drag (punti 5/6 di draw()) lo ridisegnano
@@ -1010,10 +1331,22 @@ function drawIfBranches(ifIdx, node) {
     const joinNode = nodi[sub.joinIndex];
     const joinX = joinNode.relX * w;
     const joinTop = entryTopY(sub.joinIndex);
+    // P6.1 (round 15-B S6, Ismail 2026-07-15): stesso gap del pallino (JOIN_DOT_GAP, R13-G)
+    // applicato anche all'arco che ESCE sotto il pallino -- prima partiva ESATTAMENTE dal suo
+    // centro (cx, reconnectY), sovrapponendosi visivamente come gia' successo (e gia' corretto
+    // da R13-G) per le due frecce orizzontali che vi convergono dall'alto. Gap solo visivo
+    // (nessun segmento disegnato nei JOIN_DOT_GAP px, come i ponti orizzontali sopra): 5px sono
+    // ben dentro la tolleranza di hit-test (ARC_TOL 8-14px, isPointNearAnyLineSegment fa
+    // distanza punto-segmento CLAMPATA, interaction.js/utils.js), quindi click/hover appena
+    // sopra il nuovo inizio del segmento continuano a colpire l'arco -- hit-test/cliccabilita'
+    // invariati, come richiesto.
     if (Math.abs(joinX - cx) < 1) {
-      drawLine(cx, reconnectY, cx, joinTop, true, ifIdx, sub.joinIndex, 'if_join', null, true);
+      drawLine(cx, reconnectY + JOIN_DOT_GAP_PX, cx, joinTop, true, ifIdx, sub.joinIndex, 'if_join', null, true);
     } else {
-      drawLine(cx, reconnectY, joinX, reconnectY, false);
+      // Caso disallineato: il gomito orizzontale (non cliccabile, come sopra) parte anch'esso
+      // un po' scostato dal pallino, verso joinX -- stessa logica direzionale di bridgeEndX.
+      const elbowStartX = (joinX >= cx) ? (cx + JOIN_DOT_GAP_PX) : (cx - JOIN_DOT_GAP_PX);
+      drawLine(elbowStartX, reconnectY, joinX, reconnectY, false);
       drawLine(joinX, reconnectY, joinX, joinTop, true, ifIdx, sub.joinIndex, 'if_join', null, true);
     }
   }
@@ -1023,9 +1356,10 @@ function drawIfBranches(ifIdx, node) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = cssVar('--if-true-color', IF_LABEL_TRUE_COLOR);
-  ctx.fillText("True", (cx + trueX) / 2, forkY - 10);
+  // S3 P8.4: "True"/"False" tradotte (prima hard-coded in inglese), vedi i18nLabel/state.js.
+  ctx.fillText((typeof i18nLabel === 'function') ? i18nLabel('label_true', 'True') : 'True', (cx + trueX) / 2, forkY - 10);
   ctx.fillStyle = cssVar('--if-false-color', IF_LABEL_FALSE_COLOR);
-  ctx.fillText("False", (cx + falseX) / 2, forkY - 10);
+  ctx.fillText((typeof i18nLabel === 'function') ? i18nLabel('label_false', 'False') : 'False', (cx + falseX) / 2, forkY - 10);
 }
 
 // Disegna un ciclo (While/For/Do). GEOMETRIA RIVISTA (2026-07-04 notte-2, richiesta
@@ -1281,8 +1615,13 @@ function drawLoopBranches(loopIdx, node) {
     // scollegato. Con un secondo membro qualsiasi il tratto veniva colmato dall'uscita di
     // quel membro -- da qui l'osservazione di Ismail. bodyBottomY resta il livello di
     // AVVOLGIMENTO (fineY dello stub), stubTopY diventa il punto di CONNESSIONE (inzioY).
+    // P6.1 fix (round 15-B S6, Ismail 2026-07-15): stesso motivo di drawBranchConnections/
+    // fromY sopra -- quando lastIsIf, questo e' il pallino di ricongiunzione dell'IF interno
+    // (ultimo membro del corpo di QUESTO ciclo): l'arco 'loop_body_end' che parte da qui e'
+    // "l'arco che esce sotto il pallino" del P6.1, disegnato dal ciclo antenato. Stesso
+    // JOIN_DOT_GAP_PX (state.js), altrimenti nessun gap visibile in questo caso annidato.
     stubTopY = (lastIsIf && typeof last.reconnectPxY === "number")
-      ? last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2
+      ? last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2 + JOIN_DOT_GAP_PX
       : last.relY * h + last.height / 2;
     lastBodyIdx = lastIdx;
   }
@@ -1447,13 +1786,14 @@ function drawLoopBranches(loopIdx, node) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = cssVar('--if-true-color', IF_LABEL_TRUE_COLOR);
-  ctx.fillText(labels.body, (diaRight + bodyColX) / 2, cy - 10);
+  // S3 P8.4: label tradotte (edgeLabelText/state.js), `labels` resta il fallback letterale.
+  ctx.fillText((typeof edgeLabelText === 'function') ? edgeLabelText(loopType, 'body') : labels.body, (diaRight + bodyColX) / 2, cy - 10);
   ctx.fillStyle = cssVar('--if-false-color', IF_LABEL_FALSE_COLOR);
   // FIX P11 (segnalato da Ismail su prova12.json: l'etichetta "Done" del For si
   // sovrapponeva all'arco di back-edge quando l'ultimo membro del corpo e' un
   // ciclo/Do-While annidato -- offset da cx-14 a cx-20, in coppia con l'aumento di
   // BACKEDGE_SEP_PX 15->22 in state.js, per allontanare label e arco.
-  ctx.fillText(labels.exit, cx - 20, diaBottom + 12);
+  ctx.fillText((typeof edgeLabelText === 'function') ? edgeLabelText(loopType, 'exit') : labels.exit, cx - 20, diaBottom + 12);
 }
 
 // Disegna un Do-While (FIX BUG 4, Ismail 2026-07-05 sera): a differenza di
@@ -1608,7 +1948,13 @@ function drawDoWhileBranches(loopIdx, node) {
       // basta il bordo del figlio -- niente stubTopY separato come in drawLoopBranches.
       bodyBottomY = last.relY * h + last.height / 2;
     } else if (lastIsIf && typeof last.reconnectPxY === "number") {
-      bodyBottomY = last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2;
+      // P6.1 fix (round 15-B S6, Ismail 2026-07-15): stesso motivo di drawLoopBranches/
+      // stubTopY -- questo e' il pallino di ricongiunzione dell'IF interno (ultimo membro
+      // del corpo di QUESTO Do-While), da cui parte l'arco 'loop_body_end' cliccabile
+      // (drawLine sotto). Stesso JOIN_DOT_GAP_PX (state.js), altrimenti niente gap qui.
+      // La guardia P9 subito sotto (bodyBottomY > diaTop -> diaTop) resta comunque un tetto
+      // di sicurezza anche con questi 5px in piu'.
+      bodyBottomY = last.reconnectPxY - NODE_BASE_HEIGHT_PX / 2 + JOIN_DOT_GAP_PX;
     } else {
       bodyBottomY = last.relY * h + last.height / 2;
     }
@@ -1686,6 +2032,20 @@ function drawDoWhileBranches(loopIdx, node) {
     } else if (t && isBranchingNodeType(t) && t !== 'if' && typeof collectLoopBody === 'function') {
       const _lb = collectLoopBody(idx);
       _lb.bodyList.forEach(_considerSubtree);
+      // P6.2 (round 15-B S6, Ismail 2026-07-15, screenshot 170939 "do-while annidati: archi
+      // False sovrapposti"): un Do-While annidato nel corpo di QUESTO Do-While riserva a SUA
+      // volta un back-edge scostato BACKEDGE_SEP_PX oltre il proprio contenuto piu' a sinistra
+      // (stessa formula di backEdgeX, sotto) -- un overhang che _consider()/_considerSubtree
+      // sopra non vedono (guardano solo i box dei nodi reali, non l'arco che gli sta a fianco).
+      // Senza contarlo, il back-edge di QUESTO livello poteva finire troppo vicino (o
+      // sovrapposto) a quello del Do-While interno quando condividono il lato sinistro.
+      // Si riserva la stessa quota anche qui: essendo dentro la ricorsione di _considerSubtree,
+      // questo scatta UNA volta per ogni Do-While annidato incontrato a QUALUNQUE profondita'
+      // (un Do dentro un Do dentro un Do accumula piu' BACKEDGE_SEP_PX, non solo un livello),
+      // cosi' la separazione cresce con la profondita' di annidamento invece di restare fissa.
+      // Puo' solo ALLARGARE lo spazio riservato (mai stringerlo): nessun rischio di introdurre
+      // nuove sovrapposizioni, al piu' un margine in piu' del minimo indispensabile.
+      if (t === 'do') leftMostBodyLeft -= BACKEDGE_SEP_PX;
     }
   };
   for (const bi of body.bodyList) _considerSubtree(bi);
@@ -1702,6 +2062,17 @@ function drawDoWhileBranches(loopIdx, node) {
   drawLine(diaLeft, cy, backEdgeX, cy, false, loopIdx, _backToBody);
   drawLine(backEdgeX, cy, backEdgeX, bodyTopY, false, loopIdx, _backToBody);
   drawLine(backEdgeX, bodyTopY, cx, bodyTopY, false, loopIdx, _backToBody, null, null, true);
+  // P6 (Ismail 2026-07-14, "nel do-while non si colora la freccia sinistra di ritorno"): questi
+  // 3 segmenti della RISALITA sono salva=false -> NON entrano in frecce[], quindi computeEdgeGroups
+  // (che legge frecce[]) non li vedeva e la freccia di ritorno restava nera. Li si aggancia come
+  // visualExtra all'arco di DISCESA (loop_body, from=loopIdx, gia' in frecce[]): cosi' la
+  // transizione do->primoCorpo include ritorno-a-sinistra + risalita + rientro in cima al corpo.
+  const _doEntryArc = frecce.find(function (f) { return f.fromNodeIndex === loopIdx && f.type === 'loop_body'; });
+  if (_doEntryArc) _doEntryArc.visualExtra = (_doEntryArc.visualExtra || []).concat([
+    [diaLeft, cy, backEdgeX, cy, false],
+    [backEdgeX, cy, backEdgeX, bodyTopY, false],
+    [backEdgeX, bodyTopY, cx, bodyTopY, true]
+  ]);
 
   // FIX (Ismail 2026-07-07): pallino di convergenza in ALTO del Do-While, nel punto in cui
   // arrivano l'arco d'ingresso (dall'alto) e il back-edge di ritorno (dal ciclo) -- analogo
@@ -1759,11 +2130,15 @@ function drawDoWhileBranches(loopIdx, node) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = cssVar('--if-true-color', IF_LABEL_TRUE_COLOR);
-  ctx.fillText(labels.body, cx + 16, diaTop - 12);
+  // S3 P8.4: label tradotte (edgeLabelText/state.js), `labels` resta il fallback letterale.
+  // P6.1 cosmetico (round 15-B S6, Ismail 2026-07-15, richiesta a mano): spostata leggermente
+  // a destra (cx+16 -> cx+20), in coppia con l'offset della label "False" qui sotto (cx-20,
+  // FIX P11) -- ora le due etichette del Do-While sono equidistanti dal centro, come nell'IF.
+  ctx.fillText((typeof edgeLabelText === 'function') ? edgeLabelText('do', 'body') : labels.body, cx + 20, diaTop - 12);
   ctx.fillStyle = cssVar('--if-false-color', IF_LABEL_FALSE_COLOR);
   // FIX P11 (stesso fix di drawLoopBranches, vedi commento li'): offset da cx-14 a
   // cx-20 in coppia con BACKEDGE_SEP_PX 15->22 in state.js.
-  ctx.fillText(labels.exit, cx - 20, diaBottom + 12);
+  ctx.fillText((typeof edgeLabelText === 'function') ? edgeLabelText('do', 'exit') : labels.exit, cx - 20, diaBottom + 12);
 }
 
 // Disegna il collegamento a forma di Lda:

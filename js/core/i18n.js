@@ -183,6 +183,7 @@ const I18N = {
   theme_var_execnode: ['Nodo in esecuzione', 'Running node', 'العقدة قيد التنفيذ', '执行中的节点'],
   theme_var_execedge: ['Arco percorso', 'Traversed arrow', 'السهم المقطوع', '已遍历的箭头'],
   theme_var_execerr:  ['Blocco in errore', 'Block in error', 'كتلة بها خطأ', '出错的模块'],
+  theme_var_nodetext: ['Testo blocchi', 'Block text', 'نص الكتل', '模块文字'],
   // R12-E/E1 (Ismail 2026-07-11): var gia' esistenti in CSS/JS ma mancanti nell'editor tema.
   theme_var_arcdrag:  ['Arco (drag)', 'Arrow (drag)', 'السهم (سحب)', '箭头（拖动）'],
   theme_var_nodesel:  ['Blocco selezionato', 'Selected block', 'الكتلة المحددة', '选中的方块'],
@@ -235,22 +236,18 @@ const I18N = {
   settings_dark:  ['Modalità scura', 'Dark mode', 'الوضع الداكن', '深色模式'],
   settings_theme_edit:['Crea tema', 'Create theme', 'إنشاء سمة', '创建主题'],
   settings_done:  ['Fatto', 'Done', 'تم', '完成'],
-  err_not_declared_node: ['Nel nodo {n}: {v} non \u00e8 stata dichiarata.', 'In node {n}: {v} has not been declared.', 'في العقدة {n}: {v} لم يتم تعريفه.', '在节点 {n} 中：{v} 尚未声明。'],
-  err_not_declared: ['{v} non \u00e8 stata dichiarata.', '{v} has not been declared.', '{v} لم يتم تعريفه.', '{v} 尚未声明。'],
-  err_var_not_declared: ['Variabile {v} non dichiarata.', 'Variable {v} not declared.', 'المتغير {v} غير معرّف.', '变量 {v} 未声明。'],
-  err_empty_node: ['Il nodo {n} \u00e8 vuoto. Controlla il flusso.', 'Node {n} is empty. Please check your flow.', 'العقدة {n} فارغة. تحقق من المخطط.', '节点 {n} 为空，请检查流程。'],
   err_infinite_loop: ['Esecuzione interrotta dopo {n} passi: possibile ciclo infinito.', 'Execution stopped after {n} steps: possible infinite loop.', 'توقّف التنفيذ بعد {n} خطوة: حلقة لا نهائية محتملة.', '执行 {n} 步后停止：可能是无限循环。'],
-  err_for_syntax: ['Sintassi del ciclo For non valida: {e}', 'Invalid for loop syntax: {e}', 'صيغة حلقة For غير صالحة: {e}', 'For 循环语法无效：{e}'],
-  err_for_init: ['Sintassi di inizializzazione non valida: {e}', 'Invalid initialization syntax: {e}', 'صيغة التهيئة غير صالحة: {e}', '初始化语法无效：{e}'],
-  err_for_init_expr: ['Nel nodo {n}: espressione di inizializzazione del For non valida {e}', 'In node {n}: invalid for-init expression {e}', 'في العقدة {n}: تعبير تهيئة For غير صالح {e}', '在节点 {n} 中：for 初始化表达式无效 {e}'],
   err_assign_syntax: ['Nel nodo {n}: sintassi di assegnazione errata. Usa [Variabile] = [Valore]', 'In node {n}: wrong assign syntax. Use [Variable] = [Value]', 'في العقدة {n}: صيغة إسناد خاطئة. استخدم [المتغير] = [القيمة]', '在节点 {n} 中：赋值语法错误。请使用 [变量] = [值]'],
-  err_invalid_expr: ['Nel nodo {n}: espressione non valida {e}', 'In node {n}: invalid expression {e}', 'في العقدة {n}: تعبير غير صالح {e}', '在节点 {n} 中：表达式无效 {e}'],
-  err_incr_expr: ['Nel nodo {n}: espressione di incremento non valida {e}', 'In node {n}: invalid increment expression {e}', 'في العقدة {n}: تعبير الزيادة غير صالح {e}', '在节点 {n} 中：递增表达式无效 {e}'],
   err_incr_syntax: ['Nel nodo {n}: sintassi di incremento non valida "{e}". Usa i++, i--, i+=n, i-=n oppure i=espressione', 'In node {n}: invalid increment syntax "{e}". Use i++, i--, i+=n, i-=n, or i=expression', 'في العقدة {n}: صيغة زيادة غير صالحة "{e}".', '在节点 {n} 中：递增语法无效 "{e}"。请使用 i++、i--、i+=n、i-=n 或 i=表达式'],
   err_condition: ['Nella condizione: {e}', 'In condition: {e}', 'في الشرط: {e}', '在条件中：{e}'],
+  err_div_zero: ['Nel nodo {n}: divisione per zero.', 'In node {n}: division by zero.', 'في العقدة {n}: القسمة على صفر.', '在节点 {n} 中：除以零。'],
+  err_type_mismatch: ['Nel nodo {n}: non puoi assegnare un valore di tipo {got} a una variabile di tipo {type}.', 'In node {n}: cannot assign a {got} value to a {type} variable.', 'في العقدة {n}: لا يمكن إسناد قيمة من النوع {got} إلى متغير من النوع {type}.', '在节点 {n} 中：无法将 {got} 类型的值赋给 {type} 类型的变量。'],
   err_input_int: ['Input non valido. Devi inserire un numero intero.', 'Invalid input. You have to insert an integer number.', 'إدخال غير صالح. يجب إدخال عدد صحيح.', '输入无效。必须输入一个整数。'],
   err_input_real: ['Input non valido. Devi inserire un numero reale.', 'Invalid input. You have to insert a real number.', 'إدخال غير صالح. يجب إدخال عدد حقيقي.', '输入无效。必须输入一个实数。'],
   err_graphics_expr: ['Nel nodo {n}: espressione grafica non valida "{e}"', 'In node {n}: invalid graphics expression "{e}"', 'في العقدة {n}: تعبير رسومي غير صالح "{e}"', '在节点 {n} 中：图形表达式无效 "{e}"'],
+  // S11 P13.3 (round 15-B, Ismail 2026-07-15): Turn eseguito senza direzione scelta
+  // (Destra/Sinistra) -- a editing resta neutro (nessun errore), solo l'esecuzione lo segnala.
+  err_turn_no_dir: ['Nel nodo {n}: il blocco Turn non ha una direzione (Destra/Sinistra) impostata.', 'In node {n}: the Turn block has no direction (Right/Left) set.', 'في العقدة {n}: كتلة Turn لا تحتوي على اتجاه محدد (يمين/يسار).', '在节点 {n} 中：转向（Turn）方块未设置方向（右/左）。'],
   ok:          ['OK', 'OK', 'موافق', '确定'],
   runtime_error: ['Errore di esecuzione', 'Runtime error', 'خطأ أثناء التنفيذ', '运行时错误'],
   rt_block:      ['blocco', 'block', 'الكتلة', '方块'],
@@ -310,7 +307,11 @@ const I18N = {
   load_parse_err: ['Errore nel file JSON: {msg}', 'Error parsing JSON file: {msg}', 'خطأ في تحليل ملف JSON: {msg}', 'JSON 文件解析错误：{msg}'],
   dup_branch_unsupported: ['I blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.', 'Blocks with branches (if/loops) cannot be deep-duplicated yet.', 'لا يمكن حاليًا نسخ الكتل ذات الفروع (إذا/حلقات) نسخًا عميقًا.', '带分支的方块（如果/循环）暂不支持深度复制。'],
   export_downloaded: ['{label} scaricato come {file}!', '{label} downloaded as {file}!', 'تم تنزيل {label} باسم {file}!', '{label} 已下载为 {file}！'],
-  pdf_unavailable: ["PDF export non disponibile: la libreria jsPDF non e' stata caricata (serve connessione a Internet).", 'PDF export unavailable: the jsPDF library did not load (an Internet connection is required).', 'تصدير PDF غير متاح: لم يتم تحميل مكتبة jsPDF (يلزم اتصال بالإنترنت).', 'PDF 导出不可用：未能加载 jsPDF 库（需要互联网连接）。'],
+  // S9 P9.1 (round 15-B, Ismail 2026-07-15): la libreria PDF e' ora locale (js/vendor/), non
+  // piu' da CDN -- il messaggio non parla piu' di "connessione a Internet" (fuorviante ora
+  // che funziona offline), resta un avviso generico per il raro caso in cui lo script non
+  // si carichi comunque.
+  pdf_unavailable: ["PDF export non disponibile: la libreria PDF non si e' caricata correttamente.", 'PDF export unavailable: the PDF library failed to load.', 'تصدير PDF غير متاح: تعذّر تحميل مكتبة PDF بشكل صحيح.', 'PDF 导出不可用：PDF 库未能正确加载。'],
   // ---- WP-B / B3 (round 11): Salva vs Salva con nome ----
   save_as: ['Salva con nome', 'Save as', 'حفظ باسم', '另存为'],
   // ---- WP-A / A1+A4 (round 11): campo Assegna a 2 righe + newline Output ----
@@ -357,9 +358,37 @@ const I18N = {
   // exportUnified.js: avviso blocchi non validi + placeholder flowchart vuoto + istruzioni PDF.
   export_invalid_warn: ['{n} blocco/i con contenuto non valido ({list}): il codice potrebbe essere incompleto.', '{n} block(s) with invalid content ({list}): the generated code might be incomplete.', '{n} كتلة/كتل تحتوي محتوى غير صالح ({list}): قد يكون الكود الناتج غير مكتمل.', '{n} 个方块内容无效（{list}）：生成的代码可能不完整。'],
   export_empty:   ['Flowchart vuoto', 'Empty flowchart', 'مخطط فارغ', '空流程图'],
-  pdf_instructions: ['Esportazione PDF: clicca "{btn}" per salvare il diagramma come PDF di una pagina (ritagliato al contenuto).', 'PDF export: click "{btn}" to save the diagram as a one-page PDF (cropped to content).', 'تصدير PDF: انقر على "{btn}" لحفظ المخطط كملف PDF من صفحة واحدة (مقصوص حسب المحتوى).', 'PDF 导出：点击"{btn}"将图表保存为单页 PDF（按内容裁剪）。']
+  pdf_instructions: ['Esportazione PDF: clicca "{btn}" per salvare il diagramma come PDF di una pagina (ritagliato al contenuto).', 'PDF export: click "{btn}" to save the diagram as a one-page PDF (cropped to content).', 'تصدير PDF: انقر على "{btn}" لحفظ المخطط كملف PDF من صفحة واحدة (مقصوص حسب المحتوى).', 'PDF 导出：点击"{btn}"将图表保存为单页 PDF（按内容裁剪）。'],
   // R13-K (Ismail 2026-07-12): manual_link (WP-D5) rimossa -- il manuale non e' piu' un link
   // nel footer (vedi la nuova chiave "manual", pulsante libro in toolbar, sopra nel file).
+  // ---- S3 P8.4 (round 15-B, Ismail 2026-07-15): etichette V/F/Prossimo/Fatto degli archi
+  // IF/ciclo (prima "True"/"False"/"Next"/"Done" hard-coded in rendering.js, mai tradotte),
+  // messaggio iniziale della console, testi statici del footer -- ora tradotti come il resto.
+  label_true:     ['Vero', 'True', 'صحيح', '真'],
+  label_false:    ['Falso', 'False', 'خطأ', '假'],
+  label_next:     ['Prossimo', 'Next', 'التالي', '下一步'],
+  label_done:     ['Fatto', 'Done', 'تم', '完成'],
+  console_ready:  ['> Console pronta...', '> Console ready...', '> الطرفية جاهزة...', '> 控制台就绪...'],
+  footer_credits: ['Creato da Matteo Artifoni e Ismail Barakat | Progetto educativo open source.', 'Created by Matteo Artifoni and Ismail Barakat | Open source educational project.', 'من إنشاء Matteo Artifoni وIsmail Barakat | مشروع تعليمي مفتوح المصدر.', '由 Matteo Artifoni 和 Ismail Barakat 创建 | 开源教育项目。'],
+  footer_thanks_pre: ['Grazie a', 'Thanks to', 'شكرًا لـ', '感谢'],
+  footer_thanks_post: ['e alle altre librerie open source.', 'and other open source libraries.', 'وباقي المكتبات مفتوحة المصدر.', '以及其他开源库。'],
+  footer_privacy: ['Informativa sulla privacy', 'Privacy Policy', 'سياسة الخصوصية', '隐私政策'],
+  footer_cookie:  ['Informativa sui cookie', 'Cookie Policy', 'سياسة ملفات تعريف الارتباط', 'Cookie 政策'],
+  footer_portfolio: ['Portfolio', 'Portfolio', 'السيرة الذاتية', '作品集'],
+  // ---- S3 P3.2 (round 15-B, Ismail 2026-07-15): revisione testi err_* NON di competenza di
+  // Fable (che possiede err_div_zero/err_type_mismatch, casi gravi round 15 WP-2) -- testi
+  // resi meno tecnici (es. "identificatore non permesso" instradato da _evalErrMsg su
+  // err_not_declared_node ora dice chiaramente "la variabile ... non e' stata dichiarata"),
+  // placeholder {n}/{v}/{e} invariati (usati da execute.js/errMsg, non toccati).
+  err_not_declared_node: ['Nel nodo {n}: la variabile "{v}" non è stata dichiarata.', 'In node {n}: the variable "{v}" has not been declared.', 'في العقدة {n}: المتغيّر "{v}" لم يتم تعريفه.', '在节点 {n} 中：变量 "{v}" 尚未声明。'],
+  err_not_declared: ['La variabile "{v}" non è stata dichiarata.', 'The variable "{v}" has not been declared.', 'المتغيّر "{v}" لم يتم تعريفه.', '变量 "{v}" 尚未声明。'],
+  err_var_not_declared: ["Impossibile leggere l'input: la variabile \"{v}\" non è stata dichiarata.", 'Cannot read input: the variable "{v}" has not been declared.', 'تعذّرت قراءة الإدخال: المتغيّر "{v}" لم يتم تعريفه.', '无法读取输入：变量 "{v}" 尚未声明。'],
+  err_empty_node: ['Il nodo {n} è vuoto: inserisci il contenuto prima di eseguire.', 'Node {n} is empty: fill it in before running.', 'العقدة {n} فارغة: أدخل محتواها قبل التنفيذ.', '节点 {n} 为空：请先填写内容再执行。'],
+  err_for_syntax: ['Il ciclo Per non è scritto correttamente: {e}', 'The For loop is not written correctly: {e}', 'حلقة "لأجل" غير مكتوبة بشكل صحيح: {e}', 'For 循环写法不正确：{e}'],
+  err_for_init: ["L'inizializzazione del ciclo Per non è valida: {e}", "The For loop's initialization is not valid: {e}", 'تهيئة حلقة "لأجل" غير صالحة: {e}', 'For 循环的初始化无效：{e}'],
+  err_for_init_expr: ["Nel nodo {n}: l'espressione di inizializzazione del ciclo Per non è valida: {e}", 'In node {n}: the For loop initialization expression is not valid: {e}', 'في العقدة {n}: تعبير تهيئة حلقة "لأجل" غير صالح: {e}', '在节点 {n} 中：For 循环的初始化表达式无效：{e}'],
+  err_invalid_expr: ['Nel nodo {n}: espressione non valida: {e}', 'In node {n}: invalid expression: {e}', 'في العقدة {n}: تعبير غير صالح: {e}', '在节点 {n} 中：表达式无效：{e}'],
+  err_incr_expr: ["Nel nodo {n}: l'espressione di incremento non è valida: {e}", 'In node {n}: the increment expression is not valid: {e}', 'في العقدة {n}: تعبير الزيادة غير صالح: {e}', '在节点 {n} 中：递增表达式无效：{e}']
 };
 
 function i18nText(key) {
@@ -369,71 +398,84 @@ function i18nText(key) {
   return entry[idx >= 0 ? idx : 0];
 }
 
-// Traduzione con segnaposto {nome} (Ismail 2026-07-09d): usata per i messaggi d'errore
-// runtime, che contengono parti dinamiche (numero del nodo, nome della variabile, dettaglio).
+// Come i18nText, ma sostituisce i placeholder {nome} nel testo risolto con i valori
+// dell'oggetto `params` (es. i18nFormat('err_div_zero', {n: 3}) -> "Nel nodo 3: ...").
 function i18nFormat(key, params) {
   let s = i18nText(key);
-  if (s == null) return null;
-  if (params) for (const k in params) { s = s.split('{' + k + '}').join(String(params[k])); }
+  if (s === null || s === undefined) return null;
+  if (params) {
+    Object.keys(params).forEach(function (k) {
+      s = s.split('{' + k + '}').join(params[k]);
+    });
+  }
   return s;
 }
-// Messaggio d'errore localizzato con fallback alla chiave (le chiavi err_* esistono sempre).
+
+// Alias semantico di i18nFormat usato dai messaggi di errore runtime (execute.js/
+// throwError): stesso meccanismo, fallback sulla chiave stessa se la traduzione manca
+// (mai una stringa vuota/undefined mostrata in un popup di errore).
 function errMsg(key, params) {
-  const s = i18nFormat(key, params);
-  return (s != null) ? s : key;
+  return i18nFormat(key, params) || key;
 }
 
+// RECOVERY NOTE (Ismail 2026-07-15, round 15-B S3): applyLanguage/setLanguage/
+// loadLanguagePreference sono state ricostruite dopo un troncamento accidentale del file
+// durante un edit di S3 (il resto del file, incluso l'intero oggetto I18N, non e' stato
+// toccato). Comportamento verificato contro tools/i18n-audit.js (smoke test
+// runApplyLanguageSmoke) e tutti i call-site nel resto del codebase: data-i18n/-ph/-title
+// (applyLanguage sostituisce testo/placeholder/title), setLanguage(this.value) inline in
+// index.html (#lang-select), sync di #lang-select in settings.js/openSettingsPopup,
+// R14-E _bfSidebarLiveResizeTick (init.js riga 9, applyLanguage elencata esplicitamente
+// tra le sorgenti che devono passare dal tick condiviso invece di updateZoomOffset/
+// centerGraph diretti), loadLanguagePreference chiamata da init.js/window.onload.
 function applyLanguage(lang) {
-  if (I18N_LANGS.indexOf(lang) === -1) lang = 'it';
-  // BUGFIX R13-A (2026-07-12): currentLang non veniva MAI aggiornata qui, quindi
-  // i18nText()/i18nFormat() (che leggono currentLang, non il parametro `lang`)
-  // continuavano a restituire sempre l'italiano: il cambio lingua sembrava "non fare
-  // nulla" tranne impostare dir=rtl per l'arabo (quello sotto usa `lang`, non
-  // currentLang, quindi funzionava). Va assegnata PRIMA di leggere le traduzioni.
   currentLang = lang;
-  if (typeof document === 'undefined' || !document.querySelectorAll) return;
-  // testo
+  try { localStorage.setItem(I18N_STORAGE_KEY, lang); } catch (e) {}
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  document.documentElement.setAttribute('lang', lang);
+  const ls = document.getElementById('lang-select');
+  if (ls) ls.value = lang;
+
   document.querySelectorAll('[data-i18n]').forEach(function (el) {
     const t = i18nText(el.getAttribute('data-i18n'));
     if (t !== null && t !== undefined) el.textContent = t;
   });
-  // placeholder
   document.querySelectorAll('[data-i18n-ph]').forEach(function (el) {
     const t = i18nText(el.getAttribute('data-i18n-ph'));
     if (t !== null && t !== undefined) el.setAttribute('placeholder', t);
   });
-  // title (tooltip)
   document.querySelectorAll('[data-i18n-title]').forEach(function (el) {
     const t = i18nText(el.getAttribute('data-i18n-title'));
     if (t !== null && t !== undefined) el.setAttribute('title', t);
   });
-  // direzione: arabo = RTL
-  if (document.documentElement) {
-    document.documentElement.setAttribute('lang', lang);
-    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+
+  // Ridisegna il canvas: etichette nodi (nodeDisplayLabel, state.js) e le label V/F/
+  // Prossimo/Fatto degli archi IF/ciclo (S3 P8.4, rendering.js) seguono la lingua attiva.
+  if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+
+  // R14-E: tick condiviso invece di updateZoomOffset()/centerGraph() diretti -- il cambio
+  // lingua puo' cambiare la direzione RTL/LTR e quindi lo spazio disponibile per il
+  // canvas. Stesso pattern/fallback di run()/closeConsole() (execute.js) e
+  // toggleVariables() (variables.js).
+  if (typeof _bfSidebarLiveResizeTick === 'function') {
+    _bfSidebarLiveResizeTick();
+    setTimeout(_bfSidebarLiveResizeTick, 240);
+  } else if (typeof window !== 'undefined') {
+    if (typeof window.syncLayoutVars === 'function') window.syncLayoutVars();
+    if (typeof updateZoomOffset === 'function') updateZoomOffset();
+    if (typeof centerGraph === 'function') centerGraph();
   }
-  const sel = document.getElementById('lang-select');
-  if (sel && sel.value !== lang) sel.value = lang;
-  // Ridisegna il canvas: i nomi dei blocchi (Start/End/If/While/...) seguono la lingua.
-  try { if (typeof draw === 'function' && typeof nodi !== 'undefined' && nodi) draw(nodi); } catch (e) { /* non bloccante */ }
-  try { if (typeof updateVarTypeOptions === 'function') updateVarTypeOptions(); } catch (e) {}
-  try { if (typeof localStorage !== 'undefined') localStorage.setItem(I18N_STORAGE_KEY, lang); } catch (e) { /* non bloccante */ }
-  // R14-E (Ismail 2026-07-13): il cambio lingua (arabo = RTL) specchia sidebar/console
-  // (piano: "W_avail tra console e sidebar si scambiano lato") -- prima NESSUNA chiamata
-  // ricentrava il grafo dopo un cambio lingua. Stesso tick condiviso di ogni altro trigger
-  // (drag sidebar/console, resize, zoom): syncLayoutVars -> updateZoomOffset -> centerGraph.
-  try { if (typeof _bfSidebarLiveResizeTick === 'function') _bfSidebarLiveResizeTick(); else if (typeof centerGraph === 'function') centerGraph(); } catch (e) { /* non bloccante */ }
 }
 
 function setLanguage(lang) { applyLanguage(lang); }
 
+// Chiamata da js/core/init.js (window.onload) per applicare la lingua salvata (o 'it' di
+// default) prima del primo draw.
 function loadLanguagePreference() {
-  let lang = 'it';
+  let lang = currentLang;
   try {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(I18N_STORAGE_KEY);
-      if (saved && I18N_LANGS.indexOf(saved) !== -1) lang = saved;
-    }
-  } catch (e) { lang = 'it'; }
+    const saved = localStorage.getItem(I18N_STORAGE_KEY);
+    if (saved && I18N_LANGS.indexOf(saved) !== -1) lang = saved;
+  } catch (e) {}
   applyLanguage(lang);
 }

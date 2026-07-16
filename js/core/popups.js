@@ -93,6 +93,8 @@ function _bfCloseOverlayById(id) {
   if (id === 'for-popup' && typeof closeForPopup === 'function') { closeForPopup(); return; }
   if (id === 'settings-popup' && typeof closeSettingsPopup === 'function') { closeSettingsPopup(); return; }
   if (id === 'draw-popup' && typeof closeTurtleDialog === 'function') { closeTurtleDialog(); return; }
+  // P (round 15, Ismail): editor "crea tema" -- ora Esc lo chiude come gli altri popup.
+  if (id === 'theme-editor' && typeof cancelThemeEditor === 'function') { cancelThemeEditor(); return; }
   // R14-D (Ismail 2026-07-13): manuale in-app (overlay + iframe verso manual.html).
   if (id === 'manual-overlay' && typeof closeManualOverlay === 'function') { closeManualOverlay(); return; }
   // R13-L (Ismail 2026-07-12): popover valori lunghi (variables.js) -- registrato qui per
@@ -170,9 +172,11 @@ function showStyledAlert(message, opts) {
 // sulla STESSA modale stilizzata di showStyledConfirm. Usato da Nuovo, Ricarica (Ctrl+R) e
 // Apri, cosi' i tre avvisi hanno aspetto moderno e identico. onSave/onDiscard/onCancel sono
 // callback (FIRMA INVARIATA). Gerarchia verticale (pattern VS Code/macOS): Salva primario a
-// tutta larghezza (azione sicura, focus di default, Enter = Salva), sotto una riga "ghost"
-// con Non salvare (rosso, subordinato) e Annulla; X in alto a destra ed Esc equivalgono ad
-// Annulla (stessa identica callback del pulsante ghost Annulla).
+// tutta larghezza (azione sicura, focus di default, Enter = Salva), sotto Non salvare (rosso,
+// subordinato). P2.1 (round 15-B S1, Ismail 2026-07-15): tolto il pulsante "Annulla" -- la X
+// in alto a destra (ed Esc) fanno gia' da annulla con la STESSA identica callback (doCancel),
+// un pulsante ridondante in meno = pattern piu' pulito e uniforme con gli altri popup di
+// salvataggio (2 soli pulsanti, niente "Annulla" testuale in nessuno).
 function showUnsavedDialog(opts) {
   opts = opts || {};
   const t = function (k, fb) { return (typeof i18nText === 'function' && i18nText(k)) || fb; };
@@ -215,15 +219,13 @@ function showUnsavedDialog(opts) {
   saveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg><span>' + t('save', 'Salva') + '</span>';
   saveBtn.onclick = function () { _bfCloseModal(); if (typeof opts.onSave === 'function') opts.onSave(); };
 
-  // Riga secondaria "ghost", subordinata: Non salvare (danger) + Annulla.
+  // Riga secondaria "ghost", subordinata: SOLO Non salvare (danger) -- P2.1: niente piu'
+  // pulsante "Annulla" qui, X/Esc coprono gia' esattamente la stessa azione (doCancel).
   const ghostRow = document.createElement('div'); ghostRow.className = 'bf-modal-ghost-row';
   const discardBtn = document.createElement('button');
   discardBtn.className = 'bf-modal-btn bf-modal-btn-ghost-danger'; discardBtn.textContent = t('dont_save', 'Non salvare');
   discardBtn.onclick = function () { _bfCloseModal(); if (typeof opts.onDiscard === 'function') opts.onDiscard(); };
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'bf-modal-btn bf-modal-btn-ghost'; cancelBtn.textContent = t('cancel', 'Annulla');
-  cancelBtn.onclick = doCancel;
-  ghostRow.appendChild(discardBtn); ghostRow.appendChild(cancelBtn);
+  ghostRow.appendChild(discardBtn);
 
   acts.appendChild(saveBtn); acts.appendChild(ghostRow);
   m.hidden = false;
@@ -266,6 +268,9 @@ function openBlockHelp(type) {
   pop.classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
   _bfPushOverlay('block-help-popup'); // R13-F: registro condiviso Esc
+  // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js) -- il "?" apre SOPRA
+  // l'host (edit-node/for/turtle/settings) gia' aperto, coerente col raise-on-click.
+  if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(pop);
 }
 function closeBlockHelp() {
   const pop = document.getElementById('block-help-popup'); if (pop) pop.classList.remove('active');
@@ -283,22 +288,89 @@ function closeBlockHelp() {
 // altri popup) perche' va sopra le "finestre" (console/palette/disegno) invece che sotto
 // (vedi z-index dedicato in style.css) -- coerente comunque con lo STESSO stack Esc condiviso
 // R13-F (_bfPushOverlay/_bfPopOverlay/_bfCloseOverlayById sopra).
+// P10.1 (round 15-B S10, Ismail 2026-07-15): da qui in poi #manual-overlay e' una FINESTRA
+// vera (ridimensionabile/spostabile, raise-on-click), non piu' un overlay a schermo intero
+// con sfondo scurito -- tolto quindi il "click fuori chiude" (i popup a finestra, es.
+// console/palette, non lo fanno: si chiude solo con X/Esc). bfBringToFront la porta subito
+// sopra le altre finestre gia' aperte all'apertura, non solo al click successivo (stesso
+// pattern di showTurtlePanel() in draw.js).
 function openManualOverlay() {
   const ov = document.getElementById('manual-overlay');
   const ifr = document.getElementById('manual-iframe');
   // Carica l'iframe SOLO alla prima apertura: dopo resta in memoria (nessun ricaricamento),
   // cosi' riaprendo il manuale si ritrova lo stesso capitolo/scroll di prima nella sessione.
   if (ifr && !ifr.getAttribute('src')) ifr.setAttribute('src', 'manual.html');
-  // Click sullo sfondo scuro (fuori dal box) chiude, stesso pattern di .bf-modal -- wired
-  // una volta sola (flag su ov, il nodo e' statico nel DOM).
-  if (ov && !ov._bfWired) {
-    ov._bfWired = true;
-    ov.addEventListener('mousedown', function (e) { if (e.target === ov) closeManualOverlay(); });
+  // NB: flag DIVERSO da _bfWired -- quello e' gia' usato da wireWindows() (ux.js) sullo
+  // stesso elemento per il raise-on-click (WINDOW_IDS), che gira al window.onload PRIMA che
+  // l'utente apra mai il manuale: riusare _bfWired qui l'avrebbe trovato gia' true al primo
+  // openManualOverlay() e il wiring sotto (drag/resize/rotella) non sarebbe MAI partito.
+  if (ov && !ov._bfManualWired) {
+    ov._bfManualWired = true;
+    _manualSetupDragResize(ov);
+    // P10.2: rotella confinata al manuale mentre e' aperto -- stopPropagation impedisce a un
+    // eventuale listener 'wheel' sul documento/canvas (nessuno oggi, ma protezione a prova di
+    // futuro) di far scorrere/zoomare il canvas sotto mentre si scrolla dentro la finestra del
+    // manuale. overscroll-behavior:contain in CSS copre anche lo scroll-chaining nativo.
+    ov.addEventListener('wheel', function (e) { e.stopPropagation(); }, { passive: true });
   }
   if (ov) ov.classList.add('active');
+  if (typeof bfBringToFront === 'function') bfBringToFront(ov);
   _bfPushOverlay('manual-overlay'); // R13-F: registro condiviso Esc
 }
 if (typeof window !== 'undefined') window.openManualOverlay = openManualOverlay;
+
+// P10.1 (round 15-B S10, Ismail 2026-07-15): drag (dalla barra #manual-overlay-bar) + resize
+// a 8 maniglie (.tg-rz, stessa classe gia' condivisa da pannello tartaruga e terminale
+// mobile) per la finestra del manuale. Stesso schema di _tgSetupDragResize (draw.js) e del
+// resize/drag del terminale mobile (execute.js) ma scritto qui, non condiviso/richiamato
+// direttamente: entrambi i template sono legati a un ID di header o a comportamenti (zoom
+// tela, stato "docked") specifici del loro pannello, non riusabili as-is su #manual-overlay.
+function _manualSetupDragResize(ov) {
+  const bar = document.getElementById('manual-overlay-bar');
+  const MIN_W = 420, MIN_H = 320, MAX_W = 1600, MAX_H = 1200;
+  let dragging = false, dx = 0, dy = 0, ox = 0, oy = 0;
+  if (bar) bar.addEventListener('mousedown', function (e) {
+    if (e.target && e.target.closest && e.target.closest('button')) return;
+    const r = ov.getBoundingClientRect();
+    dragging = true; ox = r.left; oy = r.top; dx = e.clientX; dy = e.clientY;
+    ov.style.left = ox + 'px'; ov.style.top = oy + 'px'; ov.style.transform = 'none'; ov.style.margin = '0';
+    if (document.body && document.body.style) document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  let rz = false, rdir = '', rx = 0, ry = 0, rw = 0, rh = 0, rl = 0, rt = 0;
+  const handles = ov.querySelectorAll('.tg-rz');
+  for (let i = 0; i < handles.length; i++) {
+    handles[i].addEventListener('mousedown', function (e) {
+      const r = ov.getBoundingClientRect();
+      rz = true; rdir = this.getAttribute('data-dir') || 'se';
+      rx = e.clientX; ry = e.clientY; rw = r.width; rh = r.height; rl = r.left; rt = r.top;
+      ov.style.left = rl + 'px'; ov.style.top = rt + 'px'; ov.style.transform = 'none'; ov.style.margin = '0';
+      if (document.body && document.body.style) document.body.style.userSelect = 'none';
+      e.preventDefault(); e.stopPropagation();
+    });
+  }
+  window.addEventListener('mousemove', function (e) {
+    if (dragging) {
+      let nx = ox + (e.clientX - dx), ny = oy + (e.clientY - dy);
+      ov.style.left = nx + 'px'; ov.style.top = ny + 'px';
+    } else if (rz) {
+      const ddx = e.clientX - rx, ddy = e.clientY - ry;
+      let nw = rw, nh = rh, nl = rl, nt = rt;
+      if (rdir.indexOf('e') !== -1) nw = rw + ddx;
+      if (rdir.indexOf('w') !== -1) { nw = rw - ddx; nl = rl + ddx; }
+      if (rdir.indexOf('s') !== -1) nh = rh + ddy;
+      if (rdir.indexOf('n') !== -1) { nh = rh - ddy; nt = rt + ddy; }
+      nw = Math.max(MIN_W, Math.min(MAX_W, nw)); nh = Math.max(MIN_H, Math.min(MAX_H, nh));
+      if (rdir.indexOf('w') !== -1) nl = rl + (rw - nw);
+      if (rdir.indexOf('n') !== -1) nt = rt + (rh - nh);
+      ov.style.width = nw + 'px'; ov.style.height = nh + 'px';
+      ov.style.left = nl + 'px'; ov.style.top = nt + 'px';
+    }
+  });
+  window.addEventListener('mouseup', function () {
+    if (dragging || rz) { dragging = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
+  });
+}
 
 function closeManualOverlay() {
   const ov = document.getElementById('manual-overlay');
@@ -424,9 +496,12 @@ function chiudiPopup() {
         curEl.hidden = true;
       }
     }
-    document.getElementById("save-popup").classList.add("active"); // Mostra il popup di salvataggio
+    const _savePop = document.getElementById("save-popup");
+    _savePop.classList.add("active"); // Mostra il popup di salvataggio
     document.getElementById('overlay').classList.add('active'); // Attiva l'overlay
     _bfPushOverlay('save-popup'); // R13-F: registro condiviso Esc
+    // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
+    if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_savePop);
   }
 
   // Chiude il popup di salvataggio.
@@ -497,9 +572,12 @@ function openForDialog(i) {
   const radios = document.getElementsByName('for-dir');
   for (let r = 0; r < radios.length; r++) radios[r].checked = (radios[r].value === d.dir);
   const _fe = document.getElementById('for-error'); if (_fe) _fe.hidden = true;
-  document.getElementById('for-popup').classList.add('active');
+  const _forPop = document.getElementById('for-popup');
+  _forPop.classList.add('active');
   document.getElementById('overlay').classList.add('active');
   _bfPushOverlay('for-popup'); // R13-F: registro condiviso Esc
+  // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
+  if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_forPop);
 }
 
 function closeForPopup() {

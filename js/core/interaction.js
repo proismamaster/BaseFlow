@@ -241,11 +241,27 @@ function onCanvasMouseMove(event) {
   // rami vuoti quasi OGNI arco tocca la selezione, e l'esclusione rendeva impossibile
   // trovare un bersaglio (drag che "non fa nulla"). La sicurezza la garantiscono le
   // guardie per-passo delle mosse singole + il rollback totale in moveScatteredSelection.
-  for (let i = 0; i < frecce.length; i++) {
+  // R15 (Ismail 2026-07-15, "non mi fa trascinare i blocchi dentro ai cicli annidati,
+  // posso aggiungerli ma non spostarli"): il target del drop va cercato con arcHitTest,
+  // lo STESSO hit-test di click/hover/inserimento (arcIdAtEvent). Dentro un ciclo quasi
+  // ogni arco e' una POLILINEA a L memorizzata in visualExtra (loop_body con lo stub
+  // orizzontale d'ingresso, loop_body_end che scende->va a sx->risale, loop_exit, discese
+  // di ramo): la CORDA dritta inzio->fine NON passa dove l'arco e' realmente disegnato,
+  // quindi il vecchio isPointNearAnyLineSegment(inzio..fine) mancava sistematicamente il
+  // cursore sopra la piega -> best restava -1 e il drop non faceva nulla, MENTRE
+  // l'inserimento (che passa da arcHitTest, quindi controlla anche i visualExtra)
+  // funzionava: da qui il sintomo "aggiungo ma non sposto dentro i cicli padre".
+  // Verificato headless: tutti e 6 i segmenti VE di due while annidati erano mancati dal
+  // vecchio test e trovati da arcHitTest. Iterazione reverse + break come arcIdAtEvent ->
+  // vince l'arco disegnato piu' in alto, cioe' esattamente quello percepito sotto il
+  // cursore (stesso bersaglio che si otterrebbe cliccando li' per inserire).
+  for (let i = frecce.length - 1; i >= 0; i--) {
     const f = frecce[i];
     if (f.fromNodeIndex >= dragNodeIndex && f.fromNodeIndex < dragSubtreeEnd) continue;
     if (f.toNodeIndex !== null && f.toNodeIndex !== undefined && f.toNodeIndex > dragNodeIndex && f.toNodeIndex < dragSubtreeEnd) continue;
-    if (isPointNearAnyLineSegment(mx, my, f.inzioX, f.inzioY, f.fineX, f.fineY, 14)) { best = i; break; }
+    if (typeof arcHitTest === 'function'
+        ? arcHitTest(f, mx, my, 14)
+        : isPointNearAnyLineSegment(mx, my, f.inzioX, f.inzioY, f.fineX, f.fineY, 14)) { best = i; break; }
   }
   dragOverIndex = best;
   if (canvas && canvas.style) canvas.style.cursor = 'grabbing';
@@ -374,6 +390,39 @@ function warnMoveRejected(fnName, reason, details) {
 // posizione (i puntatori 'next' che lo puntavano restano numericamente invariati e,
 // dopo lo splice, puntano correttamente al nodo che lo seguiva), poi lo reinserisce
 // nel punto dell'arco target esattamente come un nuovo inserimento.
+// P5.1 (round 15): quando true e' in corso una CATENA di mosse (moveScatteredSelection): le
+// mosse singole (moveNode/moveRange) NON validano il grafo da sole, perche' gli stati
+// INTERMEDI della catena sono legittimamente non-contigui. La validazione avviene UNA volta
+// sola alla fine della catena. Le mosse singole DIRETTE (drag di un nodo/blocco) hanno invece
+// la rete attiva (flag false).
+let _bfInMoveChain = false;
+
+// R15C (Ismail 2026-07-15, "3 cicli annidati di qualunque tipo: non mi fa trascinare il
+// blocco nel padre di TUTTI, sul pezzo di arco DOPO il primo figlio"): indice di
+// inserimento corretto per una mossa/inserimento ALL'INDIETRO (drop su un back-edge, es.
+// loop_body_end/self-loop/rami if che convergono sull'header, con targetTo <= targetFrom).
+// Il nuovo nodo va posizionato SUBITO DOPO L'INTERO SOTTOALBERO del genitore P, non a P+1.
+// Con P nodo SEMPLICE il sottoalbero e' solo lui -> P+1 (comportamento storico invariato).
+// Ma se P e' esso stesso un ciclo/IF con contenuto ANNIDATO (>=3 livelli), P+1 cade DENTRO
+// il sottoalbero di P e lo spezza: validateFlow segnala "sottoalbero non contiguo" ->
+// inserisciNodo persiste un grafo corrotto (aggiunta) e moveNode viene ANNULLATA dal guard
+// P5.1 (drag "che non fa nulla"). Si usano i confini VERI del sottoalbero
+// (collectFull{Loop,If}SubtreeMembers.blockEnd); fallback prudente a P+1 se la topologia
+// non e' contigua/riconosciuta. Usato in modo IDENTICO da moveNode, moveRange e inserisciNodo.
+function _bfSubtreeEndIndex(idx) {
+  const n = (typeof flow !== 'undefined' && flow.nodes) ? flow.nodes[idx] : null;
+  if (!n) return idx + 1;
+  let info = null;
+  if (n.type === 'if') {
+    info = (typeof collectFullIfSubtreeMembers === 'function') ? collectFullIfSubtreeMembers(idx) : null;
+  } else if (isBranchingNodeType(n.type)) { // while / for / do
+    info = (typeof collectFullLoopSubtreeMembers === 'function') ? collectFullLoopSubtreeMembers(idx) : null;
+  } else {
+    return idx + 1; // nodo semplice: il sottoalbero e' solo lui
+  }
+  return (info && info.contiguous && info.blockEnd != null && info.blockEnd > idx) ? info.blockEnd : idx + 1;
+}
+
 function moveNode(nodeIndex, arrowId) {
   if (nodeIndex < 0 || nodeIndex >= flow.nodes.length) { warnMoveRejected("moveNode", "indice nodo fuori range", { nodeIndex }); return; }
   const nodeLogic = flow.nodes[nodeIndex];
@@ -395,6 +444,8 @@ function moveNode(nodeIndex, arrowId) {
   // supportato e sicuro. I redirect replicano quelli gia' testati di inserisciNodo.
   if (!["normal", "if_true", "if_false", "if_join", "loop_body", "loop_exit", "loop_body_end"].includes(targetType)) { warnMoveRejected("moveNode", "tipo di arco target non supportato", { targetType }); return; }
 
+  const _mnGuardSnap = snapshotState();     // P5.1: stato pulito pre-mossa (per il rollback)
+  const _mnGuardUndoLen = undoStack.length;
   pushHistory(); // snapshot per Undo (prima dello spostamento)
 
   const nodeVisual = nodi[nodeIndex];
@@ -446,7 +497,7 @@ function moveNode(nodeIndex, arrowId) {
   // if_join con targetTo = indice del ciclo, prima di targetFrom = indice dell'IF).
   // Vedi inserisciNodo per la spiegazione completa e PLANS/2026-07-05-nested-while-visuals.md P1.
   const isBackwardMove = (targetTo !== null && targetTo !== undefined && targetTo <= targetFrom);
-  const newActualNodeIndex = isBackwardMove ? (targetFrom + 1) : targetTo;
+  const newActualNodeIndex = isBackwardMove ? _bfSubtreeEndIndex(targetFrom) : targetTo;
   // Il "next" del nodo reinserito punta a dove finisce targetTo dopo lo shift: se
   // targetTo >= newActualNodeIndex verra' spostato in avanti di 1 (caso generico,
   // forward); se targetTo < newActualNodeIndex (caso all'indietro sopra) resta
@@ -561,6 +612,26 @@ function moveNode(nodeIndex, arrowId) {
 
   nodi.splice(newActualNodeIndex, 0, nodeVisual);
 
+  // P5.1 (round 15, 2026-07-13): RETE DI SICUREZZA universale. Se lo spostamento ha prodotto
+  // un grafo corrotto (caso confermato da Ismail: si trascina un nodo che e' il JOIN CONDIVISO
+  // dei due rami dell'if dentro un ramo dell'if stesso, con back-edge di ciclo -> i puntatori
+  // next vengono riscritti male, if.true->while e assign->end), ANNULLA tutto e segnala con un
+  // flash rosso invece di persistere la corruzione silenziosa. validateFlow (utils.js) e' lo
+  // STESSO validatore che rifiuta i file corrotti in apertura (reachability, join calcolabile,
+  // contiguita' dei sottoalberi) -- proprio la classe di questo bug, quindi cattura anche
+  // eventuali ALTRI scenari analoghi non ancora scoperti.
+  if (!_bfInMoveChain && typeof validateFlow === 'function') {
+    const _mnVr = validateFlow(flow);
+    if (!_mnVr || !_mnVr.valid) {
+      restoreState(_mnGuardSnap);            // ripristina lo stato pre-mossa (fa gia' calcoloY+draw)
+      undoStack.length = _mnGuardUndoLen;    // scarta lo snapshot di undo aggiunto dalla mossa
+      if (typeof updateUndoRedoButtons === 'function') updateUndoRedoButtons();
+      if (typeof triggerRejectFlash === 'function') triggerRejectFlash([nodeIndex]);
+      console.warn('[moveGuard] moveNode annullata: avrebbe corrotto il grafo →', _mnVr && _mnVr.errors);
+      return;
+    }
+  }
+
   selectedNodeIdx = -1; // C4 (round 11): indici shiftati -- azzera la selezione visiva
   multiSelected = []; // R12-G: idem per la selezione multipla
   saved = false;
@@ -618,6 +689,8 @@ function moveRange(blockStart, blockEnd, exitIdxOrig, arrowId, fnName) {
   if (targetFrom >= blockStart && targetFrom < blockEnd) { warnMoveRejected(fnName, "genitore dell'arco target dentro il blocco spostato", { targetFrom, blockStart, blockEnd }); return false; }
   if (targetTo !== null && targetTo !== undefined && targetTo > blockStart && targetTo < blockEnd) { warnMoveRejected(fnName, "target dell'arco strettamente dentro il blocco spostato", { targetTo, blockStart, blockEnd }); return false; }
 
+  const _mrGuardSnap = snapshotState();     // P5.1: stato pulito pre-mossa (per il rollback)
+  const _mrGuardUndoLen = undoStack.length;
   pushHistory(); // snapshot per Undo (prima dello spostamento)
 
   const blockLogic = flow.nodes.slice(blockStart, blockEnd);
@@ -661,7 +734,7 @@ function moveRange(blockStart, blockEnd, exitIdxOrig, arrowId, fnName) {
   // e PLANS/2026-07-05-nested-while-visuals.md P1. Il blocco va inserito SUBITO DOPO
   // il genitore, non al posto del target (che qui e' indietro rispetto al blocco).
   const isBackwardMove = (targetTo !== null && targetTo !== undefined && targetTo <= targetFrom);
-  const newActualNodeIndex = isBackwardMove ? (targetFrom + 1) : targetTo;
+  const newActualNodeIndex = isBackwardMove ? _bfSubtreeEndIndex(targetFrom) : targetTo;
   // L'uscita del blocco (newExitRef) normalmente e' in AVANTI (subito dopo il blocco
   // stesso, caso generico); nel caso all'indietro sopra il vecchio target
   // (targetTo, gia' adattato per la rimozione) resta invariato -- e' il back-edge
@@ -792,6 +865,25 @@ function moveRange(blockStart, blockEnd, exitIdxOrig, arrowId, fnName) {
     if (newRelX < minRX) newRelX = minRX;
     if (newRelX > maxRX) newRelX = maxRX;
     rootVisual.relX = newRelX;
+  }
+
+  // P5.1 (round 15): stessa rete di sicurezza di moveNode, per i group-move (moveIfBlock/
+  // moveLoopBlock/moveSelectionGroup delegano qui). Se il range-move corrompe il grafo ->
+  // rollback totale + flash rosso sul blocco tentato, mai corruzione persistita.
+  if (!_bfInMoveChain && typeof validateFlow === 'function') {
+    const _mrVr = validateFlow(flow);
+    if (!_mrVr || !_mrVr.valid) {
+      restoreState(_mrGuardSnap);
+      undoStack.length = _mrGuardUndoLen;
+      if (typeof updateUndoRedoButtons === 'function') updateUndoRedoButtons();
+      if (typeof triggerRejectFlash === 'function') {
+        const _mrFlash = [];
+        for (let _i = blockStart; _i < blockEnd; _i++) _mrFlash.push(_i);
+        triggerRejectFlash(_mrFlash);
+      }
+      console.warn('[moveGuard] ' + fnName + ' annullata: avrebbe corrotto il grafo →', _mrVr && _mrVr.errors);
+      return false;
+    }
   }
 
   selectedNodeIdx = -1; // C4 (round 11): indici shiftati -- azzera la selezione visiva
@@ -959,6 +1051,7 @@ function moveScatteredSelection(arrowId) {
   const CONT_TYPES = ["normal", "if_join", "loop_exit", "loop_body_end"];
 
   let ok = true, reason = "";
+  _bfInMoveChain = true; // P5.1: durante la catena le mosse singole non validano da sole
   for (let k = 0; k < units.length; k++) {
     let stepArcId;
     if (k === 0) {
@@ -979,6 +1072,7 @@ function moveScatteredSelection(arrowId) {
     else moveNode(rIdx, stepArcId);
     if (JSON.stringify(flow.nodes) === beforeSig) { ok = false; reason = "passo " + k + " rifiutato dalla mossa singola"; break; }
   }
+  _bfInMoveChain = false; // fine catena: le mosse singole tornano a validarsi da sole
 
   if (!ok) {
     warnMoveRejected("moveScatteredSelection", reason + " -> rollback totale, nessuna modifica applicata", {});
@@ -995,6 +1089,21 @@ function moveScatteredSelection(arrowId) {
   const newRoots = [];
   for (let k = 0; k < units.length; k++) { const i2 = idxByTag(k); if (i2 !== -1) newRoots.push(i2); }
   cleanupTags();
+  // P5.1 (round 15): validazione FINALE della catena (una sola volta -- gli stati intermedi
+  // sono legittimamente non-contigui, per questo NON si valida per-passo). Se il risultato
+  // finale e' corrotto -> rollback totale, esattamente come un passo rifiutato.
+  if (typeof validateFlow === 'function') {
+    const _msVr = validateFlow(flow);
+    if (!_msVr || !_msVr.valid) {
+      warnMoveRejected("moveScatteredSelection", "grafo finale non valido -> rollback totale", { errors: _msVr && _msVr.errors });
+      undoStack.length = undoLenBefore;
+      restoreState(snap);
+      updateUndoRedoButtons();
+      triggerRejectFlash(_multiSelectMemberSet());
+      if (typeof draw === "function") draw(nodi);
+      return false;
+    }
+  }
   multiSelected = newRoots;
   // Collassa gli N snapshot della catena in UNO (il pre-catena): un solo Ctrl+Z.
   if (undoStack.length > undoLenBefore + 1) undoStack.length = undoLenBefore + 1;
@@ -1144,6 +1253,10 @@ function snapshotState() {
   return { flow: JSON.parse(JSON.stringify(flow)), nodi: JSON.parse(JSON.stringify(nodi)) };
 }
 function pushHistory() {
+  // G1+G2a (Ismail 2026-07-14): pushHistory() e' chiamato all'inizio di OGNI mutazione strutturale
+  // (insert/move/delete/edit) -> punto unico per azzerare l'evidenziazione dell'esecuzione ed
+  // evitare l'arco/nodo "fantasma" congelato (executingEdge.litGroup con coordinate assolute vecchie).
+  if (typeof _bfAbortExecOnEdit === 'function') _bfAbortExecOnEdit();
   undoStack.push(snapshotState());
   if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
   redoStack = [];
@@ -1231,7 +1344,9 @@ function inserisciNodo(tipo) {
   // casi particolari della stessa regola, invece di un terzo caso speciale a parte.
   const isBackwardInsert = originalTargetNodeIndex <= parentNodeIndex;
   if (isBackwardInsert) {
-    newActualNodeIndex = parentNodeIndex + 1;
+    // R15C: dopo l'INTERO sottoalbero del genitore, non a parentNodeIndex+1 (che con un
+    // genitore ciclo/IF annidato cadrebbe DENTRO il suo sottoalbero e lo spezzerebbe).
+    newActualNodeIndex = _bfSubtreeEndIndex(parentNodeIndex);
   }
 
   // 1) Creazione del nuovo nodo logico
@@ -1554,10 +1669,12 @@ function inserisciNodo(tipo) {
         // selezione multipla, alternativo al flusso C4 a 2 click qui sotto. Solo desktop:
         // nessun equivalente touch in questo round (il long-press di D4 resta libero per
         // il suo scopo attuale -- annotato nel report).
-        // R13-H (Ismail 2026-07-12): Ctrl+Shift+click PRIMA del semplice Ctrl+click sotto
-        // (stesso tasto modificatore base, va controllato il caso piu' specifico prima) --
-        // range di selezione dall'ancora (_multiSelAnchor) fino a questa unita'.
-        if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
+        // S5/P4.2 (round 15-B, Ismail 2026-07-15): il trigger del range passa da
+        // Ctrl+Shift+click a Shift SEMPLICE (Ctrl da solo resta il toggle sotto,
+        // invariato). Shift vince sempre quando premuto, anche se per caso e' tenuto
+        // insieme a Ctrl -- nessuna combinazione "orfana", Shift e' ora l'UNICO trigger
+        // del range di selezione dall'ancora (_multiSelAnchor) fino a questa unita'.
+        if (event.shiftKey) {
           rangeSelectTo(i);
           return;
         }
@@ -1756,71 +1873,132 @@ function inserisciNodo(tipo) {
   }
 
   // ============================================================================
-  // R13-H (Ismail 2026-07-12): Ctrl+Shift+click -- selezione a RANGE fra l'ancora
-  // (_multiSelAnchor, state.js: radice dell'ULTIMA unita' aggiunta) e l'unita' appena
-  // cliccata, ESTREMI INCLUSI. Riusa _unitInfo/_predecessorsOf (gia' in questo file, R12-G/
-  // R13-B) -- NESSUN nuovo walker della struttura logica: si cammina per RADICI di unita'
-  // consecutive (mai per indici grezzi), esattamente come validateSelectionUnitsSameLevel
-  // valida una selezione di gruppo, ma qui in ENTRAMBE le direzioni (il target puo' stare
-  // prima O dopo l'ancora nel flusso) fino a raggiungere un'unita' che CONTIENE il nodo
-  // cliccato (se il click e' su un nodo annidato dentro una sorella, l'INTERA unita' sorella
-  // entra nel range -- if/cicli restano sempre unita' intere, mai mezzi blocchi).
+  // R13-H (Ismail 2026-07-12), riscritta per S5/P4.2 (round 15-B, Ismail 2026-07-15) --
+  // selezione a RANGE fra l'ancora (_multiSelAnchor, state.js: ultimo nodo cliccato) e
+  // l'unita' appena cliccata (Shift+click, vedi clickNodo sopra), ESTREMI INCLUSI. Riusa
+  // _unitInfo/_predecessorsOf (gia' in questo file, R12-G/R13-B) -- NESSUN nuovo walker
+  // della struttura logica.
+  //
+  // Regola di Ismail (piano S5): si cammina da ancora ad arrivo per UNITA'; se un estremo
+  // cade dentro un'unita' composta (if/ciclo), quell'unita' va presa INTERA (entrambi i
+  // rami per un if) SOLO SE il range la deve ATTRAVERSARE per uscirne (l'altro estremo sta
+  // fuori); se entrambi gli estremi restano dentro lo stesso genitore diretto, la selezione
+  // resta INTERNA (mai l'intero genitore, mai l'altro ramo).
+  //
+  // Differenza dalla R13-H originale: quella camminava SOLO per unita' gia' "di confine"
+  // (il passo successivo doveva essere immediatamente un'unita' valida, altrimenti rifiuto
+  // secco) -- non gestiva il caso in cui l'ancora/l'arrivo sono nodi ANNIDATI dentro un
+  // ramo e il range deve "uscire" da quel ramo: il punto di giuntura condiviso (il join di
+  // un if, o il back-edge di un ciclo verso l'antenato) veniva visto come un confine
+  // insormontabile e la selezione falliva anche quando l'espansione all'intero genitore
+  // era la risposta corretta e ovvia (lo scenario reale di Ismail: assign -> while[input]
+  // -> if[output], Shift da output a input deve prendere if+while interi).
   // ============================================================================
 
-  // Estende `chain` (array di _unitInfo, in ordine) in AVANTI a partire dall'ULTIMA unita',
-  // finche' non trova un'unita' che contiene targetIdx fra i suoi membri, oppure si ferma
-  // (ritorna null) se il prossimo passo non esiste, e' start/end, o il punto di giuntura e'
-  // CONDIVISO con qualcosa fuori dalla catena finora accumulata (stesso identico criterio di
-  // validateSelectionUnitsSameLevel -- mai attraversare un confine di annidamento).
-  function _extendChainForward(chain, targetIdx) {
-    const accumulated = new Set();
-    chain.forEach(function (u) { u.members.forEach(function (m) { accumulated.add(m); }); });
-    let guard = 0;
-    while (guard++ < 5000) {
-      const last = chain[chain.length - 1];
-      const nextRoot = last.exit;
-      if (nextRoot === null || nextRoot === undefined || !flow.nodes[nextRoot]) return null;
-      const nextNode = flow.nodes[nextRoot];
-      if (nextNode.type === 'start' || nextNode.type === 'end') return null;
-      const preds = _predecessorsOf(last.exit);
-      for (let p = 0; p < preds.length; p++) { if (!accumulated.has(preds[p])) return null; }
-      const nextUnit = _unitInfo(nextRoot);
-      if (!nextUnit) return null;
-      chain.push(nextUnit);
-      nextUnit.members.forEach(function (m) { accumulated.add(m); });
-      if (nextUnit.members.has(targetIdx)) return nextUnit;
-    }
-    return null; // guard di sicurezza: non dovrebbe mai scattare su un grafo ben formato
-  }
-
-  // Simmetrico di _extendChainForward, ma all'INDIETRO a partire dalla PRIMA unita' della
-  // catena: cerca un predecessore la cui unita' copra esattamente fino a chain[0].blockStart
-  // E il cui insieme di membri contenga TUTTI i predecessori del punto di giuntura (stesso
-  // criterio "nessun confine di annidamento attraversato", specchiato).
-  function _extendChainBackward(chain, targetIdx) {
-    let guard = 0;
-    while (guard++ < 5000) {
-      const first = chain[0];
-      const preds = _predecessorsOf(first.blockStart);
-      if (!preds.length) return null;
-      let found = null;
-      for (let k = 0; k < preds.length; k++) {
-        const candRoot = preds[k];
-        const candUnit = _unitInfo(candRoot);
-        if (!candUnit || candUnit.blockEnd !== first.blockStart) continue;
-        if (preds.every(function (pr) { return candUnit.members.has(pr); })) { found = candUnit; break; }
+  // P4.2: trova il genitore strutturale immediato di una catena (l'if/ciclo il cui
+  // sottoalbero COMPLETO, via _unitInfo, contiene l'intero intervallo [chain[0].blockStart,
+  // chain[ultimo].blockEnd) come parte propria, mai coincidente). La scansione procede
+  // ALL'INDIETRO dall'indice appena precedente all'inizio della catena: ogni nodo ha sempre
+  // indice maggiore del proprio genitore diretto (la radice di un blocco e' sempre creata
+  // prima del suo contenuto) e i blocchi sono intervalli contigui (garantito da
+  // collectFull*SubtreeMembers) -- quindi il PRIMO candidato trovato scansionando
+  // all'indietro e' per costruzione il genitore piu' VICINO (il piu' interno): non serve
+  // confrontare piu' candidati fra loro. Nessun antenato -> null (siamo gia' al livello
+  // piu' esterno, un vero rifiuto se il target non si trova).
+  function _enclosingUnit(chain) {
+    if (!chain.length) return null;
+    const lo = chain[0].blockStart;
+    const hi = chain[chain.length - 1].blockEnd;
+    for (let cand = lo - 1; cand >= 0; cand--) {
+      const n = flow.nodes[cand];
+      if (!n || !isBranchingNodeType(n.type)) continue;
+      const u = _unitInfo(cand);
+      if (!u) continue;
+      if (u.blockStart <= lo && u.blockEnd >= hi && !(u.blockStart === lo && u.blockEnd === hi)) {
+        return u;
       }
-      if (!found) return null;
-      chain.unshift(found);
-      if (found.members.has(targetIdx)) return found;
     }
     return null;
   }
 
-  // Punto di ingresso, chiamato da clickNodo su Ctrl(+Cmd)+Shift+click. Senza un'ancora
-  // valida si comporta come un Ctrl+click semplice (nessun range possibile: promuove/imposta
-  // solo l'ancora). Range non raggiungibile (livelli diversi) -> rifiuto pulito con lo stesso
-  // feedback visibile di R13-B (flash rosso), MAI una selezione parziale o scorretta.
+  // Estende una COPIA di `seedChain` in AVANTI, un'unita' alla volta, finche' non trova
+  // un'unita' che contiene targetIdx fra i suoi membri. Se il passo normale non e'
+  // possibile (punto di giuntura CONDIVISO con qualcosa fuori dalla catena accumulata
+  // finora -- stesso criterio di validateSelectionUnitsSameLevel/R13-B -- oppure fine del
+  // flusso/Start-End), tenta un ALLARGAMENTO al genitore strutturale (_enclosingUnit)
+  // invece di rifiutare subito: l'intera catena accumulata finora collassa in UNA sola
+  // unita' piu' ampia (il genitore, con TUTTI i suoi rami) e il cammino riprende da li' --
+  // "prende tutto l'arco solo se poi ESCI da quel nodo padre" (regola di Ismail). Non muta
+  // mai `seedChain`: se fallisce, il chiamante puo' ritentare _extendChainBackward sulla
+  // catena originale intatta, senza residui spuri.
+  function _extendChainForward(seedChain, targetIdx) {
+    const chain = seedChain.slice();
+    let guard = 0;
+    while (guard++ < 5000) {
+      const accumulated = new Set();
+      chain.forEach(function (u) { u.members.forEach(function (m) { accumulated.add(m); }); });
+      const last = chain[chain.length - 1];
+      const nextRoot = last.exit;
+      const nextNode = (nextRoot !== null && nextRoot !== undefined) ? flow.nodes[nextRoot] : null;
+      const preds = _predecessorsOf(last.exit);
+      const boundaryBlocked = preds.some(function (p) { return !accumulated.has(p); })
+        || !nextNode || nextNode.type === 'start' || nextNode.type === 'end';
+      if (!boundaryBlocked) {
+        const nextUnit = _unitInfo(nextRoot);
+        if (nextUnit) {
+          chain.push(nextUnit);
+          if (nextUnit.members.has(targetIdx)) return chain;
+          continue;
+        }
+      }
+      const widened = _enclosingUnit(chain);
+      if (!widened) return null; // nessun genitore da allargare -> vero rifiuto (fine flusso/confine reale)
+      chain.length = 0; chain.push(widened);
+      if (widened.members.has(targetIdx)) return chain;
+    }
+    return null; // guard di sicurezza: non dovrebbe mai scattare su un grafo ben formato
+  }
+
+  // Simmetrico di _extendChainForward, ma ALL'INDIETRO a partire dalla PRIMA unita' della
+  // catena: cerca un predecessore-sorella immediato (la cui unita' copra esattamente fino a
+  // chain[0].blockStart E il cui insieme di membri spieghi DA SOLO tutti i predecessori del
+  // punto di giuntura -- nessuna convergenza esterna). Se non esiste un passo normale
+  // valido (o il predecessore e' Start), allarga al genitore strutturale, stessa logica
+  // "prende tutto solo se esci dal padre" di sopra. Copia difensiva di seedChain, stesso
+  // motivo di _extendChainForward.
+  function _extendChainBackward(seedChain, targetIdx) {
+    const chain = seedChain.slice();
+    let guard = 0;
+    while (guard++ < 5000) {
+      const first = chain[0];
+      const preds = _predecessorsOf(first.blockStart);
+      let found = null;
+      for (let k = 0; k < preds.length; k++) {
+        const candRoot = preds[k];
+        const candNode = flow.nodes[candRoot];
+        if (!candNode || candNode.type === 'start' || candNode.type === 'end') continue; // Start/End mai selezionabili
+        const candUnit = _unitInfo(candRoot);
+        if (!candUnit || candUnit.blockEnd !== first.blockStart) continue;
+        if (preds.every(function (pr) { return candUnit.members.has(pr); })) { found = candUnit; break; }
+      }
+      if (found) {
+        chain.unshift(found);
+        if (found.members.has(targetIdx)) return chain;
+        continue;
+      }
+      const widened = _enclosingUnit(chain);
+      if (!widened) return null;
+      chain.length = 0; chain.push(widened);
+      if (widened.members.has(targetIdx)) return chain;
+    }
+    return null;
+  }
+
+  // Punto di ingresso, chiamato da clickNodo su Shift+click (P4.2). Senza un'ancora valida
+  // si comporta come un click di selezione singola (nessun range possibile: promuove/imposta
+  // solo l'ancora). Range non raggiungibile (nemmeno dopo ogni allargamento possibile) ->
+  // rifiuto pulito con lo stesso feedback visibile di R13-B (flash rosso), MAI una
+  // selezione parziale o scorretta.
   function rangeSelectTo(targetIdx) {
     if (typeof flow === 'undefined' || !flow.nodes[targetIdx]) return;
     if (_multiSelAnchor === null || _multiSelAnchor === undefined || !flow.nodes[_multiSelAnchor]) {
@@ -1830,21 +2008,20 @@ function inserisciNodo(tipo) {
     }
     const anchorUnit = _unitInfo(_multiSelAnchor);
     if (!anchorUnit) { _multiSelAnchor = null; return; }
-    const chain = [anchorUnit];
-    let matched = anchorUnit.members.has(targetIdx) ? anchorUnit : null;
-    if (!matched) matched = _extendChainForward(chain, targetIdx) || _extendChainBackward(chain, targetIdx);
-    if (!matched) {
+    let chain = anchorUnit.members.has(targetIdx) ? [anchorUnit] : null;
+    if (!chain) chain = _extendChainForward([anchorUnit], targetIdx) || _extendChainBackward([anchorUnit], targetIdx);
+    if (!chain) {
       const flat = new Set(anchorUnit.members);
       flat.add(targetIdx);
       const targetSelfUnit = _unitInfo(targetIdx);
       if (targetSelfUnit) targetSelfUnit.members.forEach(function (m) { flat.add(m); });
-      if (typeof warnMoveRejected === 'function') warnMoveRejected('rangeSelectTo', "ancora e destinazione non sono sullo stesso livello (Ctrl+Shift+click)", { anchor: _multiSelAnchor, target: targetIdx });
+      if (typeof warnMoveRejected === 'function') warnMoveRejected('rangeSelectTo', "ancora e destinazione non sono collegabili in un range valido (Shift+click)", { anchor: _multiSelAnchor, target: targetIdx });
       if (typeof triggerRejectFlash === 'function') triggerRejectFlash(flat);
       return;
     }
     multiSelected = chain.map(function (u) { return u.root; });
     selectedNodeIdx = -1;
-    _multiSelAnchor = matched.root; // l'unita' appena raggiunta diventa la nuova ancora
+    _multiSelAnchor = targetIdx; // il nodo appena cliccato resta l'ancora per un prossimo Shift+click (come il click semplice)
     draw(nodi);
   }
 
@@ -2160,6 +2337,9 @@ function openNodeEditor(idx) {
     if (typeof _bfSetupEditFields === 'function') _bfSetupEditFields(n);
     // R13-F (Ismail 2026-07-12): registra l'apertura nello stack condiviso Esc (popups.js).
     if (typeof _bfPushOverlay === 'function') _bfPushOverlay('edit-node-popup');
+    // P2.4 (round 15-B S1): l'apertura porta SEMPRE il popup in primo piano (ux.js) -- coerente
+    // col raise-on-click su successivi click, non solo relativo ai default statici di style.css.
+    if (typeof bfBringToFrontPopup === 'function' && pop) bfBringToFrontPopup(pop);
   }
 }
 
@@ -2465,16 +2645,11 @@ function ctxAction(action) {
   const nodeIdx = ctxMenuNodeIdx, arcId = ctxMenuArcId;
   hideContextMenu();
   if (action === 'paste') {
-    // C5 (round 11): difesa in profondita' -- il bottone e' disabled via attributo reale
-    // quando la clipboard e' vuota (pointer-events:none in CSS), ma un'attivazione via
-    // tastiera/programmatica non passa dal click del mouse: controllo esplicito qui.
     if (!blockClipboard) return;
     if (arcId >= 0) { frecceSelected = arcId; pasteAtSelectedArc(); }
     else if (nodeIdx >= 0) pasteNode(nodeIdx);
     return;
   }
-  // R12-G/Fase1: azioni di GRUPPO -- non richiedono nodeIdx singolo (operano su
-  // multiSelected/getSelectionUnits), quindi vanno PRIMA del guard "nodeIdx valido" sotto.
   if (action === 'copy-selection') { if (typeof copySelectionGroup === 'function') copySelectionGroup(); return; }
   if (action === 'delete-selection') { if (typeof deleteSelectionGroup === 'function') deleteSelectionGroup(); return; }
   if (nodeIdx < 0 || !flow.nodes[nodeIdx]) return;

@@ -67,11 +67,11 @@
     // Se i dati sono validi, aggiorna o aggiunge la variabile logica e gestisce la tabella.
     if (fValid) {
       if (!isUltimaRiga) { // Modifica di una variabile esistente
-        flow.variables[target.rowIndex - 1] = { name: val1, type: tipo, value: valoreConvertito };
+        flow.variables[target.rowIndex - 1] = Object.assign({ name: val1, type: tipo, value: valoreConvertito }, assignChecked ? {} : { uninit: true });
       } else { // Aggiunta di una nuova variabile (era l'ultima riga, quella vuota)
         if (target.getAttribute("data-inserito") === "1") return; 
         target.setAttribute("data-inserito", "1"); // Marca temporaneamente come inserito
-        flow.variables.push({ name: val1, type: tipo, value: valoreConvertito }); // Aggiunge all'array logico
+        flow.variables.push(Object.assign({ name: val1, type: tipo, value: valoreConvertito }, assignChecked ? {} : { uninit: true })); // Aggiunge all'array logico
         inserisciRiga(); // Aggiunge una nuova riga vuota in fondo alla tabella per il prossimo input
         // Associa l'handler eventi alla nuova ultima riga (quella appena aggiunta)
         tabVariabili.rows[tabVariabili.rows.length - 1].addEventListener("change", aggiungiVaribile);

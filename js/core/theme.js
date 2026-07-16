@@ -102,6 +102,8 @@ const THEME_EDITABLE = [
   { groupKey: 'theme_grp_exec', groupFallback: 'Esecuzione', vars: [
     ['--exec-node-color', 'theme_var_execnode', 'Nodo in esecuzione'], ['--exec-edge-color', 'theme_var_execedge', 'Arco percorso'],
     ['--exec-error-color', 'theme_var_execerr', 'Blocco in errore'],
+    // P (round 15, Ismail): il colore del TESTO dentro i blocchi ora e' personalizzabile.
+    ['--node-text', 'theme_var_nodetext', 'Testo blocchi'],
     // R12-E/E1: --node-selected-color esisteva gia' (rendering.js, bordo di selezione a click
     // singolo, feature C4 round 11) ma non era nell'editor.
     ['--node-selected-color', 'theme_var_nodesel', 'Blocco selezionato'] ] },
@@ -221,6 +223,9 @@ function openThemeEditor() {
   body.innerHTML = html;
   box.removeAttribute('hidden');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
+  // P (round 15, Ismail): registra nell'overlay-stack condiviso (R13-F) cosi' Esc chiude
+  // ANCHE il popup crea-tema, coerente con tutti gli altri popup.
+  if (typeof _bfPushOverlay === 'function') _bfPushOverlay('theme-editor');
 }
 function setDraftColor(varName, value) {
   _draftColors[varName] = value;
@@ -244,6 +249,7 @@ function cancelThemeEditor() {
   _reapplyActiveTheme();
   const box = document.getElementById('theme-editor'); if (box) box.setAttribute('hidden', '');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('theme-editor');
 }
 function saveNewTheme() {
   const nameInp = document.getElementById('te-name');
@@ -266,6 +272,7 @@ function saveNewTheme() {
   downloadTheme(theme);
   const box = document.getElementById('theme-editor'); if (box) box.setAttribute('hidden', '');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
+  if (typeof _bfPopOverlay === 'function') _bfPopOverlay('theme-editor');
   _draftColors = {};
   applyCustomTheme(name);
 }

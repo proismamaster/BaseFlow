@@ -37,6 +37,28 @@ function computeContentBBox(padding) {
     if (x1 > maxX) maxX = x1;
     if (y1 > maxY) maxY = y1;
   }
+  // P9.5 (round 15, 2026-07-13): includi anche gli ARCHI (frecce) e i loro segmenti extra
+  // (bracci orizzontali / ponti di ricongiunzione) nel bounding box. Prima si consideravano
+  // SOLO i nodi, quindi i bracci che sporgono a destra (if/while annidati) venivano TAGLIATI
+  // nell'export PNG/JPG. Stesse coordinate px-canvas dei nodi (vedi arcHitTest in interaction.js).
+  const arcs = (typeof frecce !== 'undefined' && frecce) ? frecce : [];
+  const acc = function (x, y) {
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    if (x < minX) minX = x; if (y < minY) minY = y;
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+  };
+  for (const f of arcs) {
+    if (!f) continue;
+    acc(f.inzioX, f.inzioY);
+    acc(f.fineX, f.fineY);
+    if (Array.isArray(f.visualExtra)) {
+      for (const seg of f.visualExtra) {
+        if (!seg) continue;
+        acc(seg[0], seg[1]);
+        acc(seg[2], seg[3]);
+      }
+    }
+  }
   if (!isFinite(minX)) return { x: 0, y: 0, width: w, height: h };
   minX = Math.max(0, minX - padding);
   minY = Math.max(0, minY - padding);
@@ -107,7 +129,10 @@ function renderExportPopup() {
       translateFlowMulti(format); // js/multiTranslation.js: popola 'multiCodeLines'
       const hasCode = multiCodeLines.some(function (l) { return l.trim() !== ''; });
       const formattedDate = exportDateHeader();
-      const commentHeader = '// ' + formattedDate + '\n// Code from BaseFlow (' + meta.label + ' export — best effort, see Roadmap/PROBLEMS for known limits)\n\n';
+      // S9 P9.2 (round 15-B, Ismail 2026-07-15): tolto il riferimento a "Roadmap/PROBLEMS"
+      // (file interni del repo, senza senso nel codice esportato da un utente) -- resta solo
+      // data + "Code from BaseFlow", coerente con l'header Python sopra.
+      const commentHeader = '// ' + formattedDate + '\n// Code from BaseFlow (' + meta.label + ' export)\n\n';
       if (hasCode) {
         if (multiCodeLines.length > 0 && multiCodeLines[0].startsWith('// Error')) {
           codeContainer.value = commentHeader + multiCodeLines[0];
@@ -138,10 +163,13 @@ function renderExportPopup() {
 }
 
 function openExportPopup() {
-  document.getElementById('export-popup').classList.add('active');
+  const _exportPop = document.getElementById('export-popup');
+  _exportPop.classList.add('active');
   document.getElementById('overlay').classList.add('active');
   renderExportPopup();
   if (typeof _bfPushOverlay === 'function') _bfPushOverlay('export-popup'); // R13-F: registro condiviso Esc
+  // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
+  if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_exportPop);
 }
 
 function onExportFormatChange() {
@@ -210,14 +238,18 @@ function downloadExportOutput() {
   }
 }
 
-// PDF a pagina singola col diagramma (ritagliato), via jsPDF (CDN in index.html,
-// stesso pattern di Shepherd.js). Se non disponibile, avvisa invece di fallire muto.
+// PDF a pagina singola col diagramma (ritagliato), via jsPDF. S9 P9.1 (round 15-B, Ismail
+// 2026-07-15): la libreria e' ora servita LOCALMENTE (js/vendor/jspdf.umd.min.js, caricata
+// in index.html PRIMA di questo file) invece che da CDN -- funziona anche offline. Il
+// controllo sotto resta come guardia difensiva (mai vista fallire nei test, ma se lo script
+// vendor non si carica per qualche motivo l'utente vede comunque un avviso chiaro invece di
+// un errore silenzioso).
 function downloadDiagramAsPdf() {
   const JsPDFCtor = (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) ||
     (typeof jsPDF !== 'undefined' ? jsPDF : null);
   if (!JsPDFCtor) {
     // B1 (round 11): modale stilizzata invece di alert() nativo.
-    const msg = (typeof i18nText === 'function' && i18nText('pdf_unavailable')) || "PDF export non disponibile: la libreria jsPDF non e' stata caricata (serve connessione a Internet).";
+    const msg = (typeof i18nText === 'function' && i18nText('pdf_unavailable')) || "PDF export non disponibile: la libreria PDF non si e' caricata correttamente.";
     if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true });
     else if (typeof alert === 'function') alert(msg);
     return;

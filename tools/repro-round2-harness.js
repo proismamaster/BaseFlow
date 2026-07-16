@@ -4,7 +4,7 @@
 // Uso: const { setFlow, run, ins, snap } = require('./repro-round2-harness.js');
 // NB: REPO qui sotto punta al path della sandbox CORRENTE -- adattare se cambia.
 const fs = require('fs'); const vm = require('vm');
-const REPO = '/sessions/quirky-nifty-franklin/mnt/web-flowcharts';
+const REPO = require('path').join(__dirname, '..');
 const W=1400,H=1400;
 let ops = [];
 function col(c){ if(!c || typeof c!=='string' || c.startsWith('var(')) return '#000'; return c; }

@@ -58,6 +58,16 @@ const IF_RECONNECT_GAP_PX = 22;          // Spazio (e lunghezza dell'arco clicca
 const IF_FORK_STEM_PX = 10;              // Stelo verticale FISSO, sempre visibile, tra il rombo e la biforcazione T/F (NON piu' proporzionale, round-4r)
 const IF_BRANCH_START_Y_OFFSET_PX = IF_FORK_STEM_PX + IF_RECONNECT_GAP_PX; // DERIVATO (round-4r): garantisce che l'arco cliccabile fork->nodo sia lungo ESATTAMENTE come IF_RECONNECT_GAP_PX
 const IF_JOIN_GAP_PX = 28;               // Spazio tra ricongiunzione e nodo successivo all'IF (era 40)
+// R13-G (Ismail 2026-07-12) + P6.1 (round 15-B S6, Ismail 2026-07-15): gap in px fra il
+// pallino di ricongiunzione di un IF e QUALSIASI arco che lo tocca -- le due frecce
+// orizzontali che vi convergono dall'alto (rendering.js/drawBranchConnections) e l'arco che
+// ne ESCE verso il basso, sia quando l'IF disegna la propria uscita da solo
+// (drawIfBranches) sia quando -- essendo l'ULTIMO membro del ramo di un IF antenato o del
+// corpo di un ciclo -- e' l'ANTENATO a disegnare quel tratto partendo dal SUO pallino
+// (drawBranchConnections/fromY, drawLoopBranches/stubTopY, drawDoWhileBranches/bodyBottomY,
+// tutti i casi 'lastIsIf'). Costante GLOBALE (principio N5, una sola fonte di verita'):
+// usata da 3 funzioni di rendering diverse, non puo' restare una copia locale.
+const JOIN_DOT_GAP_PX = 5;
 const IF_BRANCH_X_OFFSET_PX = 115;        // Distanza orizzontale dei rami true/false dal centro (era 120) -- si moltiplica per livello di annidamento, la riduzione qui e' quella che pesa di piu' sui grafi annidati
 // FIX round-4i (Ismail 2026-07-06, "stessa cosa succede anche dentro if" -- riferito
 // all'asimmetria sopra/sotto gia' vista per While/For/Do-While): quando un ramo di un
@@ -238,6 +248,26 @@ const LOOP_LABELS = {
   do:    { body: "True", exit: "False" },
   for:   { body: "Next", exit: "Done" }
 };
+// S3 P8.4 (round 15-B, Ismail 2026-07-15): le etichette V/F/Prossimo/Fatto degli archi
+// IF/ciclo erano hard-coded in inglese in rendering.js (mai tradotte, unica eccezione al
+// resto della UI). LOOP_LABELS sopra resta il fallback letterale (usato se i18nText non
+// e' ancora disponibile o non trova la chiave); LOOP_LABEL_I18N mappa tipo->chiave i18n,
+// edgeLabelText/i18nLabel risolvono nella lingua attiva -- stesso principio di
+// nodeDisplayLabel/NODE_LABEL_I18N sopra.
+function i18nLabel(key, fallback) {
+  if (key && typeof i18nText === 'function') { const s = i18nText(key); if (s) return s; }
+  return fallback;
+}
+const LOOP_LABEL_I18N = {
+  while: { body: 'label_true', exit: 'label_false' },
+  do:    { body: 'label_true', exit: 'label_false' },
+  for:   { body: 'label_next', exit: 'label_done' }
+};
+function edgeLabelText(loopType, which) {
+  const map = LOOP_LABEL_I18N[loopType];
+  const fallback = (LOOP_LABELS[loopType] && LOOP_LABELS[loopType][which]) || (which === 'body' ? 'True' : 'False');
+  return i18nLabel(map && map[which], fallback);
+}
 // Colori delle etichette dei rami IF (coerenti ovunque).
 const IF_LABEL_TRUE_COLOR = "#2e7d32";  // T = verde scuro
 const IF_LABEL_FALSE_COLOR = "#c62828"; // F = rosso scuro
@@ -286,12 +316,13 @@ let selectedNodeIdx = -1; // Indice del nodo con bordo di selezione (-1 se nessu
 // getSelectionUnits() (interaction.js), non qui -- questo resta il registro grezzo del
 // toggle Ctrl+click.
 let multiSelected = [];
-// R13-H (Ismail 2026-07-12): ancora del range Ctrl+Shift+click -- indice RADICE dell'ULTIMA
-// unita' aggiunta alla selezione (click semplice, Ctrl+click o l'estremo di un range appena
-// completato). null = nessuna ancora attiva (Ctrl+Shift+click senza selezione precedente si
-// comporta come un Ctrl+click semplice). Aggiornata da clickNodo/toggleMultiSelect/
-// rangeSelectTo (interaction.js), azzerata dai punti che svuotano la selezione (Esc, click su
-// arco/spazio vuoto).
+// R13-H (Ismail 2026-07-12), trigger passato a Shift+click semplice per S5/P4.2 (round
+// 15-B, Ismail 2026-07-15): ancora del range -- indice RADICE/nodo dell'ULTIMO estremo
+// cliccato (click semplice, Ctrl+click o l'estremo di un range appena completato). null =
+// nessuna ancora attiva (Shift+click senza selezione precedente si comporta come una
+// selezione singola). Aggiornata da clickNodo/toggleMultiSelect/rangeSelectTo
+// (interaction.js), azzerata dai punti che svuotano la selezione (Esc, click su arco/spazio
+// vuoto).
 let _multiSelAnchor = null;
 // R13-B (Ismail 2026-07-12): feedback VISIBILE per un rifiuto di spostamento/copia di
 // gruppo -- prima SOLO console.warn (invisibile durante un drag reale). Flash rosso

@@ -26,6 +26,14 @@ function _bfSidebarLiveResizeTick() {
     if (typeof window.syncLayoutVars === 'function') window.syncLayoutVars();
     if (typeof updateZoomOffset === 'function') updateZoomOffset();
     if (typeof centerGraph === 'function') centerGraph();
+    // WP-N9 (round 15-C, Ismail 2026-07-15): la maniglia di resize della barra Variabili
+    // (#sidebar-resize-handle, IIFE piu' sotto in questo file) si riposizionava SOLO tramite
+    // i suoi listener diretti (resize/scroll/ResizeObserver/MutationObserver su #main) -- il
+    // cambio lingua (applyLanguage, i18n.js) chiama GIA' questo stesso tick condiviso (R14-E)
+    // ma non toccava la maniglia: dopo un cambio LTR<->RTL restava sul bordo vecchio finche'
+    // un altro trigger non la ricalcolava (bisognava cliccarla per "sbloccarla"). Agganciata
+    // qui, UN solo punto, stesso principio "ogni sorgente passa da qui" del resto del tick.
+    if (typeof window._bfPlaceSidebarHandle === 'function') window._bfPlaceSidebarHandle();
   });
 }
 
@@ -104,6 +112,7 @@ function _bfSidebarLiveResizeTick() {
     nodi.push({ relX: 0.35, relY: 0.4, width: 100, height: 40, color: "white", text: "End" });
     calcoloY(nodi); // Calcola le posizioni Y corrette per i nodi
     draw(nodi);     // Disegna il flowchart iniziale
+    if (typeof markSaved === 'function') markSaved(); // P (round 15): lo stato iniziale (Start/End) e' "salvato" -> pallino spento; se ci si torna, resta spento
     // FIX (Ismail 2026-07-08): centra il grafo nell'area visibile all'avvio e a ogni resize
     // della finestra (prima centerGraph girava solo su zoom/console -> il grafo poteva
     // partire scentrato). Il setTimeout assicura che larghezza CSS del canvas/offsetLeft
@@ -196,9 +205,19 @@ function _bfSidebarLiveResizeTick() {
 
  // Scorciatoie Undo/Redo (Ctrl+Z / Ctrl+Y o Ctrl+Shift+Z). Ignorate nei campi di testo.
  window.addEventListener('keydown', function(event){
+   const k = (event.key || '').toLowerCase();
+   // P (round 15, richiesta Ismail): Ctrl/Cmd+S salva il GRAFO corrente (stessa azione del
+   // pulsante "Salva": silenzioso se il file ha gia' nome/handle, altrimenti chiede), NON la
+   // pagina. Intercettato PRIMA del guard input/textarea sotto, cosi' blocca il "salva pagina"
+   // del browser anche quando il focus e' in un campo di testo.
+   if ((event.ctrlKey || event.metaKey) && k === 's') {
+     event.preventDefault();
+     if (typeof saveFile === 'function') saveFile();
+     else if (typeof saveToCurrentFile === 'function') saveToCurrentFile();
+     return;
+   }
    const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-   const k = (event.key || '').toLowerCase();
    if ((event.ctrlKey || event.metaKey) && k === 'z' && !event.shiftKey) {
      event.preventDefault(); if (typeof undo === 'function') undo();
    } else if ((event.ctrlKey || event.metaKey) && (k === 'y' || (k === 'z' && event.shiftKey))) {
@@ -314,6 +333,11 @@ function _bfSidebarLiveResizeTick() {
     handle.style.top = r.top + 'px';
     handle.style.height = r.height + 'px';
   }
+  // WP-N9: esposta globalmente cosi' _bfSidebarLiveResizeTick() (sopra in questo file) puo'
+  // richiamarla ad ogni cambio di spazio disponibile/direzione -- incluso il cambio lingua,
+  // che passa GIA' da quel tick condiviso (applyLanguage, i18n.js, R14-E) ma prima non
+  // toccava la maniglia.
+  if (typeof window !== 'undefined') window._bfPlaceSidebarHandle = place;
   let dragging = false;
   handle.addEventListener('mousedown', function (e) {
     dragging = true; handle.classList.add('dragging');

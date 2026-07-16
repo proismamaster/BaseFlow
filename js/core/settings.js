@@ -57,6 +57,8 @@ function openSettingsPopup() {
   p.classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
   if (typeof _bfPushOverlay === 'function') _bfPushOverlay('settings-popup'); // R13-F: registro condiviso Esc
+  // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
+  if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(p);
 }
 
 function closeSettingsPopup() {

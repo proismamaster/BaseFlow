@@ -471,6 +471,25 @@ function calcoloY(nodiVisualArray) {
     const dBody = Math.max(bodyClear + be.L * LOOP_BODY_X_OFFSET_PX, beP.L + PX_CLEAR_MARGIN);
     return { dBody, beP };
   }
+  // P6.2 (round 15-B S6, Ismail 2026-07-15): rileva se una lista di nodi (corpo di un
+  // Do-While) contiene un Do-While annidato a QUALSIASI profondita' -- ricorre dentro i rami
+  // di un If e il corpo di un altro ciclo, stessa forma di traversata del fix gemello in
+  // rendering.js (drawDoWhileBranches/_considerSubtree). Usata SOLO per decidere se
+  // subtreePxExtent deve riservare l'extra BACKEDGE_SEP_PX (vedi sotto) -- NON per il caso
+  // generico (corpo largo/If/ciclo senza alcun Do-While dentro), che non ne ha bisogno.
+  function _hasNestedDo(list) {
+    for (const bi of list) {
+      const bt = flow.nodes[bi] && flow.nodes[bi].type;
+      if (bt === 'do') return true;
+      if (bt === 'if' && typeof collectBranchNodes === 'function') {
+        const s = collectBranchNodes(bi);
+        if (_hasNestedDo(s.trueList) || _hasNestedDo(s.falseList)) return true;
+      } else if (bt && isBranchingNodeType(bt) && bt !== 'if' && typeof collectLoopBody === 'function') {
+        if (_hasNestedDo(collectLoopBody(bi).bodyList)) return true;
+      }
+    }
+    return false;
+  }
   function subtreePxExtent(idx) {
     if (pxMemo.has(idx)) return pxMemo.get(idx);
     const n = flow.nodes[idx];
@@ -483,7 +502,23 @@ function calcoloY(nodiVisualArray) {
     } else if (n && n.type === "do" && typeof n.next === "object" && n.next !== null) {
       const body = collectLoopBody(idx);
       const beP = groupPxExtent(body.bodyList);
-      res = { L: Math.max(half + BACKEDGE_SEP_PX, beP.L), R: Math.max(half, beP.R) };
+      // P6.2 (round 15-B S6, Ismail 2026-07-15, screenshot 170939 "do-while annidati: archi
+      // False sovrapposti"): il corpo di un Do-While non si scosta lateralmente (stessa
+      // colonna del proprio esagono, vedi layoutDoWhileNode) -- quindi se il corpo contiene
+      // un Do-While annidato (a QUALSIASI profondita', anche dietro un If/altro ciclo, che
+      // pero' scostano gia' abbastanza da soli via i propri offset ben piu' larghi), beP.L
+      // include GIA' la riserva per il SUO back-edge, misurata dalla STESSA colonna
+      // condivisa in caso di annidamento DIRETTO -- serve un BACKEDGE_SEP_PX aggiuntivo
+      // perche' i due back-edge (di questo Do-While e di quello annidato) reclamino due
+      // fasce distinte, non la stessa.
+      // FIX (Ismail 2026-07-15, "non dovevi spostare l'etichetta True dell'if, rimettila
+      // come prima"): la prima versione sommava BACKEDGE_SEP_PX a beP.L INCONDIZIONATAMENTE,
+      // anche quando il corpo NON contiene alcun Do-While annidato (es. un solo blocco largo,
+      // o un If) -- allargando la colonna (e quindi spostando trueX/falseX e le etichette
+      // True/False di un IF antenato che lo contenesse) senza alcun motivo reale. Ora la
+      // riserva extra scatta SOLO se _hasNestedDo rileva davvero un Do-While nel corpo.
+      const nestedDoExtra = _hasNestedDo(body.bodyList) ? BACKEDGE_SEP_PX : 0;
+      res = { L: Math.max(half + BACKEDGE_SEP_PX, beP.L + nestedDoExtra), R: Math.max(half, beP.R) };
     } else if (n && isBranchingNodeType(n.type) && n.type !== "if" && typeof n.next === "object" && n.next !== null) {
       const o = loopBodyOffset(idx);
       res = { L: half, R: Math.max(half + BACKEDGE_SEP_PX, o.dBody + o.beP.R) };
@@ -832,7 +867,18 @@ function calcoloY(nodiVisualArray) {
         const exitTop = bodyBottom + exitGap;
         return layoutNode(body.exitIndex, exitTop, centerX, visited, stopIdx);
       }
-      return bodyBottom + exitGap;
+      // R15D (Ismail 2026-07-15, "dopo i cicli annidati l'arco per il nodo successivo si
+      // allunga troppo"): qui NON c'e' un nodo d'uscita reale in avanti -- questo ciclo e'
+      // l'ULTIMO membro del corpo di un ciclo/IF PADRE e la sua "uscita" e' il back-edge del
+      // padre (indice gia' visitato, ramo else di questo if). Riservare l'intero exitGap
+      // (=60px, dimensionato per fare spazio a un NODO sotto il back-edge) qui e' inutile:
+      // nessun nodo verra' piazzato. Basta separare il back-edge orizzontale di QUESTO ciclo
+      // da quello del padre che lo avvolge -> un solo LOOP_BACKEDGE_GAP_PX (30px). Cosi' una
+      // catena di N cicli annidati accumula ~30px/livello invece di ~60, e la linea d'uscita
+      // del ciclo piu' esterno si accorcia della meta', mantenendo un gap standard tra i
+      // back-edge concentrici (nessuna sovrapposizione). Il ramo con nodo d'uscita REALE
+      // (sopra) resta invariato: li' l'intero exitGap serve davvero ed e' mantenuto.
+      return bodyBottom + LOOP_BACKEDGE_GAP_PX;
     }
 
     if (typeof n.next === "string" && n.next !== null) {
