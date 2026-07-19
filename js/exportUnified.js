@@ -69,17 +69,41 @@ function computeContentBBox(padding) {
 
 // Canvas temporaneo ritagliato al contenuto, su sfondo bianco (necessario per
 // JPG, che non supporta la trasparenza; utile anche per PNG/PDF piu' leggibili).
+// WP-D7 (round 15-D, Ismail 2026-07-17, "l'export e' sgranato"): CAUSA -- il canvas temporaneo
+// veniva creato in pixel LOGICI (1x, `bbox.width`/`bbox.height`), ma la drawImage prendeva la
+// sorgente dal backing del canvas gia' supersampled (fino a un cap di 3x, vedi layout.js:55,
+// `_rs = canvas.width / w`): tutta quella risoluzione extra veniva BUTTATA nel downscale verso
+// una destinazione piu' piccola. Fix chirurgico: la destinazione ora usa la STESSA risoluzione
+// della sorgente (bbox * _rs, non bbox 1x) -- sorgente/destinazione combaciano 1:1, nessuna
+// perdita, nessuna modifica al backing/supersampling stesso (resta in layout.js, non toccato).
+// `_bfLogicalWidth`/`_bfLogicalHeight` (dimensione in px CSS, "fisica") restano disponibili su
+// return per chi deve posizionare/stampare l'immagine a una certa DIMENSIONE fisica (vedi
+// downloadDiagramAsPdf: la pagina PDF resta alla dimensione logica, solo la densita' di pixel
+// dentro aumenta -- "retina", non un foglio piu' grande).
 function renderCroppedCanvas() {
   const bbox = computeContentBBox(40);
+  const _rs = (canvas.width && w) ? (canvas.width / w) : 1;
   const tmp = document.createElement('canvas');
-  tmp.width = bbox.width;
-  tmp.height = bbox.height;
+  tmp.width = Math.max(1, Math.round(bbox.width * _rs));
+  tmp.height = Math.max(1, Math.round(bbox.height * _rs));
   const tctx = tmp.getContext('2d');
   tctx.fillStyle = '#ffffff';
   tctx.fillRect(0, 0, tmp.width, tmp.height);
-  const _rs = (canvas.width && w) ? (canvas.width / w) : 1;
-  tctx.drawImage(canvas, bbox.x * _rs, bbox.y * _rs, bbox.width * _rs, bbox.height * _rs, 0, 0, bbox.width, bbox.height);
+  tctx.drawImage(canvas, bbox.x * _rs, bbox.y * _rs, bbox.width * _rs, bbox.height * _rs, 0, 0, tmp.width, tmp.height);
+  tmp._bfLogicalWidth = bbox.width;
+  tmp._bfLogicalHeight = bbox.height;
   return tmp;
+}
+
+// WP-D7: soglia (in megapixel RASTER, dopo il fix sopra) oltre la quale avvisare che l'export
+// puo' essere lento/pesante -- ora che l'export e' ad alta risoluzione, un grafo enorme produce
+// proporzionalmente un file enorme (prima veniva sempre schiacciato a 1x, quindi limitato "gratis").
+const EXPORT_LARGE_MEGAPIXELS = 20;
+function isExportContentLarge() {
+  const bbox = computeContentBBox(40);
+  const _rs = (typeof canvas !== 'undefined' && canvas.width && typeof w !== 'undefined' && w) ? (canvas.width / w) : 1;
+  const mp = (bbox.width * _rs) * (bbox.height * _rs) / 1e6;
+  return mp > EXPORT_LARGE_MEGAPIXELS;
 }
 
 function exportDateHeader() {
@@ -160,6 +184,10 @@ function renderExportPopup() {
     }
     if (copyBtn) copyBtn.disabled = true;
   }
+  // WP-D7: tip per grafi molto grandi, valido per image/pdf (entrambi passano da
+  // renderCroppedCanvas ora ad alta risoluzione) -- assente/nascosto per il codice.
+  const warnEl = document.getElementById('export-large-warn');
+  if (warnEl) warnEl.hidden = !(meta.kind !== 'code' && isExportContentLarge());
 }
 
 function openExportPopup() {
@@ -256,11 +284,18 @@ function downloadDiagramAsPdf() {
   }
   const cropped = renderCroppedCanvas();
   const dataUrl = cropped.toDataURL('image/png');
+  // WP-D7: la pagina PDF usa la dimensione LOGICA (px CSS, `_bfLogicalWidth/Height`), NON quella
+  // del raster (ora piu' grande dopo il fix di renderCroppedCanvas) -- altrimenti il foglio
+  // stampato uscirebbe 2-3x piu' grande fisicamente. L'immagine ad alta risoluzione viene
+  // comunque incorporata dentro quella STESSA dimensione di stampa: piu' densita' di pixel,
+  // stessa dimensione fisica del foglio -- effetto "retina", non un foglio piu' grande.
+  const pageW = cropped._bfLogicalWidth || cropped.width;
+  const pageH = cropped._bfLogicalHeight || cropped.height;
   const doc = new JsPDFCtor({
-    orientation: cropped.width >= cropped.height ? 'l' : 'p',
+    orientation: pageW >= pageH ? 'l' : 'p',
     unit: 'px',
-    format: [cropped.width, cropped.height]
+    format: [pageW, pageH]
   });
-  doc.addImage(dataUrl, 'PNG', 0, 0, cropped.width, cropped.height);
+  doc.addImage(dataUrl, 'PNG', 0, 0, pageW, pageH);
   doc.save('flow_diagram.pdf');
 }

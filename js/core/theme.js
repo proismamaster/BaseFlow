@@ -26,6 +26,24 @@ function applyThemeClass() {
   if (sel && sel.value !== _activeThemeValue) sel.value = _activeThemeValue;
 }
 
+// WP (2026-07-19, Ismail, "il manuale ha sempre gli stessi colori nonostante il tema"):
+// #manual-iframe (index.html) carica manual.html una volta sola per sessione e non si
+// ricarica mai alle riaperture (vedi openManualOverlay, popups.js) -- quindi se il manuale e'
+// GIA' aperto (o resta in memoria dopo essere stato aperto) mentre l'utente cambia tema qui,
+// il suo documento non lo saprebbe mai da solo. manual.html espone window._bfApplyManualTheme
+// apposta per essere richiamata dall'esterno; qui la si richiama ad ogni cambio tema, cosi' il
+// manuale resta sincronizzato anche live, non solo alla prossima riapertura (quel caso e' gia'
+// coperto separatamente in openManualOverlay). Difensivo/no-op se il manuale non e' mai stato
+// aperto in questa sessione (iframe senza src, contentWindow senza quella funzione).
+function _bfSyncManualTheme() {
+  try {
+    var ifr = (typeof document !== 'undefined') ? document.getElementById('manual-iframe') : null;
+    if (ifr && ifr.contentWindow && typeof ifr.contentWindow._bfApplyManualTheme === 'function') {
+      ifr.contentWindow._bfApplyManualTheme();
+    }
+  } catch (e) { /* same-origin, non dovrebbe mai fallire: difensivo */ }
+}
+
 function setTheme(name) {
   if (THEMES.indexOf(name) === -1) name = 'light';
   currentTheme = name;
@@ -40,6 +58,7 @@ function setTheme(name) {
   } catch (e) { /* localStorage non disponibile: non bloccante */ }
   if (typeof refreshThemeSelect === 'function') refreshThemeSelect();
   if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+  _bfSyncManualTheme();
 }
 
 function toggleDarkMode() { setTheme(currentTheme === 'dark' ? 'light' : 'dark'); }
@@ -115,6 +134,14 @@ const THEME_EDITABLE = [
 const CUSTOM_THEMES_KEY = 'baseflow-custom-themes';
 let _draftColors = {};
 
+// AUDIT 2026-07-19 (#8): un valore è un colore accettabile solo se hex (#rgb / #rrggbb /
+// #rrggbbaa). I temi personalizzati arrivano da localStorage e vengono applicati via
+// setProperty su variabili CSS: limitarli a hex evita che un valore malformato o inatteso
+// entri nel CSSOM (robustezza + difesa in profondità). Il color-picker produce già solo hex.
+function _bfIsValidColorVar(v) {
+  return typeof v === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v.trim());
+}
+
 function _tt(key, fb) { try { const s = (typeof i18nText === 'function') ? i18nText(key) : null; return s || fb; } catch (e) { return fb; } }
 function _rgbToHex(c) {
   if (!c) return '#000000';
@@ -174,12 +201,19 @@ function applyCustomTheme(name, skipPersist) {
   applyThemeClass();
   clearCustomVars();
   const root = document.documentElement.style;
-  Object.keys(ct.colors || {}).forEach(function (k) { root.setProperty(k, ct.colors[k]); });
+  // AUDIT 2026-07-19 (#8): applica SOLO valori colore validi (#rgb/#rrggbb/#rrggbbaa) e SOLO
+  // chiavi che sono variabili --node/-- note (mai proprietà arbitrarie). I temi vengono da
+  // localStorage: chi lo scrive è già same-origin, ma questa è difesa in profondità/robustezza
+  // (un valore malformato non "sporca" più il CSSOM, un file di temi rovinato non rompe la UI).
+  Object.keys(ct.colors || {}).forEach(function (k) {
+    if (/^--[\w-]+$/.test(k) && _bfIsValidColorVar(ct.colors[k])) root.setProperty(k, ct.colors[k]);
+  });
   _activeThemeValue = 'custom:' + name;
   if (!skipPersist) { try { localStorage.setItem(THEME_STORAGE_KEY, 'custom:' + name); } catch (e) {} }
   refreshThemeSelect();
   if (typeof resizeCanvas === 'function') resizeCanvas();
   else if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+  _bfSyncManualTheme();
 }
 
 function startCreateTheme() {
@@ -226,6 +260,8 @@ function openThemeEditor() {
   // P (round 15, Ismail): registra nell'overlay-stack condiviso (R13-F) cosi' Esc chiude
   // ANCHE il popup crea-tema, coerente con tutti gli altri popup.
   if (typeof _bfPushOverlay === 'function') _bfPushOverlay('theme-editor');
+  // WP-D5 (round 15-D): Enter = Salva tema.
+  if (typeof _bfWireDialogKeys === 'function') _bfWireDialogKeys(box, saveNewTheme);
 }
 function setDraftColor(varName, value) {
   _draftColors[varName] = value;

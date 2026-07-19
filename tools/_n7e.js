@@ -1,0 +1,21 @@
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
+const errs=[];
+const ctxMock={strokeStyle:'#000',fillStyle:'#000',lineWidth:1,font:'',textAlign:'center',textBaseline:'middle',beginPath(){},moveTo(){},lineTo(){},quadraticCurveTo(){},rect(){},closePath(){},stroke(){},fill(){},clearRect(){},fillText(){},measureText(t){return{width:(t||'').length*8};},save(){},restore(){},setLineDash(){},setTransform(){},arc(){}};
+const canvasMock={width:W,height:H,getContext:()=>ctxMock,getBoundingClientRect:()=>({left:0,top:0,width:W,height:H}),addEventListener:()=>{},setPointerCapture:()=>{},releasePointerCapture:()=>{},style:{}};
+const consoleOut={appendChild:(el)=>{ if(el&&el.textContent) errs.push(el.textContent); },scrollTop:0,scrollHeight:0,style:{}};
+const gg=()=>{const o={appendChild:function(){},addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',innerHTML:'',textContent:'',dataset:{},rows:[],cells:[],setAttribute:()=>{},removeAttribute:()=>{},getAttribute:()=>null,hasAttribute:()=>false,disabled:false};o.querySelector=()=>gg();o.querySelectorAll=()=>[];return o;};
+const documentMock={getElementById:(id)=>id==='canvas'?canvasMock:id==='console-output'?consoleOut:id==='canvas-container'?{offsetWidth:W,offsetHeight:H,addEventListener:()=>{},scrollLeft:0,scrollTop:0}:gg(),addEventListener:()=>{},createElement:()=>gg(),querySelector:()=>gg(),querySelectorAll:()=>[],body:gg(),documentElement:gg()};
+const ctx={document:documentMock,window:{addEventListener:()=>{},innerWidth:W,innerHeight:H,matchMedia:()=>({matches:false,addEventListener:()=>{}})},localStorage:{getItem:()=>null,setItem:()=>{}},MutationObserver:function(){this.observe=()=>{}},console:{log:function(){},error:function(){},warn:function(){}},Math:Math,JSON:JSON,parseInt:parseInt,parseFloat:parseFloat,isNaN:isNaN,Set:Set,Array:Array,Object:Object,String:String,Number:Number,RegExp:RegExp,Promise:Promise,setTimeout:setTimeout,eval:eval,alert:function(){},confirm:function(){return true;},prompt:function(){return '9';},location:{},matchMedia:function(){return {matches:false};},errMsg:function(k,p){return k+' '+JSON.stringify(p||{});},i18nText:function(){return null;},i18nFormat:function(){return null;}};
+ctx.globalThis=ctx;
+vm.createContext(ctx);for(const n of ['theme','state','safeEval','utils','variables','layout','rendering','popups','interaction','fileIO','init'])vm.runInContext(fs.readFileSync(REPO+'/js/core/'+n+'.js','utf8'),ctx,{filename:n});vm.runInContext(fs.readFileSync(REPO+'/js/execute.js','utf8'),ctx,{filename:'execute.js'});vm.runInContext('window.onload();',ctx);
+const run=c=>vm.runInContext(c,ctx);
+run('try{printMessage=function(){};}catch(e){}');
+run('executingNodeIndex=-1; currentNode="1";');
+console.log('safeEvaluate("5")=',JSON.stringify(run('safeEvaluate("5")')),run('typeof safeEvaluate("5")'));
+const call=async(V,info)=>{ errs.length=0; run('globalThis.__V='+V+';'); const r=await run('(async()=>{try{return await executeNode({type:"assign",info:'+JSON.stringify(info)+',next:"2"},"1",__V,null);}catch(e){return "THROW:"+(e&&e.message);}})()'); return {r, V:run('JSON.stringify(__V)')}; };
+(async()=>{
+ const b=await call('[{name:"x",type:"int",value:0,uninit:true}]','x = 5');
+ console.log('B) x=5 (x UNINIT):    ret='+JSON.stringify(b.r)+'  vars='+b.V+'  [atteso: value 5, uninit false]');
+ const c=await call('[{name:"x",type:"int",value:5,uninit:false},{name:"y",type:"int",value:0}]','y = x + 1');
+ console.log('C) y=x+1 (x INIT):    ret='+JSON.stringify(c.r)+'  vars='+c.V+'  err='+JSON.stringify(errs)+'  [atteso: y=6, nessun err]');
+})().catch(e=>console.log('OUTER',e&&e.message));

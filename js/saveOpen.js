@@ -14,18 +14,26 @@
 //     davvero scritto).
 // Ora saved=true SOLO a scrittura riuscita, in OGNI ramo; annullare il picker non scarica
 // nulla e non tocca saved.
+// Serializza il payload nel formato .bflow (con checksum d'integrità) se il modulo
+// fileFormat.js è disponibile; altrimenti fallback al JSON grezzo legacy (nessun crash se
+// per qualche motivo lo script non fosse caricato).
+function _bfSerialize(json) {
+    if (typeof bfSerializeForSave === 'function') return bfSerializeForSave(json);
+    return JSON.stringify(json, null, 2);
+}
 async function save(json, name) {
     name = name.replace(/[\\/:*?"<>|]/g, "");
     name = name.trim();
     if (name == "") {
         name = "test";
     }
-    if (!name.toLowerCase().endsWith(".json")) {
-        name += ".json";
-    }
+    // 2026-07-19: il formato nuovo usa l'estensione .bflow. Un nome che finisce col vecchio
+    // .json viene MIGRATO a .bflow (il contenuto è comunque il contenitore con checksum).
+    if (/\.json$/i.test(name)) name = name.replace(/\.json$/i, '.bflow');
+    if (!/\.bflow$/i.test(name)) name += '.bflow';
 
     function fallbackDownload() {
-        const dati = JSON.stringify(json, null, 2);
+        const dati = _bfSerialize(json);
         const blob = new Blob([dati], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -46,15 +54,15 @@ async function save(json, name) {
             suggestedName: name,
             types: [
                 {
-                    description: 'JSON file',
-                    accept: { 'application/json': ['.json'] }
+                    description: 'BaseFlow file',
+                    accept: { 'application/json': ['.bflow', '.json'] }
                 }
             ]
         };
         try {
             const handle = await window.showSaveFilePicker(options);
             const writable = await handle.createWritable();
-            await writable.write(JSON.stringify(json, null, 2)); // FIX round 11: era `flow` a prescindere dal parametro
+            await writable.write(_bfSerialize(json)); // FIX round 11: era `flow` a prescindere dal parametro; 2026-07-19: formato .bflow con checksum
             await writable.close();
             currentFileHandle = handle;
             currentFileName = handle.name || name;
@@ -94,7 +102,8 @@ async function saveToCurrentFile() {
             // R13-D (Ismail 2026-07-12): scrive anche `author` (currentAuthor, state.js) -- non
             // muta l'oggetto `flow` live (Object.assign su un oggetto nuovo), cosi' il resto del
             // codice che legge flow.nodes/flow.variables non vede un campo extra inatteso.
-            await writable.write(JSON.stringify(Object.assign({}, flow, { author: (typeof currentAuthor !== 'undefined' ? currentAuthor : null) }), null, 2));
+            // 2026-07-19: serializzato nel formato .bflow con checksum (_bfSerialize).
+            await writable.write(_bfSerialize(Object.assign({}, flow, { author: (typeof currentAuthor !== 'undefined' ? currentAuthor : null) })));
             await writable.close();
             saved = true;
             savedThisSession = true; // R14-A: scrittura riuscita -- i prossimi Salva in questa sessione sono silenziosi

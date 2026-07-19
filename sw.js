@@ -1,11 +1,11 @@
 // BaseFlow Service Worker
 // Strategia NETWORK-FIRST + CACHE_NAME versionato (bump = invalida la cache vecchia).
 // activate: cancella le cache vecchie + clients.claim(). Offline: fallback alla cache.
-const CACHE_NAME = 'baseflow-v17';
+const CACHE_NAME = 'baseflow-v18';
 
 const PRECACHE = [
   '/', 'index.html', 'style.css', 'manifest.json', 'img/icon.png', 'img/logoBaseFlow.png',
-  'js/core/state.js', 'js/core/safeEval.js', 'js/core/utils.js', 'js/core/variables.js', 'js/core/layout.js',
+  'js/core/state.js', 'js/core/fileFormat.js', 'js/core/safeEval.js', 'js/core/utils.js', 'js/core/variables.js', 'js/core/layout.js',
   'js/core/rendering.js', 'js/core/popups.js', 'js/core/interaction.js', 'js/core/fileIO.js',
   'js/core/theme.js', 'js/core/i18n.js', 'js/core/draw.js', 'js/core/ux.js', 'js/core/init.js',
   'js/execute.js', 'js/saveOpen.js', 'js/pythonTranslation.js', 'js/multiTranslation.js',

@@ -4,7 +4,11 @@
 // i testi, persiste la scelta e imposta la direzione (rtl per l'arabo).
 const I18N_STORAGE_KEY = 'baseflow-lang';
 const I18N_LANGS = ['it', 'en', 'ar', 'zh'];
-let currentLang = 'it';
+// FIX (Ismail 2026-07-19, "metti inglese come default"): era 'it' -- non coerente col resto
+// del sito, dove privacy.html/cookies.html usano gia' 'en' come fallback dichiarato ("fallback
+// senza preferenza salvata e' 'en', coerente col resto del testo della pagina"). Riallineato
+// anche manual.html nello stesso turno (i suoi 5 punti con fallback 'it').
+let currentLang = 'en';
 
 const I18N = {
   // key: [it, en, ar, zh]
@@ -31,6 +35,24 @@ const I18N = {
   blk_dowhile:    ['Ripeti-Mentre', 'Do-While', 'كرر-طالما', '重复-当'],
   blk_while:      ['Mentre', 'While', 'طالما', '当循环'],
   blk_for:        ['Per', 'For', 'لأجل', '计数循环'],
+  // Messaggi RUNTIME del terminale (Ismail 2026-07-17): prima erano hardcoded in inglese e non
+  // seguivano la lingua. Le parti tra {…} sono CODICE dell'utente (condizioni/assegnazioni) e
+  // NON vanno tradotte. La categoria (cond/loop/output) viene passata ESPLICITA al printMessage,
+  // cosi' il filtro del terminale non dipende piu' dal testo (che ora e' tradotto).
+  run_is_true:    ['è vero', 'is true', 'صحيح', '为真'],
+  run_is_false:   ['è falso', 'is false', 'خطأ', '为假'],
+  run_if:         ['Se: {c}', 'If: {c}', 'إذا: {c}', '如果：{c}'],
+  run_if_res:     ['Se: {c} {r}', 'If: {c} {r}', 'إذا: {c} {r}', '如果：{c} {r}'],
+  run_while:      ['Mentre: {c}', 'While: {c}', 'طالما: {c}', '当：{c}'],
+  run_while_res:  ['Mentre: {c} {r}', 'While: {c} {r}', 'طالما: {c} {r}', '当：{c} {r}'],
+  run_do_res:     ['Ripeti: {c} {r}', 'Do: {c} {r}', 'كرر: {c} {r}', '执行：{c} {r}'],
+  run_for:        ['Per: {v} = {val}', 'For: {v} = {val}', 'لأجل: {v} = {val}', '计数循环：{v} = {val}'],
+  run_for_cond:   ['Condizione Per: {c} {r}', 'For Condition: {c} {r}', 'شرط لأجل: {c} {r}', '计数条件：{c} {r}'],
+  run_assign:     ['Assegna: {info}', 'Assign: {info}', 'إسناد: {info}', '赋值：{info}'],
+  run_do:         ['Ripeti: {c}', 'Do: {c}', 'كرر: {c}', '执行：{c}'],
+  run_do_enter:   ['Ripeti: entro nel corpo (eseguito almeno una volta)', 'Do: entering body (runs at least once)', 'كرر: الدخول إلى الجسم (يُنفَّذ مرة واحدة على الأقل)', '执行：进入循环体（至少执行一次）'],
+  run_input:      ['Input: {info}', 'Input: {info}', 'إدخال: {info}', '输入：{info}'],
+  run_end:        ['Fine.', 'End.', 'انتهى.', '结束。'],
   blk_comment:    ['Commento', 'Comment', 'تعليق', '注释'],
   blk_pause:      ['Pausa', 'Pause', 'إيقاف مؤقت', '暂停'],
   blk_draw:       ['Disegno', 'Draw', 'رسم', '绘图'],
@@ -100,6 +122,7 @@ const I18N = {
   ctx_copy:       ['Copia', 'Copy', 'نسخ', '复制'],
   ctx_paste:      ['Incolla', 'Paste', 'لصق', '粘贴'],
   ctx_copy_selection: ['Copia selezione', 'Copy selection', 'نسخ التحديد', '复制所选'],
+  ctx_cut_selection: ['Taglia selezione', 'Cut selection', 'قص التحديد', '剪切所选'],
   ctx_delete_selection: ['Elimina selezione', 'Delete selection', 'حذف التحديد', '删除所选'],
   del_group_confirm: ['Eliminare {n} blocchi?', 'Delete {n} blocks?', 'حذف {n} كتل؟', '删除 {n} 个方块？'],
   delete:         ['Elimina', 'Delete', 'حذف', '删除'],
@@ -230,6 +253,8 @@ const I18N = {
   settings_lang:  ['Lingua', 'Language', 'اللغة', '语言'],
   settings_theme: ['Tema', 'Theme', 'السمة', '主题'],
   settings_appearance:['Aspetto', 'Appearance', 'المظهر', '外观'],
+  settings_view:  ['Vista', 'View', 'العرض', '视图'],
+  view_grid:      ['Griglia sul canvas', 'Canvas grid', 'شبكة على اللوحة', '画布网格'],
   settings_exec:  ['Esecuzione', 'Execution', 'التنفيذ', '执行'],
   settings_speed: ['Velocità animazione', 'Animation speed', 'سرعة الحركة', '动画速度'],
   settings_console:['Messaggi del terminale', 'Terminal messages', 'رسائل الطرفية', '终端消息'],
@@ -305,6 +330,11 @@ const I18N = {
   // ---- WP-B / B1 (round 11): popup di conferma coerenti, alert()/confirm() nativi sostituiti ----
   load_invalid_title: ['File non valido', 'Invalid file', 'ملف غير صالح', '文件无效'],
   load_parse_err: ['Errore nel file JSON: {msg}', 'Error parsing JSON file: {msg}', 'خطأ في تحليل ملف JSON: {msg}', 'JSON 文件解析错误：{msg}'],
+  // 2026-07-19 — formato .bflow con controllo di integrità (checksum).
+  load_corrupt_title: ['File corrotto', 'Corrupted file', 'ملف تالف', '文件已损坏'],
+  load_corrupt_checksum: ['Il file è danneggiato o incompleto: il controllo di integrità non corrisponde (probabile corruzione o salvataggio interrotto). Il flowchart attualmente aperto non è stato modificato.', 'The file is damaged or incomplete: the integrity check does not match (likely corruption or an interrupted save). The currently open flowchart was not changed.', 'الملف تالف أو غير مكتمل: فحص السلامة غير مطابق (على الأرجح تلف أو حفظ متوقّف). لم يتم تغيير المخطط المفتوح حاليًا.', '文件已损坏或不完整：完整性校验不匹配（可能损坏或保存中断）。当前打开的流程图未被更改。'],
+  load_newer_version: ['Questo file è stato creato con una versione più recente di BaseFlow (formato v{v}) e non può essere aperto qui. Aggiorna l\'app.', 'This file was created with a newer version of BaseFlow (format v{v}) and cannot be opened here. Please update the app.', 'أُنشئ هذا الملف بإصدار أحدث من BaseFlow (تنسيق v{v}) ولا يمكن فتحه هنا. يُرجى تحديث التطبيق.', '此文件由更新版本的 BaseFlow（格式 v{v}）创建，无法在此打开。请更新应用。'],
+  load_too_big: ['File troppo grande per essere un flowchart BaseFlow: caricamento rifiutato per sicurezza. Il flowchart attualmente aperto non è stato modificato.', 'File too large to be a BaseFlow flowchart: loading refused for safety. The currently open flowchart was not changed.', 'الملف كبير جدًا بحيث لا يمكن أن يكون مخطط BaseFlow: رُفض التحميل للسلامة. لم يتم تغيير المخطط المفتوح حاليًا.', '文件太大，不可能是 BaseFlow 流程图：为安全起见拒绝加载。当前打开的流程图未被更改。'],
   dup_branch_unsupported: ['I blocchi con rami (if/cicli) non sono ancora duplicabili in profondità.', 'Blocks with branches (if/loops) cannot be deep-duplicated yet.', 'لا يمكن حاليًا نسخ الكتل ذات الفروع (إذا/حلقات) نسخًا عميقًا.', '带分支的方块（如果/循环）暂不支持深度复制。'],
   export_downloaded: ['{label} scaricato come {file}!', '{label} downloaded as {file}!', 'تم تنزيل {label} باسم {file}!', '{label} 已下载为 {file}！'],
   // S9 P9.1 (round 15-B, Ismail 2026-07-15): la libreria PDF e' ora locale (js/vendor/), non
@@ -359,6 +389,9 @@ const I18N = {
   export_invalid_warn: ['{n} blocco/i con contenuto non valido ({list}): il codice potrebbe essere incompleto.', '{n} block(s) with invalid content ({list}): the generated code might be incomplete.', '{n} كتلة/كتل تحتوي محتوى غير صالح ({list}): قد يكون الكود الناتج غير مكتمل.', '{n} 个方块内容无效（{list}）：生成的代码可能不完整。'],
   export_empty:   ['Flowchart vuoto', 'Empty flowchart', 'مخطط فارغ', '空流程图'],
   pdf_instructions: ['Esportazione PDF: clicca "{btn}" per salvare il diagramma come PDF di una pagina (ritagliato al contenuto).', 'PDF export: click "{btn}" to save the diagram as a one-page PDF (cropped to content).', 'تصدير PDF: انقر على "{btn}" لحفظ المخطط كملف PDF من صفحة واحدة (مقصوص حسب المحتوى).', 'PDF 导出：点击"{btn}"将图表保存为单页 PDF（按内容裁剪）。'],
+  // WP-D7 (round 15-D, Ismail 2026-07-17): avviso per grafi molto grandi nell'export immagine/PDF
+  // (ora ad alta risoluzione, vedi renderCroppedCanvas -- un grafo enorme puo' produrre un file pesante/lento).
+  export_large_warn: ['Il grafo è molto grande: l\'export ad alta risoluzione potrebbe essere lento o produrre un file pesante.', 'The diagram is very large: high-resolution export might be slow or produce a heavy file.', 'المخطط كبير جدًا: قد يكون التصدير بدقة عالية بطيئًا أو ينتج ملفًا كبير الحجم.', '图表非常大：高分辨率导出可能会很慢或生成较大的文件。'],
   // R13-K (Ismail 2026-07-12): manual_link (WP-D5) rimossa -- il manuale non e' piu' un link
   // nel footer (vedi la nuova chiave "manual", pulsante libro in toolbar, sopra nel file).
   // ---- S3 P8.4 (round 15-B, Ismail 2026-07-15): etichette V/F/Prossimo/Fatto degli archi
@@ -381,6 +414,7 @@ const I18N = {
   // err_not_declared_node ora dice chiaramente "la variabile ... non e' stata dichiarata"),
   // placeholder {n}/{v}/{e} invariati (usati da execute.js/errMsg, non toccati).
   err_not_declared_node: ['Nel nodo {n}: la variabile "{v}" non è stata dichiarata.', 'In node {n}: the variable "{v}" has not been declared.', 'في العقدة {n}: المتغيّر "{v}" لم يتم تعريفه.', '在节点 {n} 中：变量 "{v}" 尚未声明。'],
+  err_uninit_var: ['Nel nodo {n}: la variabile "{v}" non è stata inizializzata (nessun valore assegnato).', 'In node {n}: the variable "{v}" has not been initialized (no value assigned).', 'في العقدة {n}: المتغيّر "{v}" لم تتم تهيئته (لم يتم إسناد قيمة).', '在节点 {n} 中：变量 "{v}" 尚未初始化（未赋值）。'],
   err_not_declared: ['La variabile "{v}" non è stata dichiarata.', 'The variable "{v}" has not been declared.', 'المتغيّر "{v}" لم يتم تعريفه.', '变量 "{v}" 尚未声明。'],
   err_var_not_declared: ["Impossibile leggere l'input: la variabile \"{v}\" non è stata dichiarata.", 'Cannot read input: the variable "{v}" has not been declared.', 'تعذّرت قراءة الإدخال: المتغيّر "{v}" لم يتم تعريفه.', '无法读取输入：变量 "{v}" 尚未声明。'],
   err_empty_node: ['Il nodo {n} è vuoto: inserisci il contenuto prima di eseguire.', 'Node {n} is empty: fill it in before running.', 'العقدة {n} فارغة: أدخل محتواها قبل التنفيذ.', '节点 {n} 为空：请先填写内容再执行。'],
@@ -415,6 +449,9 @@ function i18nFormat(key, params) {
 // throwError): stesso meccanismo, fallback sulla chiave stessa se la traduzione manca
 // (mai una stringa vuota/undefined mostrata in un popup di errore).
 function errMsg(key, params) {
+  // Ismail 2026-07-17: registra l'ultima chiave/params dell'errore, cosi' throwError() (execute.js)
+  // puo' salvarli sull'elemento e retranslateConsole() ri-tradurre l'errore al cambio lingua.
+  try { if (typeof window !== 'undefined') window._bfLastErrInfo = { key: key, params: params || {} }; } catch (e) {}
   return i18nFormat(key, params) || key;
 }
 
@@ -449,6 +486,18 @@ function applyLanguage(lang) {
     if (t !== null && t !== undefined) el.setAttribute('title', t);
   });
 
+  // Ismail 2026-07-17: il TIPO delle variabili (select nella tabella Variabili) e' etichettato
+  // via _varTypeLabel()/updateVarTypeOptions() (variables.js), NON via data-i18n -> al cambio
+  // lingua NON veniva ri-etichettato, quindi le variabili gia' presenti restavano nella lingua
+  // precedente finche' non si ri-selezionava il tipo (che richiama updateVarTypeOptions). Qui lo
+  // si richiama esplicitamente cosi' i tipi seguono subito la nuova lingua.
+  if (typeof updateVarTypeOptions === 'function') { try { updateVarTypeOptions(); } catch (e) {} }
+
+  // Ismail 2026-07-17: ri-traduce anche il TERMINALE gia' stampato (righe runtime con key/params
+  // salvati da _termMsg/printMessage in execute.js) -> cambiando lingua a run/pausa/finito anche
+  // le righe vecchie passano alla nuova lingua, non solo quelle nuove.
+  if (typeof retranslateConsole === 'function') { try { retranslateConsole(); } catch (e) {} }
+
   // Ridisegna il canvas: etichette nodi (nodeDisplayLabel, state.js) e le label V/F/
   // Prossimo/Fatto degli archi IF/ciclo (S3 P8.4, rendering.js) seguono la lingua attiva.
   if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
@@ -464,6 +513,21 @@ function applyLanguage(lang) {
     if (typeof window.syncLayoutVars === 'function') window.syncLayoutVars();
     if (typeof updateZoomOffset === 'function') updateZoomOffset();
     if (typeof centerGraph === 'function') centerGraph();
+  }
+
+  // WP-N9-bis (Ismail 2026-07-17): la maniglia di resize della barra Variabili restava nella
+  // posizione LTR dopo il passaggio ad ARABO finche' non la si toccava. La logica di place() e'
+  // corretta (toccandola si sistema): il problema e' il TIMING -- il tick condiviso e' DEBOUNCED
+  // (_bfSidebarRafPending, puo' venire "inghiottito") e puo' girare PRIMA che il flip LTR<->RTL
+  // della griglia #main si sia assestato nel layout. Qui si richiama place() DIRETTAMENTE (fuori
+  // dal debounce) dopo che il layout della nuova direzione e' assestato: doppio rAF (post-layout)
+  // + due ritardi di sicurezza. Cosi' la maniglia segue subito il cambio di direzione, sempre.
+  if (typeof window !== 'undefined' && typeof window._bfPlaceSidebarHandle === 'function') {
+    var _bfPlaceHandleSafe = function () { try { window._bfPlaceSidebarHandle(); } catch (e) {} };
+    var _raf = window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
+    _raf(function () { _raf(_bfPlaceHandleSafe); }); // dopo 2 frame = layout della nuova direzione assestato
+    setTimeout(_bfPlaceHandleSafe, 120);
+    setTimeout(_bfPlaceHandleSafe, 360);
   }
 }
 

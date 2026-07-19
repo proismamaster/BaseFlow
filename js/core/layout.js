@@ -128,20 +128,42 @@ function centerGraph() {
   canvas.style.marginLeft = '';
   canvas.style.marginRight = '';
 
-  // Copertura a destra della console agganciata+aperta (in fixed, fuori dal grid: non
-  // possiamo fidarci che container.clientWidth la escluda gia' da sola in ogni momento).
-  let rightCover = 0;
-  const cons = (typeof document !== 'undefined') ? document.getElementById('console-popup') : null;
-  if (cons && cons.classList && typeof cons.classList.contains === 'function' && cons.classList.contains('active') && cons.classList.contains('docked') && typeof cons.getBoundingClientRect === 'function') {
-    rightCover = cons.getBoundingClientRect().width || 0;
-  }
-  const _rtl = (typeof document !== 'undefined') && document.documentElement && typeof document.documentElement.getAttribute === 'function' && document.documentElement.getAttribute('dir') === 'rtl';
-
+  // WP-6 v2 (2026-07-19, algoritmo RIFATTO su richiesta di Ismail — "non viene ancora
+  // centrato bene"). BUG del vecchio calcolo: sottraeva SEMPRE l'intera larghezza della
+  // console dal rect del container ("rightCover"), ma il container e' GIA' ristretto dal
+  // CSS (margin-right/left: var(--console-cover-width), style.css #canvas-container e
+  // regola RTL): il suo rect finisce di norma AL BORDO della console. Risultato: console
+  // sottratta DUE volte -> bersaglio spostato di mezza console (grafo "spinto" a sinistra
+  // in LTR, a destra in RTL, tanto piu' quanto piu' larga e' la console -- il sintomo
+  // esatto). L'harness passava perche' il suo stub modellava un container NON ristretto.
+  //
+  // NUOVO MODELLO (fisico, per rect reali, nessun ramo LTR/RTL): l'area visibile parte
+  // dal rect del container e viene RITAGLIATA solo della parte di console (e sidebar,
+  // durante le transizioni di apertura/chiusura) che vi si SOVRAPPONE davvero in questo
+  // istante. Cosi': var CSS gia' applicata -> sovrapposizione zero -> nessuna sottrazione;
+  // var in ritardo di un frame -> si sottrae esattamente la parte scoperta. In arabo non
+  // serve alcun ramo dedicato: la console sta fisicamente a sinistra, il ritaglio taglia
+  // da solo il bordo giusto ("l'algoritmo si inverte" gratis, per costruzione).
   const cRect = container.getBoundingClientRect();
-  // Bordi (in coordinate FISICHE di viewport) dell'area REALMENTE visibile: in RTL la
-  // console copre la sinistra, in LTR copre la destra.
-  const visibleLeft = _rtl ? (cRect.left + rightCover) : cRect.left;
-  const visibleRight = _rtl ? cRect.right : (cRect.right - rightCover);
+  let visibleLeft = cRect.left, visibleRight = cRect.right;
+  const _bfShaveOverlap = function (el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') return;
+    const r = el.getBoundingClientRect();
+    if (!r || !(r.width > 0) || !(visibleRight > visibleLeft)) return;
+    if (r.right <= visibleLeft || r.left >= visibleRight) return; // nessuna sovrapposizione
+    const fromLeft = r.right - visibleLeft;   // costo se lo si toglie dal bordo sinistro
+    const fromRight = visibleRight - r.left;  // costo se lo si toglie dal bordo destro
+    if (fromLeft <= fromRight) visibleLeft += fromLeft; else visibleRight -= fromRight;
+  };
+  const cons = (typeof document !== 'undefined') ? document.getElementById('console-popup') : null;
+  if (cons && cons.classList && typeof cons.classList.contains === 'function' && cons.classList.contains('active') && cons.classList.contains('docked')) {
+    _bfShaveOverlap(cons);
+  }
+  const _sb = (typeof document !== 'undefined') ? document.getElementById('sidebar') : null;
+  const _mainEl = (typeof document !== 'undefined') ? document.getElementById('main') : null;
+  const _sbCollapsed = _mainEl && _mainEl.classList && typeof _mainEl.classList.contains === 'function' && _mainEl.classList.contains('sidebar-collapsed');
+  if (_sb && !_sbCollapsed) _bfShaveOverlap(_sb);
+
   const visibleW = Math.max(60, visibleRight - visibleLeft);
   const targetCenter = visibleLeft + visibleW / 2;
 
@@ -213,10 +235,31 @@ function wrapNodeText(text, maxWidth) {
   if (cur) lines.push(cur);
   return lines.length ? lines : [''];
 }
+// AUDIT 2026-07-19 (falla #4): controllo di sintassi di un'espressione SENZA `new Function`
+// e senza `eval`. Prima si usava `new Function('return ('+expr+')')` che COMPILA (non esegue,
+// quindi nessun RCE) ma: (a) è un code-smell che un domani qualcuno potrebbe trasformare in
+// esecuzione; (b) valida la grammatica JS, non quella di safeEval (l'evaluatore reale) ->
+// disallineamento. Ora: si NEUTRALIZZANO gli identificatori (ogni nome di variabile -> `1`,
+// tranne Math/true/false/null) e si passa il risultato a safeEvaluate (parser sicuro, allowlist,
+// nessun accesso a globali). Se safeEvaluate parsa/valuta senza lanciare, la sintassi è valida;
+// se lancia, è un errore -> nodo rosso. Un'espressione con un identificatore diventa es. `1 + 1`,
+// una malformata (`2 +`, `(1+2`) fa lanciare safeEvaluate come faceva new Function.
+function _bfExprSyntaxOk(expr) {
+  if (typeof safeEvaluate !== 'function') return true; // safeEval non caricato: non segnalare falsi errori
+  var neutral = String(expr).replace(/[A-Za-z_$][A-Za-z0-9_$]*/g, function (id, offset, whole) {
+    // Lascia intatto il nome di un MEMBRO dopo il punto (es. la `max` in `Math.max`):
+    // safeEval accetta solo `Math.<fn>`, neutralizzarlo lo romperebbe. Idem per Math/booleani/null.
+    if (offset > 0 && whole[offset - 1] === '.') return id;
+    if (id === 'Math' || id === 'true' || id === 'false' || id === 'null') return id;
+    return '1';
+  });
+  try { safeEvaluate(neutral); return true; }
+  catch (e) { return false; }
+}
 // Validazione del CONTENUTO di un nodo (Ismail 2026-07-07): se il contenuto e' vuoto
 // dove richiesto o sintatticamente invalido, il blocco viene segnalato in ROSSO nel
-// rendering (come nell'esempio Flowgorithm). NB: `new Function(...)` qui COMPILA soltanto
-// l'espressione per validarne la sintassi -- NON la esegue (nessun effetto collaterale).
+// rendering (come nell'esempio Flowgorithm). Il controllo di sintassi passa da
+// _bfExprSyntaxOk (safeEval, nessun new Function/eval -- vedi sopra).
 function nodeHasError(n) {
   if (!n) return false;
   const t = n.type;
@@ -227,11 +270,11 @@ function nodeHasError(n) {
   if (info === '') return false;
   try {
     if (t === 'if' || t === 'while' || t === 'do') {
-      new Function('return (' + info + ')'); // condizione: espressione valida?
+      if (!_bfExprSyntaxOk(info)) return true; // condizione: espressione valida?
     } else if (t === 'assign' || t === 'assignment') {
       const m = info.match(/^\s*([A-Za-z_]\w*(\s*\[[^\]]*\])?)\s*(=|\+=|-=|\*=|\/=|%=)\s*([\s\S]+)$/);
       if (!m) return true;                    // deve avere forma "var = espr"
-      new Function('return (' + m[4] + ')');   // parte destra valida?
+      if (!_bfExprSyntaxOk(m[4])) return true; // parte destra valida?
     } else if (t === 'output' || t === 'print' || t === 'write') {
       // print/output usano un parsing custom (splitStrings in execute.js) che accetta
       // stringhe e concatenazioni miste: qui NON facciamo un controllo di sintassi rigido
@@ -252,7 +295,7 @@ function nodeHasError(n) {
         || new RegExp('^' + vn + '\\s*(\\+\\+|--)$').test(incr)
         || new RegExp('^(\\+\\+|--)' + vn + '$').test(incr);
       if (!incOk) return true;                           // incremento sulla stessa var
-      new Function('return (' + mi[2] + ')');            // init: espressione valida?
+      if (!_bfExprSyntaxOk(mi[2])) return true;          // init: espressione valida?
     }
   } catch (e) {
     return true; // sintassi non valida
@@ -515,10 +558,36 @@ function calcoloY(nodiVisualArray) {
       // come prima"): la prima versione sommava BACKEDGE_SEP_PX a beP.L INCONDIZIONATAMENTE,
       // anche quando il corpo NON contiene alcun Do-While annidato (es. un solo blocco largo,
       // o un If) -- allargando la colonna (e quindi spostando trueX/falseX e le etichette
-      // True/False di un IF antenato che lo contenesse) senza alcun motivo reale. Ora la
-      // riserva extra scatta SOLO se _hasNestedDo rileva davvero un Do-While nel corpo.
+      // True/False di un IF antenato che lo contenesse) senza alcun motivo reale. Ridotta ad
+      // un extra condizionale (nestedDoExtra, sotto _hasNestedDo) SOLO per un Do-While annidato.
+      //
+      // BUG TROVATO (Ismail 2026-07-19, "For con testo lungo: gli archi si sovrappongono",
+      // file reale problemaaa.json -- While{ Do-While{ For{ If{ While } } } }): quel fix era
+      // troppo restrittivo. Il back-edge di QUESTO Do-While (drawDoWhileBranches, rendering.js)
+      // e' SEMPRE `leftMostBodyLeft - BACKEDGE_SEP_PX`, dove leftMostBodyLeft e' il bordo
+      // sinistro REALE del contenuto del corpo (la stessa quantita' misurata da beP.L) --
+      // QUALUNQUE sia il contenuto, non solo un Do-While annidato: il back-edge si scosta
+      // SEMPRE di un BACKEDGE_SEP_PX aggiuntivo oltre il corpo, e' la sua stessa formula di
+      // disegno, non un caso speciale del Do-While annidato. Riservare solo `beP.L` (senza
+      // quell'ulteriore scostamento) quando beP.L e' il termine dominante -- caso "un solo
+      // blocco LARGO nel corpo, niente Do-While annidato", ESATTAMENTE quello lasciato
+      // scoperto dal fix precedente -- sotto-riserva di 22px: con un For abbastanza largo
+      // (testo lungo, es. "i = 0; i <= 1; i += 1") il back-edge di questo Do-While finisce
+      // per invadere la colonna FISSA dell'uscita di un While/For ANTENATO (che non ha alcuna
+      // elasticita' propria, scende sempre dritta nella propria colonna) -- confermato
+      // visivamente (SVG headless) e con `problemaaa.json` di Ismail: gap fra le due colonne
+      // sceso da 42px (For vuoto) a 8px (For col testo reale), poi negativo/incrociato una
+      // volta sommato lo spessore reale dei tratti. Fix: BACKEDGE_SEP_PX si somma SEMPRE a
+      // beP.L (non solo quando c'e' un Do-While annidato) -- fattorizzando i due rami del max,
+      // e' equivalente a `Math.max(half, beP.L) + BACKEDGE_SEP_PX`, cioe' esattamente la
+      // formula reale del back-edge, mai una sotto-stima. Nel ramo "half domina" (corpo non
+      // piu' largo dell'esagono stesso -- il caso del fix 2026-07-15, "un solo If normale")
+      // il valore resta IDENTICO a prima (half+BACKEDGE_SEP_PX gia' vinceva il max anche
+      // prima): nessuna regressione sull'etichetta True segnalata allora. nestedDoExtra
+      // (sopra ancora usato per l'annidamento diretto Do-in-Do, dove il figlio e' esso stesso
+      // un altro Do-While con la stessa formula ricorsiva) resta com'era.
       const nestedDoExtra = _hasNestedDo(body.bodyList) ? BACKEDGE_SEP_PX : 0;
-      res = { L: Math.max(half + BACKEDGE_SEP_PX, beP.L + nestedDoExtra), R: Math.max(half, beP.R) };
+      res = { L: Math.max(half + BACKEDGE_SEP_PX, beP.L + BACKEDGE_SEP_PX + nestedDoExtra), R: Math.max(half, beP.R) };
     } else if (n && isBranchingNodeType(n.type) && n.type !== "if" && typeof n.next === "object" && n.next !== null) {
       const o = loopBodyOffset(idx);
       res = { L: half, R: Math.max(half + BACKEDGE_SEP_PX, o.dBody + o.beP.R) };

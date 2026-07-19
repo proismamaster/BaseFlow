@@ -20,9 +20,72 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
     const reader = new FileReader(); // Oggetto per leggere il contenuto del file
     reader.onload = (e) => { // Callback eseguita al termine della lettura del file
       const content = e.target.result; // Contenuto testuale del file (JSON atteso)
-      console.log("Contenuto file:", content);
+      // AUDIT 2026-07-19 (falla #4, DoS): niente piu' dump dell'INTERO contenuto in console
+      // (un file da MB congelava DevTools) e tetto dimensioni PRIMA del parse -- un file
+      // enorme/ostile mandava JSON.parse + validateFlow + layout in blocco totale della tab.
+      const BF_MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB: ordini di grandezza sopra ogni flowchart reale
+      const BF_MAX_NODES = 10000, BF_MAX_VARS = 1000;
       try {
-        const json = JSON.parse(content); // Parsing del contenuto JSON
+        if (typeof content === 'string' && content.length > BF_MAX_FILE_BYTES) {
+          event.target.value = '';
+          const msg = (typeof i18nText === 'function' && i18nText('load_too_big'))
+            || 'File troppo grande per essere un flowchart BaseFlow: caricamento rifiutato.';
+          const title = (typeof i18nText === 'function' && i18nText('load_invalid_title')) || 'File non valido';
+          if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true, title: title });
+          else if (typeof alert === 'function') alert(msg);
+          return;
+        }
+        // 2026-07-19 (formato .bflow: checksum d'integrità + contenuto OPACO). Un unico
+        // entry point (bfParseLoadedText) gestisce i 3 formati: v2 opaco (magic BFLOW1 +
+        // payload offuscato), v1 involucro JSON, legacy .json puro. Verifica il checksum e
+        // de-offusca PRIMA di toccare lo stato corrente: file corrotto/troncato -> rifiutato
+        // con messaggio dedicato, progetto aperto intatto. Se il modulo non fosse caricato,
+        // fallback al vecchio JSON.parse grezzo (nessun crash).
+        let json;
+        if (typeof bfParseLoadedText === 'function') {
+          const res = bfParseLoadedText(content);
+          if (!res.ok) {
+            event.target.value = ''; // permette di ri-selezionare lo stesso file
+            let msg, title;
+            if (res.reason === 'version') {
+              title = (typeof i18nText === 'function' && i18nText('load_corrupt_title')) || 'File non apribile';
+              msg = (typeof i18nFormat === 'function' && i18nFormat('load_newer_version', { v: res.detail }))
+                || ('File creato con una versione più recente (formato v' + res.detail + ').');
+            } else if (res.reason === 'parse') {
+              title = (typeof i18nText === 'function' && i18nText('load_invalid_title')) || 'File non valido';
+              msg = (typeof i18nFormat === 'function' && i18nFormat('load_parse_err', { msg: res.detail }))
+                || ('Errore nel file: ' + res.detail);
+            } else {
+              // checksum | corrupt | structure -> tutti "file danneggiato/incompleto".
+              title = (typeof i18nText === 'function' && i18nText('load_corrupt_title')) || 'File corrotto';
+              msg = (typeof i18nText === 'function' && i18nText('load_corrupt_checksum'))
+                || 'Il file è danneggiato o incompleto (controllo di integrità fallito).';
+            }
+            if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true, title: title });
+            else if (typeof alert === 'function') alert(msg);
+            return;
+          }
+          json = res.flow;
+        } else {
+          json = JSON.parse(content); // fallback estremo: modulo formato non caricato
+        }
+
+        // AUDIT 2026-07-19 (falla #4, DoS): tetti su numero di nodi/variabili PRIMA di
+        // validateFlow -- i suoi walker (sottoalberi/reachability) su un file con centinaia
+        // di migliaia di nodi bloccherebbero la tab ancora prima del rifiuto.
+        if (json && typeof json === 'object') {
+          const _nNodes = Array.isArray(json.nodes) ? json.nodes.length : 0;
+          const _nVars = Array.isArray(json.variables) ? json.variables.length : 0;
+          if (_nNodes > BF_MAX_NODES || _nVars > BF_MAX_VARS) {
+            event.target.value = '';
+            const msg = (typeof i18nText === 'function' && i18nText('load_too_big'))
+              || 'File troppo grande per essere un flowchart BaseFlow: caricamento rifiutato.';
+            const title = (typeof i18nText === 'function' && i18nText('load_invalid_title')) || 'File non valido';
+            if (typeof showStyledAlert === 'function') showStyledAlert(msg, { danger: true, title: title });
+            else if (typeof alert === 'function') alert(msg);
+            return;
+          }
+        }
 
         // FIX A1 (review Fable, 2026-07-05): PRIMA di toccare lo stato corrente, si
         // valida il file appena parsato. Un file salvato durante le settimane dei
@@ -114,6 +177,14 @@ if (typeof window !== 'undefined') window.openFileWithGuard = openFileWithGuard;
         }
 
 
+        // WP-N4 (round 15-C, QA zoom, Ismail 2026-07-15): un file aperto dopo aver zoomato il
+        // progetto precedente ereditava lo stesso livello di zoom -- il nuovo progetto partiva
+        // ingrandito/rimpicciolito a caso invece che alla vista normale. "Nuovo" gia' lo fa
+        // gratis (location.reload()); qui serve esplicito perche' Apri sostituisce flow/nodi
+        // SENZA ricaricare la pagina. Solo la variabile (non zoomReset(), che farebbe gia' un
+        // giro di calcoloY/draw/centerGraph ridondante con le righe subito sotto): il
+        // calcoloY/draw che segue applica direttamente lo zoom azzerato.
+        if (typeof zoom !== 'undefined') zoom = 1;
         calcoloY(nodi); // Ricalcola le posizioni Y
         draw(nodi);     // Ridisegna il flowchart
         // FIX (Ismail 2026-07-08): centra il grafo caricato nell'area visibile.

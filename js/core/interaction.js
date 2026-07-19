@@ -1065,6 +1065,41 @@ function moveScatteredSelection(arrowId) {
     if (stepArcId === -1) { ok = false; reason = "arco di aggancio del passo " + k + " non trovato"; break; }
     const rIdx = idxByTag(k);
     if (rIdx === -1) { ok = false; reason = "unita' " + k + " persa durante la catena"; break; }
+    // FIX (Ismail 2026-07-18, "seleziono input+ciclo annidato e droppo sull'arco subito dopo
+    // l'input: non sposta niente" + conferma esplicita "deve riordinarlo... ha senso cosi'"):
+    // se l'arco di questo passo esce GIA' da rIdx stesso, l'unita' e' GIA' posizionata
+    // esattamente li' -- un vero no-op, non un fallimento. Prima chiamava comunque
+    // moveNode/moveIfBlock/moveLoopBlock, che hanno un guard di self-drop dedicato ("il
+    // genitore dell'arco target e' il nodo stesso"/moveNode riga ~440, stesso principio in
+    // moveRange per i blocchi) pensato per un singolo drag manuale (dove e' un rifiuto
+    // sensato) -- ma qui "nessun cambiamento" veniva letto come "passo rifiutato" -> ROLLBACK
+    // TOTALE dell'intera catena, cancellando anche i passi successivi che sarebbero stati
+    // validi (es. la seconda unita', un ciclo annidato in profondita', che si voleva davvero
+    // spostare subito dopo la prima). Si salta la mossa per questa unita' (resta dov'e', il
+    // suo arco uscente reale e' gia' quello giusto per il passo k+1) e si prosegue.
+    // Verificato che questo NON introduce corruzione: la validazione finale della catena
+    // (validateFlow, poco sotto) resta l'unica vera rete di sicurezza, invariata. Verificato
+    // anche il caso "due rami dello stesso if selezionati, drop sull'arco di uno dei due"
+    // (repro-r14-scattered-move.js, S3): con questo fix il risultato e' un grafo VALIDO che
+    // fonde i due rami in sequenza (esattamente il riordino chiesto da Ismail con l'esempio
+    // input->output->assign) — S3 aggiornato di conseguenza (non era piu' un vero pericolo,
+    // solo una cautela nata prima che questo caso d'uso fosse chiarito).
+    //
+    // FIX 2 (Ismail 2026-07-19, "selezione while figlio poi while fuori e trascino verso
+    // l'arco che va da do-while a while: non sposta"): stesso no-op ma SPECULARE. Il caso
+    // sopra copre "l'arco di questo passo ESCE gia' da rIdx" (rIdx e' un ciclo/if il cui
+    // proprio bordo di uscita coincide col target). Qui invece l'arco del passo e' quello
+    // che esce dall'unita' PRECEDENTE (prevIdx) e la sua destinazione ATTUALE e' GIA' rIdx
+    // stesso: rIdx e' gia' l'immediato successore di prevIdx, cioe' gia' esattamente dove
+    // la catena lo vorrebbe piazzare -- di nuovo un no-op vero, non un rifiuto. Prima
+    // finiva comunque in moveIfBlock/moveLoopBlock/moveNode, che spostano il blocco fuori e
+    // lo reinseriscono nello STESSO punto (perche' il target coincide col proprio ingresso):
+    // il JSON risultante e' identico a prima -> letto erroneamente come "passo rifiutato"
+    // -> rollback totale, cancellando anche i passi successivi validi. Per costruzione,
+    // "l'arco che punta gia' a rIdx" implica che rIdx e' gia' posizionato correttamente,
+    // quindi saltare la mossa e' sempre sicuro (nessuna riconnessione da fare).
+    const stepArc = frecce[stepArcId];
+    if (stepArc && (stepArc.fromNodeIndex === rIdx || stepArc.toNodeIndex === rIdx)) { continue; }
     const beforeSig = JSON.stringify(flow.nodes);
     const t = flow.nodes[rIdx].type;
     if (t === "if") moveIfBlock(rIdx, stepArcId);
@@ -1790,10 +1825,25 @@ function inserisciNodo(tipo) {
   // il punto di convergenza fra due unita' consecutive e' ESCLUSIVO della selezione (join
   // "privato" della prima unita') o CONDIVISO con qualcosa fuori da essa (join di un
   // antenato comune, es. l'altro ramo dello stesso IF padre) -- vedi commento sotto.
+  //
+  // FIX (Ismail 2026-07-19, "in quel caso non posso fare Shift+click su quei blocchi,
+  // solo Ctrl+click"): un ciclo a CORPO VUOTO (While/Do con next.true === indice proprio,
+  // la convenzione gia' nota per "corpo vuoto" -- vedi moveIfBlock/moveLoopBlock) e'
+  // TECNICAMENTE un proprio predecessore (l'arco 8->8 del corpo). Prima questo veniva
+  // restituito come un predecessore qualunque: nei tre chiamanti (validateSelectionUnitsSameLevel,
+  // _extendChainForward, _extendChainBackward) il test e' sempre "e' un predecessore ESTERNO
+  // alla selezione accumulata finora" -- ma un nodo non puo' mai essere "esterno a se stesso".
+  // Restituirlo come falso-positivo faceva leggere il proprio self-loop come una convergenza
+  // condivisa con l'esterno, bloccando Shift+click ogni volta che il range doveva includere un
+  // ciclo vuoto come ultimo anello (es. selezione sparsa poi allargata dal Ctrl+click funzionava
+  // — usa un percorso diverso — ma il range walker di Shift+click si arrestava qui, forzando
+  // Ismail a usare solo Ctrl+click per quei blocchi). Un self-loop non e' mai un segnale di
+  // confine: si esclude targetIdx dai propri predecessori.
   function _predecessorsOf(targetIdx) {
     const preds = [];
     if (targetIdx === null || targetIdx === undefined || !flow || !flow.nodes) return preds;
     for (let i = 0; i < flow.nodes.length; i++) {
+      if (i === targetIdx) continue; // self-loop (corpo vuoto): mai un predecessore "esterno"
       const n = flow.nodes[i];
       if (!n) continue;
       if (isBranchingNodeType(n.type) && typeof n.next === 'object' && n.next !== null) {
@@ -1941,10 +1991,22 @@ function inserisciNodo(tipo) {
       const nextRoot = last.exit;
       const nextNode = (nextRoot !== null && nextRoot !== undefined) ? flow.nodes[nextRoot] : null;
       const preds = _predecessorsOf(last.exit);
-      const boundaryBlocked = preds.some(function (p) { return !accumulated.has(p); })
+      // FIX (Ismail 2026-07-19, "due cicli annidati in due padri diversi non fa lo Shift+
+      // click"): stessa famiglia del fix self-loop di prima, ma un livello piu' in
+      // profondita'. Qui nextRoot e' la radice di un CONTENITORE (if/ciclo, es. un secondo
+      // For) il cui proprio corpo/back-edge (es. l'ultimo nodo del corpo che torna alla
+      // radice) compare fra i preds di se stesso -- non e' un self-loop diretto (preds
+      // contiene un indice DIVERSO da nextRoot), ma e' comunque INTERNO al contenitore che
+      // stiamo per aggiungere: sara' incluso in accumulated un istante dopo (quando
+      // nextUnit viene pushato), quindi non e' mai una vera convergenza esterna. Prima
+      // veniva letto come confine (l'indice non e' ancora in `accumulated`, che non include
+      // ancora nextUnit) -> STOP prematuro con nessun genitore ulteriore da allargare.
+      // Fix: calcola nextUnit PRIMA del controllo ed escludi anche i suoi membri dal test.
+      const nextUnitPeek = (nextNode && nextNode.type !== 'start' && nextNode.type !== 'end') ? _unitInfo(nextRoot) : null;
+      const boundaryBlocked = preds.some(function (p) { return !accumulated.has(p) && !(nextUnitPeek && nextUnitPeek.members.has(p)); })
         || !nextNode || nextNode.type === 'start' || nextNode.type === 'end';
       if (!boundaryBlocked) {
-        const nextUnit = _unitInfo(nextRoot);
+        const nextUnit = nextUnitPeek;
         if (nextUnit) {
           chain.push(nextUnit);
           if (nextUnit.members.has(targetIdx)) return chain;
@@ -1979,7 +2041,18 @@ function inserisciNodo(tipo) {
         if (!candNode || candNode.type === 'start' || candNode.type === 'end') continue; // Start/End mai selezionabili
         const candUnit = _unitInfo(candRoot);
         if (!candUnit || candUnit.blockEnd !== first.blockStart) continue;
-        if (preds.every(function (pr) { return candUnit.members.has(pr); })) { found = candUnit; break; }
+        // FIX (Ismail 2026-07-19, stessa causa profonda del fix gemello in
+        // _extendChainForward): un predecessore di first.blockStart puo' essere un back-edge
+        // INTERNO di `first` stesso (es. first e' un ciclo/if annidato in un contenitore
+        // esterno C, e l'ultimo nodo del corpo di C -- che e' PARTE di first -- punta di
+        // nuovo alla radice di first). Quel predecessore non e' una "sorella" da far
+        // spiegare al candidato: e' gia' dentro first, quindi va sempre accettato a
+        // prescindere dal candidato in esame -- prima doveva OBBLIGATORIAMENTE comparire
+        // fra i membri del candidato (`candUnit.members.has(pr)`), il che rigettava
+        // ingiustamente ANCHE il vero genitore-sorella quando first stesso aveva un
+        // predecessore interno (tipico di un ciclo annidato due livelli sotto, es. While
+        // dentro If dentro For: il For ha un proprio back-edge che rientra fra i preds).
+        if (preds.every(function (pr) { return first.members.has(pr) || candUnit.members.has(pr); })) { found = candUnit; break; }
       }
       if (found) {
         chain.unshift(found);
@@ -2202,7 +2275,7 @@ function inserisciNodo(tipo) {
   // di rimozione DECRESCENTE per indice radice: rimuovendo prima le unita' con indice piu'
   // alto, gli indici (ancora da processare) delle unita' con indice piu' basso non
   // cambiano mai (deleteBlock/deleteNode toccano solo indici >= la propria blockStart).
-  function deleteSelectionGroup() {
+  function deleteSelectionGroup(opts) {
     const units = getSelectionUnits();
     if (!units.length) return;
     const doDelete = function () {
@@ -2224,6 +2297,13 @@ function inserisciNodo(tipo) {
       if (typeof calcoloY === 'function') calcoloY(nodi);
       if (typeof draw === 'function') draw(nodi);
     };
+    // FIX (Ismail 2026-07-18): "Taglia selezione" nel menu contestuale riusa questa stessa
+    // funzione di cancellazione (via cutSelectionGroup sotto) ma, come cutNode() per il
+    // singolo nodo, senza il dialog di conferma -- e' un taglia/incolla atomico e recuperabile
+    // (il contenuto resta negli appunti), non una cancellazione distruttiva che merita un
+    // "sei sicuro?". `opts.skipConfirm` di default false: "Elimina selezione" (invariata)
+    // continua a chiedere conferma come sempre.
+    if (opts && opts.skipConfirm) { doDelete(); return; }
     const tmpl = (typeof i18nText === 'function' && i18nText('del_group_confirm')) || 'Eliminare {n} blocchi?';
     const msg = tmpl.replace('{n}', units.length);
     if (typeof showStyledConfirm === 'function') {
@@ -2231,6 +2311,18 @@ function inserisciNodo(tipo) {
     } else {
       doDelete();
     }
+  }
+
+  // FIX (Ismail 2026-07-18, "quando faccio destro oltre copia e elimina fai anche taglia"):
+  // il menu contestuale su nodo singolo ha gia' Taglia (cutNode, sopra), ma la modalita' GRUPPO
+  // (selezione multipla) aveva solo Copia selezione/Elimina selezione. Stesso pattern esatto di
+  // cutNode: copia PRIMA (se fallisce -- selezione non contigua o con collegamenti esterni non
+  // gestiti, vedi copySelectionGroup -- si ferma qui, NULLA viene cancellato), poi elimina senza
+  // il dialog di conferma (il contenuto e' comunque recuperabile da Incolla).
+  function cutSelectionGroup() {
+    if (!copySelectionGroup()) return false;
+    deleteSelectionGroup({ skipConfirm: true });
+    return true;
   }
 
 // ============================================================================
@@ -2337,6 +2429,8 @@ function openNodeEditor(idx) {
     if (typeof _bfSetupEditFields === 'function') _bfSetupEditFields(n);
     // R13-F (Ismail 2026-07-12): registra l'apertura nello stack condiviso Esc (popups.js).
     if (typeof _bfPushOverlay === 'function') _bfPushOverlay('edit-node-popup');
+    // WP-D5 (round 15-D): Enter = Salva.
+    if (typeof _bfWireDialogKeys === 'function' && typeof salvaInfo === 'function') _bfWireDialogKeys(pop, salvaInfo);
     // P2.4 (round 15-B S1): l'apertura porta SEMPRE il popup in primo piano (ux.js) -- coerente
     // col raise-on-click su successivi click, non solo relativo ai default statici di style.css.
     if (typeof bfBringToFrontPopup === 'function' && pop) bfBringToFrontPopup(pop);
@@ -2610,9 +2704,18 @@ function showContextMenu(event) {
   const inGroup = onNode && groupUnits.some(function (u) { return u.members.has(idx); });
   if (inGroup) {
     setShown('edit', false); setShown('cut', false); setShown('copy', false); setShown('paste', false); setShown('delete', false);
-    setShown('copy-selection', true); setShown('delete-selection', true);
-    const setCount = function (act) { const el = menu.querySelector('[data-act="' + act + '"] .ctx-sel-count'); if (el) el.textContent = ' (' + groupUnits.length + ')'; };
-    setCount('copy-selection'); setCount('delete-selection');
+    setShown('copy-selection', true); setShown('cut-selection', true); setShown('delete-selection', true);
+    // FIX (Ismail 2026-07-19, "se selezioni due padri ovviamente selezioni anche i figli, ma
+    // il numero conta solo i padri, non anche i figli compresi"): il numero mostrava
+    // groupUnits.length, cioe' quante UNITA' di primo livello sono selezionate (es. 2 IF
+    // separati -> "(2)"), MAI quanti nodi verranno davvero copiati/tagliati/eliminati -- se
+    // ciascuno di quei 2 IF ha 3 figli nei rami, l'operazione reale coinvolge 8 nodi (2 radici
+    // + 6 figli), non 2. Ora si somma members.size di ogni unita' (i figli sono GIA' inclusi
+    // nei members di getSelectionUnits/_unitInfo, nessun nuovo giro di raccolta) invece di
+    // contare solo le unita' stesse.
+    const totalNodeCount = groupUnits.reduce(function (sum, u) { return sum + u.members.size; }, 0);
+    const setCount = function (act) { const el = menu.querySelector('[data-act="' + act + '"] .ctx-sel-count'); if (el) el.textContent = ' (' + totalNodeCount + ')'; };
+    setCount('copy-selection'); setCount('cut-selection'); setCount('delete-selection');
     const sep = menu.querySelector('.ctx-sep'); if (sep) sep.style.display = '';
     menu.hidden = false;
     const mw = menu.offsetWidth || 160, mh = menu.offsetHeight || 200;
@@ -2622,7 +2725,7 @@ function showContextMenu(event) {
     menu.style.left = Math.max(4, gx) + 'px'; menu.style.top = Math.max(4, gy) + 'px';
     return;
   }
-  setShown('copy-selection', false); setShown('delete-selection', false);
+  setShown('copy-selection', false); setShown('cut-selection', false); setShown('delete-selection', false);
   const hasClip = !!blockClipboard;
   setShown('edit', onNode); setShown('cut', onNode); setShown('copy', onNode);
   // C5 (round 11): Incolla resta SEMPRE visibile su nodo/arco (mai piu' nascosta), ma
@@ -2651,6 +2754,7 @@ function ctxAction(action) {
     return;
   }
   if (action === 'copy-selection') { if (typeof copySelectionGroup === 'function') copySelectionGroup(); return; }
+  if (action === 'cut-selection') { if (typeof cutSelectionGroup === 'function') cutSelectionGroup(); return; }
   if (action === 'delete-selection') { if (typeof deleteSelectionGroup === 'function') deleteSelectionGroup(); return; }
   if (nodeIdx < 0 || !flow.nodes[nodeIdx]) return;
   if (action === 'edit') openNodeEditor(nodeIdx);

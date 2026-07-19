@@ -71,10 +71,20 @@ function renderWatch(active) {
     box.setAttribute('hidden', ''); box.innerHTML = ''; return;
   }
   box.removeAttribute('hidden');
+  // AUDIT 2026-07-19 (falla #1, XSS da file ostile): v.name finiva in innerHTML SENZA
+  // escaping (e v.value con un escaping parziale, solo '<'). validateFlow valida la
+  // struttura dei NODI ma non il contenuto di variables[]: un .json/.bflow ostile con
+  // name = '<img src=x onerror=...>' eseguiva script alla prima esecuzione (il watch
+  // renderizza i nomi). Ora nome E valore passano da _bfEscapeHtml (tutti i 5 caratteri).
+  const _bfEscapeHtml = function (s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;';
+    });
+  };
   let html = '<div class="watch-title">' + ((typeof i18nText === 'function' && i18nText('watch_title')) || 'Variabili') + '</div>';
   html += _watchVars.map(function (v) {
     const val = (v && v.value !== undefined && v.value !== null && v.value !== '') ? String(v.value) : '—';
-    return '<div class="watch-row"><span class="watch-name">' + (v.name || '?') + '</span>=<span class="watch-val">' + val.replace(/</g,'&lt;') + '</span></div>';
+    return '<div class="watch-row"><span class="watch-name">' + _bfEscapeHtml((v && v.name) || '?') + '</span>=<span class="watch-val">' + _bfEscapeHtml(val) + '</span></div>';
   }).join('');
   box.innerHTML = html;
 }
@@ -121,12 +131,51 @@ async function animateExecEdge(from, to, dt, cameFrom){
   try { groups = (typeof computeEdgeGroups === 'function') ? computeEdgeGroups(from, to, _execBranch, _showRis) : null; } catch (e) { groups = null; }
   if (!groups || !groups.length) { highlightExecEdge(from, to); await sleep(dt); return; }
   const per = Math.max(60, Math.round(dt));
+  // WP-E2 (Ismail 2026-07-17, "insieme all'arco true/false si deve accendere e spegnere"): in una
+  // transizione FORWARD attraverso un IF (ramo -> join, oppure IF -> join a ramo VUOTO) l'arco del
+  // ramo (if_true/if_false/normal) e la sua DISCESA di ricongiunzione (if_join/reconnect) sono UN
+  // SOLO gesto visivo: vanno accesi e spenti INSIEME, non uno dopo l'altro. Si fondono quindi tutti
+  // i gruppi della transizione in un unico frame acceso. ESCLUSI (restano "un arco alla volta", come
+  // richiesto da Ismail): i back-edge dei cicli (RITORNO all'header, from > to) e le transizioni di
+  // un do-while (nodo `do` come sorgente o destinazione: la sua risalita/discesa/esagono restano
+  // separate, DW-1). Per una transizione FORWARD non-do con piu' gruppi (cioe' proprio il caso
+  // ramo->join dell'if, anche annidato) si accende tutto insieme.
+  var _fromNodeE2 = (typeof flow !== "undefined" && flow.nodes) ? flow.nodes[from] : null;
+  var _toNodeE2   = (typeof flow !== "undefined" && flow.nodes) ? flow.nodes[to]   : null;
+  var _mergeIfFwd = (from <= to)
+    && !(_fromNodeE2 && _fromNodeE2.type === 'do')
+    && !(_toNodeE2 && _toNodeE2.type === 'do');
+  if (_mergeIfFwd && groups.length > 1) {
+    if (typeof pauseRequested !== "undefined" && pauseRequested) return;
+    var _allSegs = [];
+    for (var _gk = 0; _gk < groups.length; _gk++) _allSegs = _allSegs.concat(groups[_gk].segs);
+    // gi:'all' -> refreshExecEdgeGeometry (rendering.js, WP-N1) ricalcola concatenando TUTTI i gruppi.
+    executingEdge = { from: from, to: to, branch: _execBranch, litGroup: _allSegs, _grp: { from: from, to: to, branch: _execBranch, showRis: _showRis, gi: 'all' } };
+    executingNodeIndex = -1;
+    if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
+    if (typeof stopRequested !== "undefined" && stopRequested) return;
+    await sleep(per);
+    return;
+  }
   // FIX (Ismail 2026-07-14): NIENTE esagono in mezzo qui. L'esagono del do-while si accende UNA
   // volta come fase-NODO (dal loop d'esecuzione), non fra i gruppi dell'arco: inserirlo qui dava
   // "blocco, laterale, blocco, verticale" (esagono fra risalita e discesa). I gruppi dell'arco
   // (per il do-while: risalita poi discesa, DW-1) si accendono uno alla volta, senza nodo in mezzo.
   for (let gi = 0; gi < groups.length; gi++) {
-    executingEdge = { from: from, to: to, branch: _execBranch, litGroup: groups[gi].segs };
+    // WP-N3 (round 15-C coda, Ismail 2026-07-17): controllo IN CIMA al giro, PRIMA di accendere
+    // il prossimo gruppo -- se la pausa arriva mentre questo arco ha PIU' di un gruppo (es. un
+    // back-edge: uscita + rientro), requestPause() fa scadere subito il sonno del gruppo
+    // corrente (_bfSkipCurrentDelay) e si rientra qui: senza questo controllo si accenderebbe
+    // comunque UN gruppo in piu' (un segmento oltre il punto esatto in cui e' stata premuta
+    // pausa) prima di fermarsi. Con questo, resta acceso l'ULTIMO gruppo gia' disegnato -- il
+    // "posto esatto" richiesto. Il chiamante (executeFlow) vede pauseRequested al ritorno.
+    if (typeof pauseRequested !== "undefined" && pauseRequested) return;
+    // WP-N1 (Ismail 2026-07-15): oltre ai segmenti (coordinate ASSOLUTE congelate), salva l'IDENTITA'
+    // logica del gruppo acceso (from/to/branch/showRis/indice-gruppo). Cosi' al redraw dopo un cambio
+    // di layout (resize finestra, zoom, ricentraggio) refreshExecEdgeGeometry() (rendering.js) ricalcola
+    // litGroup dai frecce CORRENTI -> l'highlight SEGUE l'arco invece di restare nel punto vecchio.
+    // Vale anche in PAUSA (quando l'animazione non gira, e' il caso principale del bug).
+    executingEdge = { from: from, to: to, branch: _execBranch, litGroup: groups[gi].segs, _grp: { from: from, to: to, branch: _execBranch, showRis: _showRis, gi: gi } };
     executingNodeIndex = -1;
     if (typeof draw === "function" && typeof nodi !== "undefined") draw(nodi);
     if (typeof stopRequested !== "undefined" && stopRequested) return;
@@ -334,13 +383,23 @@ function toggleConsoleDock() {
         if (!handle || !consoleEl) return;
         let resizing = false;
         const MIN_W = 210;
-        handle.addEventListener('mousedown', function(e){
+        // WP-6 (round 15 gravi, P6.3+P13.1, 2026-07-19): eventi mouse -> Pointer Events.
+        // Con mousedown/mousemove la maniglia NON funzionava affatto su touch (mobile,
+        // R13-I: e' la causa concreta anche del caso "resize mobile in RTL" -- non una
+        // geometria sbagliata, proprio nessun evento durante il gesto). touch-action:none
+        // sull'handle (style.css) tiene il gesto sul documento invece dello scroll.
+        // bf-live-drag sul body: spegne le transizioni CSS (grid #main, #zoom-controls,
+        // #terminal-reopen) mentre si trascina, cosi' centerGraph misura larghezze VERE
+        // ad ogni frame e la vista segue la maniglia senza assestamento ritardato (P13.1).
+        handle.addEventListener('pointerdown', function(e){
             if (!consoleEl.classList.contains('docked')) return; // solo da agganciata
+            if (e.isPrimary === false) return;
             resizing = true;
             handle.classList.add('active-resize');
+            if (document.body && document.body.classList) document.body.classList.add('bf-live-drag');
             e.preventDefault();
         });
-        window.addEventListener('mousemove', function(e){
+        window.addEventListener('pointermove', function(e){
             if (!resizing) return;
             const maxW = window.innerWidth * 0.92;
             // FIX #33 (Ismail 2026-07-08): in RTL il pannello e' a SINISTRA, quindi la
@@ -364,11 +423,19 @@ function toggleConsoleDock() {
             if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); }
             else { updateZoomOffset(); if (typeof centerGraph === 'function') centerGraph(); }
         });
-        window.addEventListener('mouseup', function(){
+        // WP-6: pointerup + pointercancel (gesto touch interrotto dal sistema): senza il
+        // secondo, bf-live-drag restava attivo e le transizioni spente per sempre.
+        const _bfConsEndResize = function(){
             if (!resizing) return;
             resizing = false;
             handle.classList.remove('active-resize');
-        });
+            if (document.body && document.body.classList) document.body.classList.remove('bf-live-drag');
+            // assetto finale su valori veri (transizioni appena riattivate: nessun salto,
+            // la larghezza non cambia piu' -- e' solo una rimisura di sicurezza).
+            if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); setTimeout(_bfSidebarLiveResizeTick, 240); }
+        };
+        window.addEventListener('pointerup', _bfConsEndResize);
+        window.addEventListener('pointercancel', _bfConsEndResize);
     } catch(_) {}
 })();
 
@@ -383,9 +450,12 @@ function toggleConsoleDock() {
         let rz = false, rdir = '', rx = 0, ry = 0, rw = 0, rh = 0, rl = 0, rt = 0;
         const MIN_W = 320, MIN_H = 220, MAX_W = 1100, MAX_H = 1100;
         const handles = el.querySelectorAll('.tg-rz');
+        // WP-6/R13-I (2026-07-19): mouse -> Pointer Events, cosi' le 8 maniglie funzionano
+        // anche a dito su mobile (prima: nessun mousemove continuo su touch = resize morto).
         for (let i = 0; i < handles.length; i++) {
-            handles[i].addEventListener('mousedown', function (e) {
+            handles[i].addEventListener('pointerdown', function (e) {
                 if (el.classList.contains('docked')) return; // solo da flottante
+                if (e.isPrimary === false) return;
                 const r = el.getBoundingClientRect();
                 rz = true; rdir = this.getAttribute('data-dir') || 'se';
                 rx = e.clientX; ry = e.clientY; rw = r.width; rh = r.height; rl = r.left; rt = r.top;
@@ -398,7 +468,7 @@ function toggleConsoleDock() {
                 e.preventDefault(); e.stopPropagation();
             });
         }
-        window.addEventListener('mousemove', function (e) {
+        window.addEventListener('pointermove', function (e) {
             if (!rz) return;
             const ddx = e.clientX - rx, ddy = e.clientY - ry;
             let nw = rw, nh = rh, nl = rl, nt = rt;
@@ -406,7 +476,15 @@ function toggleConsoleDock() {
             if (rdir.indexOf('w') !== -1) { nw = rw - ddx; nl = rl + ddx; }
             if (rdir.indexOf('s') !== -1) nh = rh + ddy;
             if (rdir.indexOf('n') !== -1) { nh = rh - ddy; nt = rt + ddy; }
-            nw = Math.max(MIN_W, Math.min(MAX_W, nw)); nh = Math.max(MIN_H, Math.min(MAX_H, nh));
+            // WP-6/mobile (2026-07-19): min/max STATICI clampati alla viewport reale --
+            // su un telefono stretto MIN_W=320 poteva superare lo schermo (finestra
+            // incastrata piu' larga della viewport, impossibile da restringere) e
+            // MAX_W/MAX_H fissi non hanno senso sotto i 1100px di schermo.
+            const _vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1100;
+            const _vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 1100;
+            const _minW = Math.min(MIN_W, Math.floor(_vw * 0.9)), _maxW = Math.min(MAX_W, Math.floor(_vw * 0.96));
+            const _minH = Math.min(MIN_H, Math.floor(_vh * 0.8)), _maxH = Math.min(MAX_H, Math.floor(_vh * 0.92));
+            nw = Math.max(_minW, Math.min(_maxW, nw)); nh = Math.max(_minH, Math.min(_maxH, nh));
             if (rdir.indexOf('w') !== -1) nl = rl + (rw - nw);
             if (rdir.indexOf('n') !== -1) nt = rt + (rh - nh);
             el.style.width = nw + 'px'; el.style.height = nh + 'px';
@@ -421,9 +499,11 @@ function toggleConsoleDock() {
             const scale = Math.max(0.85, Math.min(1.3, rawScale));
             el.style.setProperty('--console-scale', scale.toFixed(3));
         });
-        window.addEventListener('mouseup', function () {
+        const _bfMobRzEnd = function () {
             if (rz) { rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
-        });
+        };
+        window.addEventListener('pointerup', _bfMobRzEnd);
+        window.addEventListener('pointercancel', _bfMobRzEnd); // gesto touch interrotto: mai lasciare il resize "appeso"
     } catch (_) {}
 })();
 
@@ -446,7 +526,7 @@ function resetFlow() {
     const consoleOutput = document.getElementById('console-output');
     // WP-D1 esteso: 'debug' passata ESPLICITAMENTE, altrimenti classifyConsoleMsg() (regex sul
     // testo INGLESE originale) non riconosce piu' il messaggio tradotto e lo mostra sempre.
-    printMessage((typeof i18nText === 'function' && i18nText('flow_reset')) || "Flow resetted. Ready to execute again.", 'debug');
+    _termMsg('flow_reset', {}, 'debug', "Flow resetted. Ready to execute again.");
     const input = document.getElementById('console-input')
     const btn = document.getElementById('console-send')
     input.classList.remove('active');
@@ -463,6 +543,18 @@ async function executeStep(){
   // solo a velocizzare" (richiesta esplicita). A run FERMA o IN PAUSA (_bfRunning false) il
   // comportamento sotto resta quello storico, invariato.
   if (typeof _bfRunning !== 'undefined' && _bfRunning) { _bfSkipCurrentDelay(); return; }
+  // WP-N10b (Ismail 2026-07-15): se si RIPRENDE da una pausa avvenuta durante la FASE-ARCO
+  // (executingEdge acceso: il Run si era fermato sulla freccia PRIMA del blocco, che è già
+  // currentNode ma NON ancora eseguito), il primo Passo COMPLETA la freccia -> evidenzia il
+  // blocco di destinazione e si ferma lì, SENZA eseguirlo. Il Passo successivo lo esegue
+  // normalmente. Senza questo, con N10 (niente animazione dell'arco) il blocco lampeggiava e
+  // l'highlight saltava subito al successivo -> sembrava che "il blocco della freccia venisse
+  // saltato". Vale solo per la ripresa-da-arco: in Passo normale executingEdge è già null.
+  if (typeof executingEdge !== 'undefined' && executingEdge && currentNode != null) {
+    _highlightExecNodeSafe(parseInt(currentNode), prevNode); // atterra sul blocco della freccia (azzera executingEdge)
+    if (typeof _setStopEnabled === 'function') _setStopEnabled(true);
+    return;
+  }
   if(currentNode== null){
     currentNode = "0"; // Reimposta al primo nodo se currentNode è nullo
     prevNode = null; // FIX B2: riavvio dall'inizio, nessun predecessore significativo
@@ -494,14 +586,14 @@ async function executeStep(){
     _runtimeVars = null;
     highlightExecNode(-1); // R12-F: fine flusso, nessun arco da mostrare
   } else {
-    // R12-F (Ismail 2026-07-12): Step = un ciclo COMPLETO nodo->arco per pressione. Mostra
-    // la freccia appena percorsa per un lampo breve (Step e' manuale: non deve richiedere
-    // all'utente di aspettare l'intera runSpeed a ogni click, ma l'arco resta comunque
-    // visibile) poi sposta l'evidenziazione al blocco successivo.
+    // WP-N10 (Ismail 2026-07-15, "nella modalita' passo deve saltare la freccia e andare subito
+    // al blocco successivo"): in PASSO NON si anima piu' l'arco -- si evidenzia DIRETTAMENTE il
+    // blocco successivo. Prima qui `animateExecEdge` mostrava la freccia percorsa per ~300ms.
+    // Il Run automatico (executeFlow) MANTIENE la fase-arco a due fasi P5.6: questo cambia SOLO
+    // lo Step. `_highlightExecNodeSafe` -> `highlightExecNode` azzera `executingEdge` (=null),
+    // quindi nessun arco resta acceso: si vede solo il nodo. (`_prevForEdge` sopra ora non serve
+    // piu' qui -- lo usa ancora executeFlow; lasciato per simmetria/minimo diff.)
     const idxAfterExec = parseInt(currentNode);
-    // P5.6: transizione a due fasi se e' un back-edge (ritorno in un header di ciclo) -> prima
-    // l'arco in uscita, poi il ritorno all'header. Altrimenti una fase sola (comportamento storico).
-    await animateExecEdge(idxBeforeExec, idxAfterExec, Math.min(300, runSpeed || 300), _prevForEdge);
     _highlightExecNodeSafe(idxAfterExec, idxBeforeExec); // prossimo blocco (D1: salta l'esagono do-while alla 1a visita)
   }
   if (typeof _setStopEnabled === 'function') _setStopEnabled(currentNode != null); // FIX #36: a fine flusso Stop torna disabilitato
@@ -519,8 +611,33 @@ let stopRequested = false;
 // Rilievo 20: Pausa (sospende mantenendo l'evidenziazione) e stato "in esecuzione".
 let pauseRequested = false;
 let _bfRunning = false;
-function _setRunning(on) { _bfRunning = !!on; const b = document.getElementById('exec-pause'); if (b) b.disabled = !on; const s = document.getElementById('console-stop'); if (s) s.disabled = !on; }
-function requestPause() { if (_bfRunning) pauseRequested = true; }
+// WP-N11 (round 15-C, Ismail 2026-07-17, "il bottone Esegui deve diventare non cliccabile
+// come Pausa quando e' ferma"): #console-exe chiama executeFlow(flow) DIRETTAMENTE dal markup
+// (index.html), senza passare da _setRunning -- durante un Run attivo restava sempre
+// cliccabile, e executeFlow() non ha una guardia di rientranza: un secondo click avviava un
+// SECONDO while-loop sullo stesso stato condiviso (currentNode/prevNode/_runtimeVars),
+// corrompendo l'esecuzione in corso. Fix speculare a exec-pause/console-stop qui sopra, ma
+// con la logica INVERTITA (disabilitato quando SI corre, non quando si e' fermi): #console-exe
+// e' anche il modo per RIPRENDERE da una pausa (executeFlow riparte da currentNode se non e'
+// null, vedi inizio della funzione) -- deve quindi restare cliccabile sia da fermo SIA in
+// pausa, e disabilitarsi SOLO durante un Run attivo. #console-step NON tocca (gia' protetto
+// dalla sua stessa guardia di rientranza, P2.6/S2: _bfSkipCurrentDelay() invece di eseguire).
+// Stile/colore: nessuna CSS nuova serve, #toolbar .tb-icon:disabled (style.css) si applica gia'
+// a qualunque bottone della toolbar con l'attributo disabled, stessa dissolvenza degli altri.
+function _setRunning(on) { _bfRunning = !!on; const b = document.getElementById('exec-pause'); if (b) b.disabled = !on; const s = document.getElementById('console-stop'); if (s) s.disabled = !on; const e = document.getElementById('console-exe'); if (e) e.disabled = !!on; }
+function requestPause() {
+  if (!_bfRunning) return;
+  pauseRequested = true;
+  // WP-N3 (round 15-C coda, Ismail 2026-07-17, "quando faccio pausa deve fermarsi
+  // immediatamente... ci mette troppo"): senza questa riga la pausa aspettava la scadenza
+  // NATURALE del delay/animazione in corso (fino a runSpeed ms per il blocco, o "per" ms per
+  // OGNI gruppo/segmento di un arco -- es. un back-edge sono 2 gruppi = 2x) prima di essere
+  // vista al primo checkpoint utile in executeFlow/animateExecEdge. Stesso meccanismo gia'
+  // usato da P2.6/S2 per "Passo durante Run" (_bfSkipCurrentDelay, sopra): fa scadere SUBITO
+  // il timer attualmente pendente, cosi' il prossimo checkpoint (subito dopo l'await) vede
+  // pauseRequested senza aspettare il resto dei ms.
+  if (typeof _bfSkipCurrentDelay === 'function') _bfSkipCurrentDelay();
+}
 function _setStopEnabled(on) { const s = document.getElementById('console-stop'); if (s) s.disabled = !on; }
 // Stop = interruzione COMPLETA + azzeramento: la prossima esecuzione riparte da Start.
 // Durante il Run automatico segnala solo la richiesta (il while-loop la gestisce); in modalita'
@@ -538,7 +655,7 @@ function requestStop() {
     _runtimeVars = null;
     if (typeof highlightExecNode === 'function') highlightExecNode(-1); // R12-F: azzera nodo+arco
     // WP-D1 esteso: 'debug' esplicita per lo stesso motivo di flow_reset (vedi resetFlow sopra).
-    printMessage((typeof i18nText === 'function' && i18nText('exec_stopped')) || "Execution stopped by user.", 'debug');
+    _termMsg('exec_stopped', {}, 'debug', "Execution stopped by user.");
     _setStopEnabled(false);
   }
 }
@@ -592,6 +709,13 @@ function _bfAbortExecOnEdit(){
 }
 
 async function executeFlow(json){
+    // WP-N11 (round 15-C, Ismail 2026-07-17): guardia di rientranza -- rete di sicurezza in
+    // piu' oltre alla disabilitazione del bottone in _setRunning() qui sopra (che copre il
+    // click normale). Se qualunque altro percorso richiamasse executeFlow mentre un Run e' GIA'
+    // attivo (mai per avviarne uno secondo in parallelo, stesso principio di
+    // _bfSkipCurrentDelay), esce subito invece di aprire un secondo while-loop sullo stesso
+    // stato condiviso (currentNode/prevNode/_runtimeVars).
+    if (typeof _bfRunning !== 'undefined' && _bfRunning) return;
     console.log(json)
     if(currentNode== null){
       currentNode = "0"; // Reimposta al primo nodo se currentNode è nullo
@@ -616,7 +740,7 @@ async function executeFlow(json){
     while(currentNode != null){
         if (stopRequested) {
             // WP-D1 esteso: 'debug' esplicita per lo stesso motivo di flow_reset (vedi resetFlow sopra).
-    printMessage((typeof i18nText === 'function' && i18nText('exec_stopped')) || "Execution stopped by user.", 'debug');
+    _termMsg('exec_stopped', {}, 'debug', "Execution stopped by user.");
             stopRequested = false;
             // Stop azzera lo stato: currentNode=null -> la prossima esecuzione riparte da Start
             currentNode = null; prevNode = null;
@@ -633,7 +757,7 @@ async function executeFlow(json){
         if (runSpeed > 0) await sleep(runSpeed); // velocità animazione (Lenta/Normale/Veloce/Istantanea)
         if (pauseRequested) { // Pausa: sospende QUI, il blocco resta evidenziato, si riprende con Esegui/Passo
             pauseRequested = false; _paused = true;
-            printMessage((typeof i18nText === 'function' && i18nText('exec_paused')) || '\u23F8 Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
+            _termMsg('exec_paused', {}, 'debug', '\u23F8 Esecuzione in pausa. Premi Esegui o Passo per continuare.');
             break;
         }
         const node = json.nodes[idxBeforeExec2];
@@ -643,7 +767,7 @@ async function executeFlow(json){
         // nodo successivo e si INTERROMPE il run: l'utente riprende con Esegui o Step. currentNode
         // resta sul nodo DOPO il Pause, quindi riprendendo non si ripausa all'infinito.
         if (node && node.type === 'pause') {
-            printMessage((typeof i18nText === 'function' && i18nText('exec_breakpoint')) || '\u23F8 Breakpoint (Pause). Premi Esegui o Step per continuare.', 'debug');
+            _termMsg('exec_breakpoint', {}, 'debug', '\u23F8 Breakpoint (Pause). Premi Esegui o Step per continuare.');
             currentNode = await executeNode(node, currentNode, variables, prevNode);
             prevNode = nodeIdxBeforeExec;
             refreshVariablesWatch(variables, touchedVarName(node));
@@ -674,7 +798,7 @@ async function executeFlow(json){
             await animateExecEdge(idxBeforeExec2, idxAfterExec2, runSpeed, _prevForEdge2);
             if (pauseRequested) { // Pausa durante la fase-arco: resta evidenziato l'ARCO (non il nodo)
                 pauseRequested = false; _paused = true;
-                printMessage((typeof i18nText === 'function' && i18nText('exec_paused')) || '⏸ Esecuzione in pausa. Premi Esegui o Passo per continuare.', 'debug');
+                _termMsg('exec_paused', {}, 'debug', '⏸ Esecuzione in pausa. Premi Esegui o Passo per continuare.');
                 break;
             }
         }
@@ -725,6 +849,57 @@ function toggleConsoleSettingsPanel(){
 // 'output' vi appende il testo invece di crearne uno nuovo (comportamento Flowgorithm).
 // Le categorie non-'output' (debug/if/loop) e reset/nuova esecuzione chiudono sempre la riga.
 let _openInlineP = null;
+// Messaggi RUNTIME del terminale tradotti (Ismail 2026-07-17): categoria ESPLICITA (il filtro
+// output/cond/loop non dipende piu' dal testo, ora tradotto) + fallback inglese. Le parti {…}
+// sono CODICE dell'utente (condizioni/assegnazioni) e restano verbatim.
+function _termTrue() { return (typeof i18nText === 'function' && i18nText('run_is_true')) || 'is true'; }
+function _termFalse() { return (typeof i18nText === 'function' && i18nText('run_is_false')) || 'is false'; }
+// Ricompone il testo di un messaggio runtime nella LINGUA CORRENTE. `params.res` (true/false) =
+// esito di una condizione -> tradotto vero/falso (serve per la RI-traduzione al cambio lingua,
+// vedi retranslateConsole). Le altre parti (c/v/val/info) sono CODICE dell'utente, verbatim.
+function _localizeBool(s) {
+  if (typeof s !== 'string' || typeof i18nText !== 'function') return s;
+  const T = i18nText('label_true') || 'true', F = i18nText('label_false') || 'false';
+  return s.replace(/\btrue\b/g, T).replace(/\bfalse\b/g, F);
+}
+function _runMsgText(key, params) {
+  const p = {}; for (const k in (params || {})) { if (k !== 'res') p[k] = params[k]; }
+  // Ismail 2026-07-17: localizza i letterali booleani true/false DENTRO le parti di codice mostrate
+  // (condizione {c}, assegnazione {info}, valore {val}) con label_true/label_false (le stesse dei
+  // bordi degli archi) -> "Se: true" -> "Se: Vero"/"إذا: صحيح", coerente col resto. Il codice reale
+  // eseguito NON cambia: e' solo il testo visualizzato nel terminale.
+  ['c', 'info', 'val'].forEach(function (k) { if (typeof p[k] === 'string') p[k] = _localizeBool(p[k]); });
+  if (params && typeof params.res === 'boolean') p.r = params.res ? _termTrue() : _termFalse();
+  return (typeof i18nFormat === 'function' && i18nFormat(key, p)) || null;
+}
+// key/params vengono anche SALVATI sull'elemento (via printMessage opts) cosi' retranslateConsole()
+// puo' ricomporre la riga nella nuova lingua senza rieseguire il flusso.
+function _termMsg(key, params, cat, en) { printMessage(_runMsgText(key, params) || en, cat, { runKey: key, runParams: params }); }
+// Ri-traduce TUTTE le righe runtime gia' stampate (quelle con key/params salvati) alla lingua
+// corrente. Chiamata da applyLanguage() (i18n.js) al cambio lingua.
+function retranslateConsole() {
+  if (typeof document === 'undefined') return;
+  const out = document.getElementById('console-output');
+  if (!out || !out.querySelectorAll) return;
+  out.querySelectorAll('[data-run-key]').forEach(function (el) {
+    try {
+      const key = el.getAttribute('data-run-key');
+      const params = JSON.parse(el.getAttribute('data-run-params') || '{}');
+      const txt = _runMsgText(key, params);
+      if (txt) el.textContent = '> ' + txt;
+    } catch (e) { /* riga non ricomponibile: la si lascia com'e' */ }
+  });
+  // Ismail 2026-07-17: ri-traduce anche gli ERRORI (data-err-key/params salvati da throwError).
+  out.querySelectorAll('[data-err-key]').forEach(function (el) {
+    try {
+      const key = el.getAttribute('data-err-key');
+      const params = JSON.parse(el.getAttribute('data-err-params') || '{}');
+      const body = (typeof errMsg === 'function') ? errMsg(key, params) : null;
+      if (body) el.textContent = '> Error: ' + body;
+    } catch (e) { /* errore non ricomponibile: lo si lascia com'e' */ }
+  });
+}
+if (typeof window !== 'undefined') window.retranslateConsole = retranslateConsole;
 function printMessage(msg, category, opts){
     const cat = category || classifyConsoleMsg(msg);
     // 'output' (contenuto utente) e gli errori si mostrano SEMPRE; le altre categorie
@@ -740,6 +915,7 @@ function printMessage(msg, category, opts){
         const messageElement = document.createElement('p');
         messageElement.textContent = "> " +  msg;
         if (messageElement.setAttribute) messageElement.setAttribute('data-cat', cat);
+        if (opts && opts.runKey && messageElement.setAttribute) { messageElement.setAttribute('data-run-key', opts.runKey); try { messageElement.setAttribute('data-run-params', JSON.stringify(opts.runParams || {})); } catch (e) {} } // retranslateConsole al cambio lingua
         consoleOutput.appendChild(messageElement);
         consoleOutput.scrollTop = consoleOutput.scrollHeight;
         return;
@@ -750,6 +926,7 @@ function printMessage(msg, category, opts){
     } else {
         const messageElement = document.createElement('p');
         messageElement.textContent = "> " + msg;
+        if (opts && opts.runKey && messageElement.setAttribute) { messageElement.setAttribute('data-run-key', opts.runKey); try { messageElement.setAttribute('data-run-params', JSON.stringify(opts.runParams || {})); } catch (e) {} } // retranslateConsole al cambio lingua
         consoleOutput.appendChild(messageElement);
         _openInlineP = messageElement;
     }
@@ -762,6 +939,15 @@ function throwError(msg){
     const errorElement = document.createElement('p');
     errorElement.textContent = "> Error: " + msg;
     errorElement.classList.add('error');
+    // Ismail 2026-07-17: salva key/params dell'errore (registrati da errMsg poco prima) cosi'
+    // retranslateConsole() puo' ri-tradurre anche gli ERRORI al cambio lingua. Poi azzera il registro.
+    try {
+        if (typeof window !== 'undefined' && window._bfLastErrInfo && errorElement.setAttribute) {
+            errorElement.setAttribute('data-err-key', window._bfLastErrInfo.key);
+            errorElement.setAttribute('data-err-params', JSON.stringify(window._bfLastErrInfo.params || {}));
+        }
+    } catch (e) {}
+    if (typeof window !== 'undefined') window._bfLastErrInfo = null;
     consoleOutput.appendChild(errorElement);
     consoleOutput.scrollTop = consoleOutput.scrollHeight; // Scorre fino in fondo
     // COME FLOWGORITHM (Ismail 2026-07-08): l'errore si mostra a RUNTIME. Evidenzia in ROSSO
@@ -781,7 +967,7 @@ function clearConsole() {
     consoleOutput.innerHTML = ''; // Pulisce l'output della console
     _openInlineP = null; // A4: niente riferimenti a <p> ormai rimossi dal DOM
     // WP-D1 esteso: 'debug' esplicita, stesso motivo di flow_reset/exec_stopped sopra.
-    printMessage((typeof i18nText === 'function' && i18nText('console_cleared')) || "Console cleared.", 'debug');
+    _termMsg('console_cleared', {}, 'debug', "Console cleared.");
 }
 
 async function executeNode(node,currentNode,variables,prevNodeArg){
@@ -799,7 +985,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 console.log("Start\n");
                 // WP-D1 esteso: riusa la chiave nd_start (stesso testo "Start" del nodo) -- 'debug'
                 // esplicita, altrimenti classifyConsoleMsg() non riconosce piu' il testo tradotto.
-                printMessage((typeof i18nText === 'function' && i18nText('nd_start')) || "Start", 'debug');
+                _termMsg('nd_start', {}, 'debug', "Start");
                 currentNode = node.next;
                 break;
             case "print": // NODO PRINT
@@ -809,6 +995,8 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                   if (parts[i].startsWith("'") || parts[i].startsWith('"') ) {
                     string += parts[i].substring(1, parts[i].length - 1);
                   } else {
+                    // WP-N7: se questa parte dell'output USA una variabile non inizializzata -> errore.
+                    { const _uv = _bfUninitUsedIn(parts[i], variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: currentNode, v: _uv})); return null; } }
                     let expression = "";
                     let isVar = false;
                     let variable = "";
@@ -887,16 +1075,16 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
               case "if": // NODO IF
                 let condition = node.info;
                 console.log("If: " + condition);
-                printMessage("If: " + condition);
+                _termMsg('run_if', {c: condition}, 'cond', "If: " + condition);
                 
                 if (checkCondition(condition, variables) == true) {
                     console.log("If: " + condition + " is true");
-                    printMessage("If: " + condition + " is true");
+                    _termMsg('run_if_res', {c: condition, res: true}, 'cond', "If: " + condition + " is true");
                     currentNode = node.next.true;
                     _execBranch = 'true';
                 } else if(checkCondition(condition, variables) == false) {
                     console.log("If: " + condition + " is false");
-                    printMessage("If: " + condition + " is false");
+                    _termMsg('run_if_res', {c: condition, res: false}, 'cond', "If: " + condition + " is false");
                     currentNode =  node.next.false;
                     _execBranch = 'false';
                 }else{
@@ -906,15 +1094,15 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
               case "while": // NODO WHILE
                 let whileCondition = node.info;
                 console.log("While: " + whileCondition);
-                printMessage("While: " + whileCondition);
+                _termMsg('run_while', {c: whileCondition}, 'loop', "While: " + whileCondition);
                 if(checkCondition(whileCondition, variables) == true){
                     console.log("While: " + whileCondition + " is true");
-                    printMessage("While: " + whileCondition + " is true");
+                    _termMsg('run_while_res', {c: whileCondition, res: true}, 'loop', "While: " + whileCondition + " is true");
                     currentNode = node.next.true; // Vai al ramo true
                     _execBranch = 'true';
                 }else if(checkCondition(whileCondition, variables) == false){
                     console.log("While: " + whileCondition + " is false");
-                    printMessage("While: " + whileCondition + " is false");
+                    _termMsg('run_while_res', {c: whileCondition, res: false}, 'loop', "While: " + whileCondition + " is false");
                     currentNode = node.next.false; // Vai al ramo false
                     _execBranch = 'false';
                 }else{
@@ -939,22 +1127,22 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 let isFirstVisit = doBody.bodyList.length > 0 && !(doBody.bodyList.includes(prevNodeIdxDo));
                 if (isFirstVisit) {
                     console.log("Do: prima esecuzione, corpo eseguito senza valutare la condizione");
-                    printMessage("Do: entering body (executes at least once)");
+                    _termMsg('run_do_enter', {}, 'debug', "Do: entering body (executes at least once)");
                     currentNode = node.next.true; // Vai al ramo true SENZA valutare la condizione
                     _execBranch = 'true';
                     break;
                 }
                 let doCondition = node.info;
                 console.log("Do: " + doCondition);
-                printMessage("Do: " + doCondition);
+                _termMsg('run_do', {c: doCondition}, 'loop', "Do: " + doCondition);
                 if(checkCondition(doCondition, variables) == true){
                     console.log("Do: " + doCondition + " is true");
-                    printMessage("Do: " + doCondition + " is true");
+                    _termMsg('run_do_res', {c: doCondition, res: true}, 'loop', "Do: " + doCondition + " is true");
                     currentNode = node.next.true; // Vai al ramo true
                     _execBranch = 'true';
                 }else if (checkCondition(doCondition, variables) == false){
                     console.log("Do: " + doCondition + " is false");
-                    printMessage("Do: " + doCondition + " is false");
+                    _termMsg('run_do_res', {c: doCondition, res: false}, 'loop', "Do: " + doCondition + " is false");
                     currentNode = node.next.false; // Vai al ramo false
                     _execBranch = 'false';
                 }else{
@@ -998,6 +1186,8 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     }
                     let forVarName = initParts[0].trim();
                     let forInitExp = initParts[1].trim();
+                    // WP-N7: se l'inizializzazione del for USA una variabile non inizializzata -> errore.
+                    { const _uv = _bfUninitUsedIn(forInitExp, variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: currentNode, v: _uv})); return null; } }
                     variables.forEach(v => {
                       forInitExp = forInitExp.replace(new RegExp(`\\b${v.name}\\b`, 'g'), _varValueForExpr(v)); // R13-M: quota le String
                     });
@@ -1008,13 +1198,13 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     try {
                         const _forInitVal = safeEvaluate(forInitExp);
                         if (!_assertVarType(getVariable(forVarName, variables), _forInitVal, currentNode)) return null;
-                        getVariable(forVarName, variables).value = _forInitVal;
+                        { const _tv = getVariable(forVarName, variables); _tv.value = _forInitVal; _tv.uninit = false; } // WP-N7: l'init del for INIZIALIZZA il contatore
                     } catch (e) {
                         throwError(_evalErrMsg(e, currentNode, 'err_for_init_expr'));
                         return null;
                     }
                     console.log("For: " + forVarName + " = " + getVariable(forVarName, variables).value);
-                    printMessage("For: " + forVarName + " = " + getVariable(forVarName, variables).value);
+                    _termMsg('run_for', {v: forVarName, val: getVariable(forVarName, variables).value}, 'loop', "For: " + forVarName + " = " + getVariable(forVarName, variables).value);
                     node._forInitialized = true;
                 } else {
                     if (!applyForIncrement(increment, variables, currentNode)) return null;
@@ -1023,12 +1213,12 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 // Controlla condizione
                 if (checkCondition(forcondition, variables) == true) {
                     console.log("For Condition: " + forcondition + " is true");
-                    printMessage("For Condition: " + forcondition + " is true");
+                    _termMsg('run_for_cond', {c: forcondition, res: true}, 'loop', "For Condition: " + forcondition + " is true");
                     currentNode = node.next.true;
                     _execBranch = 'true';
                 } else if(checkCondition(forcondition, variables) == false) {
                     console.log("For Condition: " + forcondition + " is false");
-                    printMessage("For Condition: " + forcondition + " is false");
+                    _termMsg('run_for_cond', {c: forcondition, res: false}, 'loop', "For Condition: " + forcondition + " is false");
                     currentNode = node.next.false;
                     _execBranch = 'false';
                     node._forInitialized = false; // pronto per una futura ri-esecuzione (es. loop annidato in un altro ciclo)
@@ -1038,18 +1228,18 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 break;
               case "input": //NODO INPUT
                 console.log("Input: " + node.info);
-                printMessage("Input: " + node.info);
+                _termMsg('run_input', {info: node.info}, 'output', "Input: " + node.info);
                 if (!existVariable(node.info,variables)) {
                     throwError(errMsg('err_var_not_declared', {v: node.info}));
                     return null;
                 }
-                getVariable(node.info,variables).value = await inputVariable(node.info, getVariable(node.info,variables).type);
+                { const _tv = getVariable(node.info,variables); _tv.value = await inputVariable(node.info, _tv.type); _tv.uninit = false; } // WP-N7: l'input INIZIALIZZA la variabile
                 currentNode = node.next;  
                 break;
 
               case "assign": // NODO ASSIGN
                 console.log("Assign: " + node.info);
-                printMessage("Assign: " + node.info)
+                _termMsg('run_assign', {info: node.info}, 'output', "Assign: " + node.info)
                 let assignParts = node.info.split("=");
                 if(assignParts.length != 2){
                   throwError(errMsg('err_assign_syntax', {n: currentNode}))
@@ -1058,6 +1248,8 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 let varName = assignParts[0].trim();
                 let exp = assignParts[1].trim();
 
+                // WP-N7: se la RHS dell'assign USA una variabile non inizializzata -> errore (non vale 0).
+                { const _uv = _bfUninitUsedIn(exp, variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: currentNode, v: _uv})); return null; } }
                 variables.forEach(v => {
                   // Sostituisci i nomi delle variabili nell'espressione con i loro valori
                   // Usa i confini delle parole per evitare sostituzioni parziali
@@ -1071,7 +1263,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                   const _assignVal = safeEvaluate(exp);
                   // P5.4/P3.1: blocca l'assegnazione di un tipo incompatibile (popup + stop).
                   if (!_assertVarType(getVariable(varName,variables), _assignVal, currentNode)) return null;
-                  getVariable(varName,variables).value = _assignVal;
+                  { const _tv = getVariable(varName,variables); _tv.value = _assignVal; _tv.uninit = false; } // WP-N7: assegnare INIZIALIZZA la variabile
                 }catch(e){
                   // P2.2/P3.2: div0 e "non dichiarata" ricevono un messaggio chiaro; e su
                   // QUALSIASI errore l'esecuzione ora si FERMA (prima proseguiva al nodo dopo).
@@ -1098,7 +1290,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                 break;
             case "end": // NODO END
                 console.log("End\n");
-                printMessage("End.");
+                _termMsg('run_end', {}, 'debug', "End.");
                 currentNode = node.next;
                 break;
         }
@@ -1196,6 +1388,26 @@ function _varValueForExpr(v) {
     return v.value.toString();
 }
 
+// WP-N7 (Ismail 2026-07-15): usare in un'espressione una variabile DICHIARATA ma NON
+// inizializzata (flag `uninit`, impostato in variables.js quando si dichiara senza valore)
+// e' un ERRORE ("variabile non inizializzata"), non deve valere 0. Ritorna il NOME della
+// prima variabile uninit effettivamente REFERENZIATA in `exp` (confine di parola, stesso
+// criterio delle sostituzioni R13-M), oppure null. Il chiamante, se != null, chiama
+// throwError(errMsg('err_uninit_var', {n, v})) e ferma l'esecuzione del nodo -- cosi'
+// l'errore non passa dalla valutazione (che tratterebbe l'uninit come 0/"").
+function _bfUninitUsedIn(exp, variables) {
+    if (exp === null || exp === undefined || !Array.isArray(variables)) return null;
+    const s = String(exp);
+    for (let i = 0; i < variables.length; i++) {
+        const v = variables[i];
+        if (v && v.uninit && v.name) {
+            const nm = String(v.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (new RegExp('\\b' + nm + '\\b').test(s)) return v.name;
+        }
+    }
+    return null;
+}
+
 // R13-M: sostituzione variabili "token-aware" per le condizioni (if/while/do/for).
 // PRIMA: uno scan carattere-per-carattere trattava OGNI carattere che non fosse una cifra
 // ne' uno tra "+-*/<>!=.()" come inizio di un nome di variabile -- operatori a piu'
@@ -1237,6 +1449,8 @@ function checkCondition(condition, variables) {
                     return {};
                 }
                 const v = getVariable(id, variables);
+                // WP-N7: variabile dichiarata ma non inizializzata usata in una condizione -> errore.
+                if (v && v.uninit) { throwError(errMsg('err_uninit_var', {n: (typeof executingNodeIndex !== 'undefined' && executingNodeIndex >= 0 ? executingNodeIndex : ''), v: id})); return {}; }
                 expression += _varValueForExpr(v);
             }
             i = j; continue;
@@ -1639,8 +1853,11 @@ if (typeof window !== 'undefined') window.updateProjectIdentity = updateProjectI
   const el = document.getElementById('console-popup');
   if (!el) return;
   let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-  el.addEventListener('mousedown', function (e) {
+  // WP-6/R13-I (2026-07-19): mouse -> Pointer Events, il popup si trascina anche a dito
+  // (prima su touch il drag non partiva mai: niente mousemove continuo durante il gesto).
+  el.addEventListener('pointerdown', function (e) {
     if (el.classList.contains('docked')) return;            // solo popup sganciato
+    if (e.isPrimary === false) return;
     if (e.target.closest('button, input, select, textarea, a, #console-output, #console-settings-panel, #console-resize-handle')) return;
     const r = el.getBoundingClientRect();
     el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
@@ -1648,15 +1865,17 @@ if (typeof window !== 'undefined') window.updateProjectIdentity = updateProjectI
     dragging = true; ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
     el.classList.add('dragging'); e.preventDefault();
   });
-  window.addEventListener('mousemove', function (e) {
+  window.addEventListener('pointermove', function (e) {
     if (!dragging) return;
     let nx = ox + (e.clientX - sx), ny = oy + (e.clientY - sy);
     nx = Math.max(0, Math.min(window.innerWidth - 60, nx));
     ny = Math.max(0, Math.min(window.innerHeight - 40, ny));
     el.style.left = nx + 'px'; el.style.top = ny + 'px';
   });
-  window.addEventListener('mouseup', function () {
+  const _bfConsDragEnd = function () {
     if (!dragging) return;
     dragging = false; el.classList.remove('dragging');
-  });
+  };
+  window.addEventListener('pointerup', _bfConsDragEnd);
+  window.addEventListener('pointercancel', _bfConsDragEnd); // WP-6: gesto touch interrotto
 })();

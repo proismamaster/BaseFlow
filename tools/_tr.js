@@ -1,14 +1,16 @@
-const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
-const ctxMock={strokeStyle:'#000',fillStyle:'#000',lineWidth:1,font:'',textAlign:'center',textBaseline:'middle',beginPath(){},moveTo(){},lineTo(){},quadraticCurveTo(){},rect(){},closePath(){},stroke(){},fill(){},clearRect(){},fillText(){},measureText(t){return{width:(t||'').length*8};},save(){},restore(){},setLineDash(){},setTransform(){},arc(){}};
-const canvasMock={width:W,height:H,getContext:()=>ctxMock,getBoundingClientRect:()=>({left:0,top:0}),addEventListener:()=>{},style:{}};
-const el=()=>({addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',querySelector:()=>null,querySelectorAll:()=>[],appendChild:()=>{},innerHTML:'',textContent:'',dataset:{},rows:[],disabled:false,cells:[],setAttribute(){},removeAttribute(){},getAttribute:()=>null,hasAttribute:()=>false,parentNode:null,removeChild(){},insertBefore(){}});
-const documentMock={getElementById:(id)=>id==='canvas'?canvasMock:el(),addEventListener:()=>{},createElement:()=>el(),querySelector:()=>el(),querySelectorAll:()=>[],body:el(),documentElement:el()};
-const LOG=[];
-const ctx={document:documentMock,window:{addEventListener:()=>{},innerWidth:W,innerHeight:H,matchMedia:()=>({matches:false,addEventListener:()=>{}})},localStorage:{getItem:()=>null,setItem:()=>{}},MutationObserver:function(){this.observe=()=>{}},console:{log:()=>{},error:()=>{},warn:()=>{}},Math,JSON,parseInt,parseFloat,isNaN,Set,Array,Object,String,Number,RegExp,Promise,setTimeout,eval,alert:()=>{},confirm:()=>true,location:{},errMsg:function(k){return k;}};
-vm.createContext(ctx);for(const n of ['theme','state','utils','variables','layout','rendering','popups','interaction','fileIO','init'])vm.runInContext(fs.readFileSync(REPO+'/js/core/'+n+'.js','utf8'),ctx,{filename:n});vm.runInContext(fs.readFileSync(REPO+'/js/execute.js','utf8'),ctx,{filename:'execute.js'});vm.runInContext('window.onload();',ctx);
-const run=c=>vm.runInContext(c,ctx);const ins=(f,t)=>{run(`frecceSelected=frecce.findIndex(ff=>${f});`);run(`inserisciNodo(${JSON.stringify(t)});`);run('draw(nodi);');};
-run('draw(nodi);');ins('ff.type==="normal"','do'); run('flow.nodes[1].info="true"; draw(nodi);');
-ctx._LOG=LOG;run('sleep=function(){return Promise.resolve();};');
-run('var _hn=highlightExecNode; highlightExecNode=function(i){ if(i>=0)_LOG.push("ESAGONO(nodo "+i+")"); return _hn(i); };');
-run('var _ae=animateExecEdge; animateExecEdge=async function(f,t,dt){ var grp=computeEdgeGroups(f,t,_execBranch); grp.forEach(g=>_LOG.push("  arco["+g.type+"]")); return _ae(f,t,2); };');
-(async()=>{ for(let s=0;s<3;s++){ try{ await run('executeStep()'); }catch(e){ LOG.push("(step err)"); break; } } console.log(LOG.join(" -> ")); })().catch(e=>console.log(LOG.join(" -> ")+" ERR:"+e.message));
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');
+const gg=()=>({addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',querySelector:()=>gg(),querySelectorAll:()=>[],appendChild:()=>{},innerHTML:'',textContent:'',setAttribute:()=>{},getAttribute:()=>null});
+const documentMock={getElementById:()=>gg(),addEventListener:()=>{},createElement:()=>gg(),querySelector:()=>gg(),querySelectorAll:()=>[],body:gg(),documentElement:{lang:'',dir:'',classList:{toggle:()=>{}}}};
+const ctx={document:documentMock,window:{addEventListener:()=>{}},localStorage:{getItem:()=>null,setItem:()=>{}},console:{log:function(){},warn:function(){},error:function(){}},Math,JSON,parseInt,parseFloat,isNaN,Set,Array,Object,String,Number,RegExp,Promise,setTimeout:()=>0,eval,location:{}};
+vm.createContext(ctx);vm.runInContext(fs.readFileSync(REPO+'/js/core/i18n.js','utf8'),ctx,{filename:'i18n.js'});
+const run=c=>vm.runInContext(c,ctx);
+for(const L of ['it','en','ar','zh']){
+ run('currentLang="'+L+'";');
+ const t=run('i18nText("run_is_true")'), f=run('i18nText("run_is_false")');
+ console.log('['+L+'] is_true="'+t+'" is_false="'+f+'"');
+ console.log('     if_res:  '+run('i18nFormat("run_if_res",{c:"i%2==0",r:i18nText("run_is_true")})'));
+ console.log('     while:   '+run('i18nFormat("run_while",{c:"i<10"})'));
+ console.log('     for:     '+run('i18nFormat("run_for",{v:"i",val:0})'));
+ console.log('     assign:  '+run('i18nFormat("run_assign",{info:"i = i + 1"})'));
+ console.log('     forcond: '+run('i18nFormat("run_for_cond",{c:"i<=10",r:i18nText("run_is_true")})'));
+}

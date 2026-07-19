@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
+const errs=[];
+const consoleOut={appendChild:(el)=>{ if(el&&el.textContent) errs.push(el.textContent); },scrollTop:0,scrollHeight:0,style:{}};
+const gg=()=>{const o={appendChild:function(){},addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',innerHTML:'',textContent:'',dataset:{},rows:[],cells:[],setAttribute:()=>{},removeAttribute:()=>{},getAttribute:()=>null,hasAttribute:()=>false,disabled:false};o.querySelector=()=>gg();o.querySelectorAll=()=>[];return o;};
+const documentMock={getElementById:(id)=>id==='console-output'?consoleOut:gg(),addEventListener:()=>{},createElement:()=>gg(),querySelector:()=>gg(),querySelectorAll:()=>[],body:gg(),documentElement:gg()};
+const ctx={document:documentMock,window:{addEventListener:()=>{},innerWidth:W,innerHeight:H,matchMedia:()=>({matches:false,addEventListener:()=>{}})},localStorage:{getItem:()=>null,setItem:()=>{}},MutationObserver:function(){this.observe=()=>{}},console:{log:function(){},error:function(){},warn:function(){}},Math:Math,JSON:JSON,parseInt:parseInt,parseFloat:parseFloat,isNaN:isNaN,Set:Set,Array:Array,Object:Object,String:String,Number:Number,RegExp:RegExp,Promise:Promise,setTimeout:setTimeout,eval:eval,alert:function(){},confirm:function(){return true;},prompt:function(){return '9';},location:{},matchMedia:function(){return {matches:false};},errMsg:function(k,p){errs.push('ERRMSG:'+k+' '+JSON.stringify(p||{}));return k;},i18nText:function(){return null;},i18nFormat:function(){return null;}};
+vm.createContext(ctx);for(const n of ['theme','state','utils','variables','layout','rendering','popups','interaction','fileIO','init'])vm.runInContext(fs.readFileSync(REPO+'/js/core/'+n+'.js','utf8'),ctx,{filename:n});vm.runInContext(fs.readFileSync(REPO+'/js/execute.js','utf8'),ctx,{filename:'execute.js'});vm.runInContext('window.onload();',ctx);
+const run=c=>vm.runInContext(c,ctx);
+run('executingNodeIndex=-1; currentNode="1";');
+console.log('safeEvaluate("5") =', run('safeEvaluate("5")'), typeof run('safeEvaluate("5")'));
+run('globalThis.X={name:"x",type:"int",value:0,uninit:true};');
+errs.length=0;
+console.log('_assertVarType(X int uninit, 5, "1") =', run('_assertVarType(X,5,"1")'), ' errs=', JSON.stringify(errs));
+errs.length=0;
+console.log('_assertVarType({int,no uninit}, 5) =', run('_assertVarType({name:"x",type:"int",value:0},5,"1")'), ' errs=', JSON.stringify(errs));

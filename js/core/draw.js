@@ -102,7 +102,10 @@ function _tgSetupDragResize(p) {
   const head = p.querySelector('#draw-output-head');
   const stack = p.querySelector('#draw-canvas-stack');
   let drag = false, dx = 0, dy = 0, ox = 0, oy = 0;
-  if (head) head.addEventListener('mousedown', function (e) {
+  // WP-6/R13-I (2026-07-19): mouse -> Pointer Events su tutto il drag/resize del pannello,
+  // cosi' funziona anche a dito su mobile (touch-action:none su testata/maniglie in style.css).
+  if (head) head.addEventListener('pointerdown', function (e) {
+    if (e.isPrimary === false) return;
     if (e.target && e.target.closest && e.target.closest('button')) return;
     const r = p.getBoundingClientRect();
     drag = true; ox = r.left; oy = r.top; dx = e.clientX; dy = e.clientY;
@@ -114,8 +117,9 @@ function _tgSetupDragResize(p) {
   let rz = false, rdir = '', rx = 0, ry = 0, rw = 0, rh = 0, rl = 0, rt = 0;
   const handles = p.querySelectorAll('.tg-rz');
   for (let i = 0; i < handles.length; i++) {
-    handles[i].addEventListener('mousedown', function (e) {
+    handles[i].addEventListener('pointerdown', function (e) {
       if (!stack) return;
+      if (e.isPrimary === false) return;
       // FIX (Ismail 2026-07-10): rw/rh devono essere le dimensioni del PANNELLO (p), non
       // della tela (stack) -- il resize sposta/ridimensiona il pannello, non la tela. Prima
       // funzionava "per caso" perche' la tela era sempre forzata quadrata e vicina alla
@@ -130,7 +134,7 @@ function _tgSetupDragResize(p) {
       e.preventDefault(); e.stopPropagation();
     });
   }
-  window.addEventListener('mousemove', function (e) {
+  window.addEventListener('pointermove', function (e) {
     if (drag) { p.style.left = (ox + e.clientX - dx) + 'px'; p.style.top = (oy + e.clientY - dy) + 'px'; }
     else if (rz && stack) {
       const ddx = e.clientX - rx, ddy = e.clientY - ry;
@@ -139,7 +143,12 @@ function _tgSetupDragResize(p) {
       if (rdir.indexOf('w') !== -1) { nw = rw - ddx; nl = rl + ddx; }
       if (rdir.indexOf('s') !== -1) nh = rh + ddy;
       if (rdir.indexOf('n') !== -1) { nh = rh - ddy; nt = rt + ddy; }
-      nw = Math.max(200, Math.min(1100, nw)); nh = Math.max(220, Math.min(1100, nh));
+      // WP-6/mobile (2026-07-19): tetti clampati alla viewport reale (su telefono 1100px
+      // fissi non hanno senso e il pannello poteva crescere oltre lo schermo).
+      const _vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1100;
+      const _vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 1100;
+      nw = Math.max(Math.min(200, Math.floor(_vw * 0.9)), Math.min(Math.min(1100, Math.floor(_vw * 0.96)), nw));
+      nh = Math.max(Math.min(220, Math.floor(_vh * 0.8)), Math.min(Math.min(1100, Math.floor(_vh * 0.92)), nh));
       // se avevo ridotto oltre il minimo dal lato N/W, non far scappare il pannello
       if (rdir.indexOf('w') !== -1) nl = rl + (rw - nw);
       if (rdir.indexOf('n') !== -1) nt = rt + (rh - nh);
@@ -149,9 +158,11 @@ function _tgSetupDragResize(p) {
       _tgApplyZoom();
     }
   });
-  window.addEventListener('mouseup', function () {
+  const _tgDragEnd = function () {
     if (drag || rz) { drag = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
-  });
+  };
+  window.addEventListener('pointerup', _tgDragEnd);
+  window.addEventListener('pointercancel', _tgDragEnd); // WP-6: gesto touch interrotto
 }
 // FIX (Ismail 2026-07-10): la tela LOGICA (TG_W x TG_H) ora e' la dimensione del
 // CONTENUTO reale (vedi _tgRecomputeBounds), non piu' legata alla dimensione del
@@ -495,6 +506,7 @@ function openTurtleDialog(idx) {
   _drawPop.classList.add('active');
   const ov = document.getElementById('overlay'); if (ov) ov.classList.add('active');
   if (typeof _bfPushOverlay === 'function') _bfPushOverlay('draw-popup'); // R13-F: registro condiviso Esc
+  if (typeof _bfWireDialogKeys === 'function') _bfWireDialogKeys(_drawPop, saveTurtleNode); // WP-D5: Enter = OK
   // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
   if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_drawPop);
 }

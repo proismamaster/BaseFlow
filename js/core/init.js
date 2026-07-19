@@ -34,8 +34,45 @@ function _bfSidebarLiveResizeTick() {
     // un altro trigger non la ricalcolava (bisognava cliccarla per "sbloccarla"). Agganciata
     // qui, UN solo punto, stesso principio "ogni sorgente passa da qui" del resto del tick.
     if (typeof window._bfPlaceSidebarHandle === 'function') window._bfPlaceSidebarHandle();
+    // WP-D8 (round 15-D): la toolbar si rimpicciolisce insieme allo spazio disponibile --
+    // stesso tick condiviso, cosi' anche collassare/aprire la sidebar Variabili (che libera o
+    // occupa spazio orizzontale) ricalcola la scala, non solo il resize della finestra.
+    if (typeof window._bfFitToolbar === 'function') window._bfFitToolbar();
   });
 }
+
+// WP-D8 (round 15-D, Ismail 2026-07-17, "vanno a capo i pulsanti dell'header, sistema -- devi
+// fare in modo che si rimpiccioliscano con la schermata che si riduce"): un primo tentativo
+// (menu "⋯" per i pulsanti meno usati) e' stato scartato su richiesta diretta di Ismail ("non
+// sono piu' coerenti [fra loro]") -- TUTTI i pulsanti restano sempre visibili, tutti allo STESSO
+// modo, e si rimpiccioliscono INSIEME quando lo spazio manca, invece di andare a capo.
+// Tecnica: una variabile CSS --tb-scale (default 1) che style.css usa in calc() su TUTTE le
+// dimensioni della toolbar (icone/padding/gap/font/select) -- vedi #toolbar/.tb-icon/.tb-select
+// li'. Qui si MISURA quanto il contenuto reale (scrollWidth, alla scala naturale) eccede lo
+// spazio disponibile (clientWidth) e si riduce --tb-scale di conseguenza, con un pavimento
+// (TB_SCALE_FLOOR) sotto il quale anche questo cede e torna il flex-wrap CSS (rete di sicurezza
+// per finestre estremamente strette, es. mobile in verticale, dove nessuna scala risulterebbe
+// piu' leggibile/cliccabile).
+var TB_SCALE_FLOOR = 0.62;
+function _bfFitToolbar() {
+  const tb = document.getElementById('toolbar');
+  // Guardia estesa (2026-07-19): negli ambienti headless (tools/render-headless.js e
+  // harness vari) il mock dell'elemento ha style={} senza setProperty -- da WP-D8 in poi
+  // window.onload crashava li' e la suite render-headless non partiva piu'. Stesso pattern
+  // di guardia gia' usato in syncLayoutVars.
+  if (!tb || !tb.style || typeof tb.style.setProperty !== 'function') return;
+  // Azzera la scala PRIMA di misurare: scrollWidth di un elemento gia' rimpicciolito
+  // rifletterebbe la larghezza RIDOTTA, non quella naturale -- il calcolo scalerebbe sulla
+  // scala precedente invece che sul contenuto reale (drift verso lo zero a ripetizione).
+  tb.style.setProperty('--tb-scale', '1');
+  const natural = tb.scrollWidth;
+  const available = tb.clientWidth;
+  if (!natural || !available || natural <= available) { tb.style.setProperty('--tb-scale', '1'); return; }
+  let scale = available / natural;
+  if (scale < TB_SCALE_FLOOR) scale = TB_SCALE_FLOOR; // sotto il pavimento: resta piccolo cosi', il resto lo assorbe flex-wrap
+  tb.style.setProperty('--tb-scale', scale.toFixed(4));
+}
+if (typeof window !== 'undefined') window._bfFitToolbar = _bfFitToolbar;
 
   window.onload = function () {
     saved=true; // Inizialmente, si considera il flowchart "salvato" (nessuna modifica)
@@ -118,6 +155,10 @@ function _bfSidebarLiveResizeTick() {
     // partire scentrato). Il setTimeout assicura che larghezza CSS del canvas/offsetLeft
     // siano gia' calcolati dopo il primo layout.
     if (typeof centerGraph === 'function') { centerGraph(); setTimeout(centerGraph, 120); }
+    // WP-D8 (round 15-D): stessa idea di centerGraph sopra -- calcola subito la scala della
+    // toolbar all'avvio (finestra gia' stretta al primo caricamento) + un ricalcolo dopo che il
+    // layout si e' assestato del tutto.
+    if (typeof _bfFitToolbar === 'function') { _bfFitToolbar(); setTimeout(_bfFitToolbar, 120); }
     // FIX #22 (Ismail 2026-07-10): a ogni resize della finestra ricalcola anche la larghezza
     // coperta dalla console agganciata (--console-cover-width), cosi' il #canvas-container e la
     // sua scrollbar orizzontale restano SEMPRE nello spazio visibile e non finiscono sotto il
@@ -166,6 +207,7 @@ function _bfSidebarLiveResizeTick() {
     window.addEventListener("scroll", function(){ if (typeof hideContextMenu === "function") hideContextMenu(); }, true);
     window.addEventListener("blur", function(){ if (typeof hideContextMenu === "function") hideContextMenu(); });
 
+
     // Drag & Drop (riordino nodi nel flusso): pointerdown sul nodo, pointermove per
     // trascinare/evidenziare l'arco target, pointerup (su window, non solo canvas,
     // nel caso il rilascio avvenga fuori dai bordi) per completare lo spostamento.
@@ -183,6 +225,19 @@ function _bfSidebarLiveResizeTick() {
     canvas.addEventListener("pointerdown", onCanvasTouchPointerDown);
     canvas.addEventListener("pointermove", onCanvasTouchPointerMove);
     canvas.addEventListener("pointerup", onCanvasTouchPointerUp);
+
+    // WP (round 15-C coda, 2026-07-16, Ismail): Ctrl/Cmd + rotellina = zoom in/out sul
+    // canvas, stesso passo di zoomIn()/zoomOut() (pulsanti +/- e scorciatoie Ctrl+/-,
+    // WP-N4). Rotellina SENZA Ctrl non fa nulla qui apposta (il canvas non scorre, e'
+    // gia' centrato/ridimensionato da centerGraph -- niente comportamento nativo da
+    // sopprimere in quel caso, preventDefault solo quando Ctrl e' premuto cosi' lo
+    // scroll/zoom nativo della PAGINA resta disponibile fuori dal canvas).
+    canvas.addEventListener("wheel", function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      if (e.deltaY < 0) { if (typeof zoomIn === 'function') zoomIn(); }
+      else if (e.deltaY > 0) { if (typeof zoomOut === 'function') zoomOut(); }
+    }, { passive: false });
 
     // Congela lo scroll di sfondo quando un popup e' aperto. Tutti i popup attivano
     // #overlay: osservando la sua classe 'active' gestiamo lo scroll in un solo punto,
@@ -216,6 +271,44 @@ function _bfSidebarLiveResizeTick() {
      else if (typeof saveToCurrentFile === 'function') saveToCurrentFile();
      return;
    }
+   // WP-D5 (round 15-D, Ismail 2026-07-17): Esc deve SEMPRE chiudere il popup in cima allo
+   // stack, anche col focus dentro un campo di testo del popup stesso (il caso piu' comune: ci
+   // si trova quasi sempre li' a scrivere). Prima Esc era nella STESSA catena if/else del blocco
+   // Ctrl+Z/Y/D/C/X/V/zoom sotto, che ignora apposta input/textarea/select -- Esc ci finiva
+   // bloccato insieme a loro per errore (censito su TUTTI i popup con campi: edit nodo/For/
+   // tartaruga/salva/editor tema -- vedi anche i loro handler Enter nuovi in popups.js). Spostato
+   // QUI, PRIMA della guardia sotto, cosi' e' l'unico tasto fra questi a bypassarla (Ctrl+Z ecc.
+   // restano giustamente ignorati mentre si scrive).
+   if (k === 'escape') {
+     if (typeof hideContextMenu === 'function') hideContextMenu();
+     // R13-F (Ismail 2026-07-12): Esc chiude SOLO l'overlay in cima allo stack condiviso
+     // (bf-modal/edit-node/for/draw/settings/export/save/block-help/palette -- popups.js),
+     // non tutti insieme come prima (bug segnalato: con piu' popup annidati -- es. Impostazioni
+     // sotto e l'errore runtime sopra -- Esc li chiudeva entrambi in un colpo solo, invece di
+     // chiudere prima solo quello in cima).
+     if (typeof _bfOverlayStack !== 'undefined' && _bfOverlayStack.length) {
+       const _bfTopId = _bfOverlayStack[_bfOverlayStack.length - 1];
+       if (typeof _bfCloseOverlayById === 'function') _bfCloseOverlayById(_bfTopId);
+     } else {
+       // Nessun overlay del nuovo registro aperto: comportamento storico per cio' che non ne fa
+       // ancora parte (console flottante non agganciata).
+       const cons = document.getElementById('console-popup');
+       if (cons && cons.classList.contains('active') && !cons.classList.contains('docked')) cons.classList.remove('active');
+       const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
+     }
+     // C4 (round 11): Esc deseleziona anche il bordo di selezione visiva.
+     if (typeof selectedNodeIdx !== 'undefined' && selectedNodeIdx !== -1) {
+       selectedNodeIdx = -1;
+       if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+     }
+     // R12-G/Fase1: Esc azzera anche la selezione multipla.
+     if (typeof multiSelected !== 'undefined' && multiSelected.length) {
+       multiSelected = [];
+       if (typeof _multiSelAnchor !== 'undefined') _multiSelAnchor = null; // R13-H
+       if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+     }
+     return;
+   }
    const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
    if ((event.ctrlKey || event.metaKey) && k === 'z' && !event.shiftKey) {
@@ -247,40 +340,31 @@ function _bfSidebarLiveResizeTick() {
      if (typeof blockClipboard !== 'undefined' && blockClipboard && typeof pasteNode === 'function') {
        event.preventDefault(); pasteNode();
      }
+   } else if ((event.ctrlKey || event.metaKey) && (k === '+' || k === '=')) {
+     // WP-N4 (round 15-C, QA zoom, Ismail 2026-07-15): mancavano le scorciatoie da tastiera per
+     // lo zoom (solo i pulsanti +/-/reset in #zoom-controls). '=' incluso perche' su layout US/IT
+     // e' il tasto FISICO di '+' senza Shift (event.key varia in base allo stato di Shift).
+     event.preventDefault();
+     if (typeof zoomIn === 'function') zoomIn();
+   } else if ((event.ctrlKey || event.metaKey) && (k === '-' || k === '_')) {
+     event.preventDefault();
+     if (typeof zoomOut === 'function') zoomOut();
+   } else if ((event.ctrlKey || event.metaKey) && k === '0') {
+     event.preventDefault();
+     if (typeof zoomReset === 'function') zoomReset();
    } else if ((k === 'delete' || k === 'del') && typeof multiSelected !== 'undefined' && multiSelected.length > 0) {
      // R12-G/Fase1 (Ismail 2026-07-12): Canc elimina il gruppo multi-selezionato corrente.
      event.preventDefault();
      if (typeof deleteSelectionGroup === 'function') deleteSelectionGroup();
-   } else if (k === 'escape') {
-     if (typeof hideContextMenu === 'function') hideContextMenu();
-     // R13-F (Ismail 2026-07-12): Esc chiude SOLO l'overlay in cima allo stack condiviso
-     // (bf-modal/edit-node/for/draw/settings/export/save/block-help/palette -- popups.js),
-     // non tutti insieme come prima (bug segnalato: con piu' popup annidati -- es. Impostazioni
-     // sotto e l'errore runtime sopra -- Esc li chiudeva entrambi in un colpo solo, invece di
-     // chiudere prima solo quello in cima).
-     if (typeof _bfOverlayStack !== 'undefined' && _bfOverlayStack.length) {
-       const _bfTopId = _bfOverlayStack[_bfOverlayStack.length - 1];
-       if (typeof _bfCloseOverlayById === 'function') _bfCloseOverlayById(_bfTopId);
-     } else {
-       // Nessun overlay del nuovo registro aperto: comportamento storico per cio' che non ne fa
-       // ancora parte (console flottante non agganciata).
-       const cons = document.getElementById('console-popup');
-       if (cons && cons.classList.contains('active') && !cons.classList.contains('docked')) cons.classList.remove('active');
-       const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
-     }
-     // C4 (round 11): Esc deseleziona anche il bordo di selezione visiva.
-     if (typeof selectedNodeIdx !== 'undefined' && selectedNodeIdx !== -1) {
-       selectedNodeIdx = -1;
-       if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
-     }
-     // R12-G/Fase1: Esc azzera anche la selezione multipla.
-     if (typeof multiSelected !== 'undefined' && multiSelected.length) {
-       multiSelected = [];
-       if (typeof _multiSelAnchor !== 'undefined') _multiSelAnchor = null; // R13-H
-       if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
-     }
    }
  });
+
+ // NOTA (Ismail 2026-07-16): il listener 'wheel'+Ctrl/Cmd per lo zoom e' gia' registrato
+ // dentro window.onload (vedi sopra, subito dopo i pointer listener del canvas) -- era stato
+ // aggiunto in parallelo mentre lavoravo qui. RIMOSSA la mia copia duplicata (stessa identica
+ // logica su 'canvas'): due listener sullo stesso evento avrebbero chiamato zoomIn/zoomOut
+ // DUE VOLTE per ogni notch di rotella, raddoppiando la velocita' di zoom rispetto a
+ // pulsanti/scorciatoie da tastiera. Nessuna modifica di comportamento: resta un solo listener.
 
  // Listener per la scorciatoia da tastiera Ctrl+R (o Cmd+R su Mac) e per F5.
  // Previene il ricaricamento della pagina se ci sono modifiche non salvate, chiedendo conferma.
@@ -329,7 +413,10 @@ function _bfSidebarLiveResizeTick() {
     if (collapsed()) { handle.style.display = 'none'; return; }
     handle.style.display = 'block';
     const r = sb.getBoundingClientRect();
-    handle.style.left = (_bfIsRtl() ? (r.left - 3) : (r.right - 3)) + 'px';
+    // WP-6 (2026-07-19): meta' larghezza REALE della maniglia invece del -3 fisso -- su
+    // touch (pointer:coarse, style.css) l'handle e' largo 18px e va centrato sul bordo.
+    const _hw = (handle.offsetWidth || 8) / 2;
+    handle.style.left = ((_bfIsRtl() ? r.left : r.right) - _hw) + 'px';
     handle.style.top = r.top + 'px';
     handle.style.height = r.height + 'px';
   }
@@ -339,12 +426,23 @@ function _bfSidebarLiveResizeTick() {
   // toccava la maniglia.
   if (typeof window !== 'undefined') window._bfPlaceSidebarHandle = place;
   let dragging = false;
-  handle.addEventListener('mousedown', function (e) {
+  // WP-6 (round 15 gravi, P6.3+P13.1, 2026-07-19): mousedown/mousemove/mouseup ->
+  // Pointer Events. Con i soli eventi mouse la maniglia era INERTE su touch (mobile:
+  // niente mousemove continuo durante il gesto -> nessun resize possibile, causa
+  // concreta di R13-I "resize mobile rotto", in RTL come in LTR). touch-action:none
+  // sull'handle (style.css) impedisce al browser di rubare il gesto per lo scroll.
+  // In piu': classe bf-live-drag sul body per DISABILITARE le transizioni CSS
+  // (#main grid 0.22s ecc.) durante il drag -- erano loro a falsare le misure di
+  // centerGraph frame per frame (il grid inseguiva la maniglia con 220ms di ritardo,
+  // da cui lo "scatto"/assestamento ritardato lamentato in P13.1).
+  handle.addEventListener('pointerdown', function (e) {
+    if (e.isPrimary === false) return;
     dragging = true; handle.classList.add('dragging');
     if (document.body && document.body.style) document.body.style.userSelect = 'none';
+    if (document.body && document.body.classList) document.body.classList.add('bf-live-drag');
     e.preventDefault();
   });
-  window.addEventListener('mousemove', function (e) {
+  window.addEventListener('pointermove', function (e) {
     if (!dragging) return;
     const r = sb.getBoundingClientRect();
     // WP-D6: in RTL la sidebar e' ancorata al bordo destro (fisso) e si allarga verso
@@ -360,12 +458,20 @@ function _bfSidebarLiveResizeTick() {
     // il flag _bfSidebarRafPending consolida entrambe le sorgenti in UNA sola esecuzione/frame.
     _bfSidebarLiveResizeTick();
   });
-  window.addEventListener('mouseup', function () {
+  // WP-6: pointerup E pointercancel (iOS/Android possono interrompere un gesto a meta':
+  // senza, il drag restava "appeso" con bf-live-drag attivo e transizioni spente per sempre).
+  // Al rilascio: transizioni riattivate + un giro extra del tick (subito e a transizioni
+  // concluse) cosi' l'assetto finale e' misurato su valori veri.
+  const _bfSbEndDrag = function () {
     if (!dragging) return;
     dragging = false; handle.classList.remove('dragging');
     if (document.body && document.body.style) document.body.style.userSelect = '';
+    if (document.body && document.body.classList) document.body.classList.remove('bf-live-drag');
     place();
-  });
+    if (typeof _bfSidebarLiveResizeTick === 'function') { _bfSidebarLiveResizeTick(); setTimeout(_bfSidebarLiveResizeTick, 240); }
+  };
+  window.addEventListener('pointerup', _bfSbEndDrag);
+  window.addEventListener('pointercancel', _bfSbEndDrag);
   window.addEventListener('resize', place);
   window.addEventListener('scroll', place, true);
   if (typeof ResizeObserver !== 'undefined') { try { new ResizeObserver(place).observe(sb); } catch (e) {} }

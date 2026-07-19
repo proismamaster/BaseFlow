@@ -107,6 +107,26 @@ function _bfCloseOverlayById(id) {
   const el = (typeof document !== 'undefined') ? document.getElementById(id) : null;
   if (el && el.classList) el.classList.remove('active');
 }
+
+// WP-D5 (round 15-D, Ismail 2026-07-17): Enter = azione primaria (Salva/OK) di un popup, gemello
+// del fix "Esc chiude sempre" appena fatto in init.js. Censimento: PRIMA Enter non faceva NULLA
+// in nessun popup con campi (edit nodo/For/tartaruga/salva/editor tema) -- solo var-value-popover
+// (variables.js) aveva gia' un listener locale dedicato, preso a modello qui. Un listener per
+// popup (non globale: cosi' ognuno chiama la propria azione, niente switch gigante), ignorato
+// dentro le <textarea> (dove Enter va a capo, non deve confermare -- oggi nessun popup wired qui
+// ne ha, ma resta una protezione a prova di futuro) e con Shift (idem). Idempotente: se richiamata
+// piu' volte sullo stesso popup (es. riaperto) non aggiunge un secondo listener.
+function _bfWireDialogKeys(popupEl, onEnter) {
+  if (!popupEl || typeof onEnter !== 'function' || popupEl._bfEnterWired) return;
+  popupEl._bfEnterWired = true;
+  popupEl.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    if (e.target && e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    onEnter();
+  });
+}
+
 function showStyledConfirm(message, onOk, opts) {
   opts = opts || {};
   const m = _bfEnsureModal();
@@ -299,7 +319,29 @@ function openManualOverlay() {
   const ifr = document.getElementById('manual-iframe');
   // Carica l'iframe SOLO alla prima apertura: dopo resta in memoria (nessun ricaricamento),
   // cosi' riaprendo il manuale si ritrova lo stesso capitolo/scroll di prima nella sessione.
-  if (ifr && !ifr.getAttribute('src')) ifr.setAttribute('src', 'manual.html');
+  // FIX (Ismail 2026-07-19, "devi fare Ctrl+R per aggiornarlo"): 'manual.html' veniva richiesto
+  // SENZA query string di cache-busting (a differenza di popups.js/theme.js sotto in index.html,
+  // che hanno gia' ?v=...) -- il fetch() network-first di sw.js prova sempre la rete PRIMA della
+  // cache del service worker, ma fetch() stesso resta soggetto alla cache HTTP ORDINARIA del
+  // browser (sw.js non passa {cache:'reload'|'no-store'}): con un Cache-Control non nullo lato
+  // hosting, il browser poteva quindi risolvere quella fetch con una copia HTTP gia' in cache,
+  // ancora quella pre-fix -- l'unico modo sicuro per bypassarla del tutto e' un URL MAI visto
+  // prima, come per gli altri due file. Versione allineata a popups.js/theme.js qui sotto.
+  if (ifr && !ifr.getAttribute('src')) {
+    ifr.setAttribute('src', 'manual.html?v=20260719i');
+  } else if (ifr) {
+    // FIX (Ismail 2026-07-19, "il manuale ha sempre gli stessi colori nonostante il tema"):
+    // dato che l'iframe NON si ricarica alle riaperture successive (commento sopra), il suo
+    // script di sincronizzazione tema (manual.html, gira una volta sola al primo carico)
+    // non vedeva mai un cambio tema fatto nell'app dopo quella primissima apertura -- il
+    // manuale restava congelato al tema di allora per tutta la sessione. Ad ogni riapertura
+    // successiva si richiama esplicitamente la funzione di sync esposta da manual.html.
+    try {
+      if (ifr.contentWindow && typeof ifr.contentWindow._bfApplyManualTheme === 'function') {
+        ifr.contentWindow._bfApplyManualTheme();
+      }
+    } catch (e) { /* same-origin, non dovrebbe mai fallire qui: difensivo */ }
+  }
   // NB: flag DIVERSO da _bfWired -- quello e' gia' usato da wireWindows() (ux.js) sullo
   // stesso elemento per il raise-on-click (WINDOW_IDS), che gira al window.onload PRIMA che
   // l'utente apra mai il manuale: riusare _bfWired qui l'avrebbe trovato gia' true al primo
@@ -327,29 +369,48 @@ if (typeof window !== 'undefined') window.openManualOverlay = openManualOverlay;
 // tela, stato "docked") specifici del loro pannello, non riusabili as-is su #manual-overlay.
 function _manualSetupDragResize(ov) {
   const bar = document.getElementById('manual-overlay-bar');
+  // FIX (Ismail 2026-07-16, "resize si blocca e poi scatta di colpo"): #manual-overlay
+  // contiene un <iframe id="manual-iframe"> che copre quasi tutta l'area interna. Drag e
+  // resize qui sotto usano mousemove/mouseup su `window` (nessuna Pointer Capture) -- appena
+  // il cursore, durante il trascinamento, passa SOPRA l'iframe, gli eventi mouse vengono
+  // consegnati al DOCUMENTO dell'iframe (un browsing context diverso), non piu' al `window`
+  // del genitore: il resize "si blocca" (mousemove del genitore smette di ricevere eventi)
+  // finche' il cursore non riesce dall'area dell'iframe -- a quel punto il prossimo evento
+  // arriva con una posizione mouse molto diversa da quella dell'ultimo aggiornamento, e la
+  // finestra "scatta" di colpo alla dimensione (sbagliata) che ne risulta. Fix: disabilita i
+  // pointer-events dell'iframe per TUTTA la durata del drag/resize (si riattivano al
+  // rilascio), cosi' il mouse resta sempre sul documento del genitore durante il gesto.
+  const ifr = document.getElementById('manual-iframe');
   const MIN_W = 420, MIN_H = 320, MAX_W = 1600, MAX_H = 1200;
   let dragging = false, dx = 0, dy = 0, ox = 0, oy = 0;
-  if (bar) bar.addEventListener('mousedown', function (e) {
+  // WP-6/R13-I (2026-07-19): mouse -> Pointer Events (drag/resize funzionano anche a dito
+  // su mobile; touch-action:none su barra/maniglie in style.css). Il fix pointer-events
+  // dell'iframe resta identico e necessario anche coi Pointer Events.
+  if (bar) bar.addEventListener('pointerdown', function (e) {
+    if (e.isPrimary === false) return;
     if (e.target && e.target.closest && e.target.closest('button')) return;
     const r = ov.getBoundingClientRect();
     dragging = true; ox = r.left; oy = r.top; dx = e.clientX; dy = e.clientY;
     ov.style.left = ox + 'px'; ov.style.top = oy + 'px'; ov.style.transform = 'none'; ov.style.margin = '0';
     if (document.body && document.body.style) document.body.style.userSelect = 'none';
+    if (ifr && ifr.style) ifr.style.pointerEvents = 'none';
     e.preventDefault();
   });
   let rz = false, rdir = '', rx = 0, ry = 0, rw = 0, rh = 0, rl = 0, rt = 0;
   const handles = ov.querySelectorAll('.tg-rz');
   for (let i = 0; i < handles.length; i++) {
-    handles[i].addEventListener('mousedown', function (e) {
+    handles[i].addEventListener('pointerdown', function (e) {
+      if (e.isPrimary === false) return;
       const r = ov.getBoundingClientRect();
       rz = true; rdir = this.getAttribute('data-dir') || 'se';
       rx = e.clientX; ry = e.clientY; rw = r.width; rh = r.height; rl = r.left; rt = r.top;
       ov.style.left = rl + 'px'; ov.style.top = rt + 'px'; ov.style.transform = 'none'; ov.style.margin = '0';
       if (document.body && document.body.style) document.body.style.userSelect = 'none';
+      if (ifr && ifr.style) ifr.style.pointerEvents = 'none';
       e.preventDefault(); e.stopPropagation();
     });
   }
-  window.addEventListener('mousemove', function (e) {
+  window.addEventListener('pointermove', function (e) {
     if (dragging) {
       let nx = ox + (e.clientX - dx), ny = oy + (e.clientY - dy);
       ov.style.left = nx + 'px'; ov.style.top = ny + 'px';
@@ -360,16 +421,28 @@ function _manualSetupDragResize(ov) {
       if (rdir.indexOf('w') !== -1) { nw = rw - ddx; nl = rl + ddx; }
       if (rdir.indexOf('s') !== -1) nh = rh + ddy;
       if (rdir.indexOf('n') !== -1) { nh = rh - ddy; nt = rt + ddy; }
-      nw = Math.max(MIN_W, Math.min(MAX_W, nw)); nh = Math.max(MIN_H, Math.min(MAX_H, nh));
+      // WP-6/mobile (2026-07-19): su un telefono MIN_W=420 supera lo schermo -> la finestra
+      // non si poteva mai restringere sotto la viewport. Min/max clampati alla viewport reale.
+      const _vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1600;
+      const _vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 1200;
+      const _minW = Math.min(MIN_W, Math.floor(_vw * 0.94)), _maxW = Math.min(MAX_W, Math.floor(_vw * 0.98));
+      const _minH = Math.min(MIN_H, Math.floor(_vh * 0.8)), _maxH = Math.min(MAX_H, Math.floor(_vh * 0.94));
+      nw = Math.max(_minW, Math.min(_maxW, nw)); nh = Math.max(_minH, Math.min(_maxH, nh));
       if (rdir.indexOf('w') !== -1) nl = rl + (rw - nw);
       if (rdir.indexOf('n') !== -1) nt = rt + (rh - nh);
       ov.style.width = nw + 'px'; ov.style.height = nh + 'px';
       ov.style.left = nl + 'px'; ov.style.top = nt + 'px';
     }
   });
-  window.addEventListener('mouseup', function () {
-    if (dragging || rz) { dragging = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
-  });
+  const _manDragEnd = function () {
+    if (dragging || rz) {
+      dragging = false; rz = false;
+      if (document.body && document.body.style) document.body.style.userSelect = '';
+      if (ifr && ifr.style) ifr.style.pointerEvents = '';
+    }
+  };
+  window.addEventListener('pointerup', _manDragEnd);
+  window.addEventListener('pointercancel', _manDragEnd); // WP-6: gesto touch interrotto
 }
 
 function closeManualOverlay() {
@@ -430,7 +503,15 @@ function chiudiPopup() {
           // dall'executor e dalle traduzioni, che spezzano su '=': vedi touchedVarName in execute.js).
           const v = (document.getElementById('assign-var-input').value || '').trim();
           const val = (document.getElementById('assign-val-input').value || '').trim();
-          node.info = v + ' = ' + val;
+          // WP-N6 (round 15-C, Ismail 2026-07-15, riprodotto: "crea un Assegna, aprilo, Salva
+          // SENZA scrivere niente" -> il blocco appena creato aveva node.info="" (canvas: solo
+          // "Assign:"), ma salvava comunque " = " -- canvas: "Assign: =", un "=" fantasma senza
+          // senso al posto di restare vuoto). Senza un NOME di variabile non c'e' nulla da
+          // comporre: v vuoto -> il nodo resta senza contenuto (stessa "" di un blocco appena
+          // creato/mai toccato -- err_empty_node lo segnala gia' a runtime, nodeHasError non lo
+          // marca in errore da vuoto, coerente con entrambi). Il caso "v presente, val vuota"
+          // (es. "x =") resta INVARIATO: mostra volutamente l'incompletezza (manca il valore).
+          node.info = v ? (v + ' = ' + val) : '';
         } else {
           node.info = document.getElementById("edit-node-input").value;
         }
@@ -500,6 +581,7 @@ function chiudiPopup() {
     _savePop.classList.add("active"); // Mostra il popup di salvataggio
     document.getElementById('overlay').classList.add('active'); // Attiva l'overlay
     _bfPushOverlay('save-popup'); // R13-F: registro condiviso Esc
+    _bfWireDialogKeys(_savePop, confirmSaveFromPopup); // WP-D5: Enter = Salva
     // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
     if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_savePop);
   }
@@ -576,6 +658,7 @@ function openForDialog(i) {
   _forPop.classList.add('active');
   document.getElementById('overlay').classList.add('active');
   _bfPushOverlay('for-popup'); // R13-F: registro condiviso Esc
+  _bfWireDialogKeys(_forPop, saveForNode); // WP-D5: Enter = OK
   // P2.4 (round 15-B S1): apertura = sempre in primo piano (ux.js), coerente col raise-on-click.
   if (typeof bfBringToFrontPopup === 'function') bfBringToFrontPopup(_forPop);
 }

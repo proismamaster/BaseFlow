@@ -152,6 +152,17 @@ body.theme-contrast #project-identity { color: #ffd400; }
    sparire -- e se anche quello non basta, il flex-wrap lo manda comunque a capo (vedi sopra). */
 @media (max-width: 900px) { #project-identity { max-width: 22ch; } }
 
+/* WP-D8 (round 15-D, Ismail 2026-07-17, "vanno a capo i pulsanti dell'header, sistema"): un primo
+   tentativo raccoglieva Svuota/Esporta/Aiuto/Manuale in un menu "⋯" sotto i 900px -- Ismail ha
+   respinto l'idea ("non sono piu' coerenti i pulsanti") e ha chiesto RIMPICCIOLIMENTO vero e
+   uniforme di tutti i pulsanti insieme, mai nasconderne alcuni. Fix: _bfFitToolbar() (init.js)
+   misura #toolbar.scrollWidth vs clientWidth ad ogni resize/zoom/lingua (stessa coda di
+   _bfSidebarLiveResizeTick) e scrive --tb-scale (0.62..1) su #toolbar; le regole qui sotto
+   consumano --tb-scale via calc() cosi' icone/gap/padding si riducono TUTTI insieme, in
+   proporzione, senza sparire ne' andare a capo finche' non si tocca il pavimento 0.62 (sotto
+   quella soglia flex-wrap resta come ultima rete di sicurezza). */
+#toolbar { --tb-scale: 1; }
+
 #toolbar button {
   background-color: #fff;
   color: var(--primary);
@@ -467,6 +478,15 @@ body.perf-reduced *::after {
   margin-bottom: 1rem;
 }
 
+/* WP-D7 (round 15-D, Ismail 2026-07-17): tip "grafo molto grande" nell'export immagine/PDF --
+   tono AMBRA/informativo (non rosso: non e' un errore, e' un avviso di performance), stesso
+   pattern struttura di .for-error (bordo+sfondo tenue+testo colorato, variante dark-mode). */
+.export-large-warn {
+  color: #8a6d1a; background: #fff8e1; border: 1px solid #ffe082;
+  border-radius: 0.35rem; padding: 0.5rem 0.7rem; font-size: 0.85rem; margin-bottom: 1rem;
+}
+.export-large-warn[hidden] { display: none; }
+
 /* D2 (round 11): contenitore dedicato ai pulsanti (era un <div> anonimo, selettore
    generico "#export-popup div"). Pattern coerente con .bf-modal-actions/.bf-modal-btn
    (stessi raggi/padding/hover): azione neutra (Close) a SINISTRA via order+margin-right:auto,
@@ -529,19 +549,30 @@ body.perf-reduced *::after {
   transform: translate(-50%, -50%);
   min-width: 320px;
   max-width: 90vw;
-  background: #fff;
-  border: 2px solid var(--primary);
+  /* WP-D4 (round 15-D, Ismail 2026-07-17): background/bordo passati a variabili di tema
+     (stesso pattern di .bf-modal-box, showStyledConfirm/showUnsavedDialog) -- PRIMA erano
+     hard-coded (#fff / 2px solid var(--primary)): sui temi che NON portano la classe
+     dark-mode (retro/bw/ocean/contrast, che pero' RIDEFINISCONO --surface/--border come
+     custom property, vedi body.theme-* sopra nel file) il popup restava sempre bianco con
+     bordo viola acceso, stonato col resto dell'app in quel tema. Con le variabili si adatta
+     da solo; dark/chalk/neon (che portano la classe dark-mode) restano coperti dalla regola
+     body.dark-mode #save-popup gia' esistente piu' sotto nel file (piu' specifica, vince). */
+  background: var(--surface, #fff);
+  color: var(--text, #333);
+  border: 1.5px solid var(--border, #d1c4e9);
   /* R14-C (Ismail 2026-07-13): 1rem (era 0.5rem) -- piu' coerente col raggio 16px di
      .bf-modal-box (famiglia showStyledConfirm/showUnsavedDialog a cui questo popup e' stato
      riallineato visivamente: icona floppy, titolo, pulsanti primario/ghost, X -- vedi sotto). */
   border-radius: 1rem;
-  box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
-  padding: 2rem 2.5rem 1.5rem 2.5rem;
+  /* WP-D4: stessa ombra di .bf-modal-box (piu' profonda/neutra) invece della vecchia ombra
+     viola fissa, che su temi caldi (retro) o freddi (ocean) stonava col resto della UI. */
+  box-shadow: 0 18px 54px rgba(0,0,0,0.28), 0 1px 4px rgba(0,0,0,0.08);
+  padding: 1.6rem 1.8rem 1.4rem;
   z-index: 1200;
   display: none;
   flex-direction: column;
-  align-items: center;
-  gap: 1.2rem;
+  align-items: stretch;
+  gap: 1rem;
   text-align: center;
 }
 
@@ -556,32 +587,41 @@ body.perf-reduced *::after {
    destra anche in RTL, mai specchiata: convenzione consolidata di TUTTI gli altri popup). */
 #save-popup .x-close { position: absolute; top: 0.7rem; right: 0.7rem; }
 
+/* WP-D4: ogni campo (label opzionale + input) e' un blocco a se', allineato all'INIZIO della
+   riga (text-align:start, non "left" -- si specchia da solo in arabo/RTL) invece di ereditare
+   il text-align:center del genitore #save-popup: prima la label "galleggiava" centrata sopra
+   un input a piena larghezza, un disallineamento tipico di un form scritto senza wrapper. */
+.save-field { width: 100%; text-align: start; }
 #save-popup label {
-  color: #333;
-  font-size: 1rem;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
+  display: block;
+  color: var(--text, #333);
+  font-size: 0.92rem;
+  margin-bottom: 0.4rem;
+  font-weight: 600;
 }
 
 #filename-input,
 #save-author-input {
+  box-sizing: border-box;
   width: 100%;
-  min-width: 180px;
-  max-width: 300px;
-  padding: 0.7rem 1rem;
-  border: 1.5px solid #b39ddb;
-  border-radius: 0.3rem;
-  font-size: 1rem;
-  background: #f7f5ff;
-  color: #333;
-  transition: border 0.2s;
-  margin-bottom: 1rem;
+  padding: 0.65rem 0.9rem;
+  /* WP-D4: stesso trattamento di #tabVariabili input.inputVariable (gia' theme-aware in
+     tutti gli 8 temi + custom) invece dei colori bespoke hard-coded di prima -- overlay
+     bianco semi-trasparente sopra qualunque --surface, pieno bianco solo a fuoco. */
+  border: 1.5px solid var(--border, #d1c4e9);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  background: rgba(255,255,255,0.55);
+  color: var(--text, #333);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 #filename-input:focus,
 #save-author-input:focus {
   border-color: var(--primary);
+  background: #fff;
   outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
 }
 
 /* R14-C (Ismail 2026-07-13): le vecchie regole bespoke #save-popup button/:hover e
@@ -597,7 +637,12 @@ body.perf-reduced *::after {
 /* R14-B.3: stesso motivo di .bf-modal-msg -- il nome (gia' troncato da truncateName() in
    saveFileAs(), popups.js) potrebbe comunque essere un token unico senza spazi piu' largo
    del popup. */
-#save-popup-current { font-size: 0.85rem; color: #6a5c8f; margin: -0.6rem 0 0.2rem; text-align: center; overflow-wrap: anywhere; }
+/* WP-D4: margine ridotto (era -0.6rem 0 0.2rem, tarato per la vecchia spaziatura via <br><br>)
+   -- col nuovo layout a gap:1rem (#save-popup sopra) uno strappo minore basta per restare
+   visivamente "agganciato" al titolo sopra invece che al campo sotto. Colore derivato da
+   --text invece di un viola hard-coded, cosi' resta leggibile (piu' tenue del testo normale)
+   su qualunque tema, non solo il chiaro di default. */
+#save-popup-current { font-size: 0.85rem; color: color-mix(in srgb, var(--text, #333) 65%, transparent); margin: -0.5rem 0 0; text-align: center; overflow-wrap: anywhere; }
 body.dark-mode #save-popup-current { color: #b39ddb; }
 #save-popup-actions { display: flex; gap: 0.6rem; width: 100%; justify-content: center; }
 #save-popup-actions button { flex: 1 1 0; min-width: 100px; margin: 0; }
@@ -1538,6 +1583,7 @@ body.dark-mode #export-preview {
   background: #1a1a1a;
   border-color: #6a4fb3;
 }
+body.dark-mode .export-large-warn { background: #3a3320; border-color: #8a7a3a; color: #ffe082; }
 body.dark-mode #edit-node-input:focus,
 body.dark-mode #filename-input:focus,
 body.dark-mode #save-author-input:focus,
@@ -2106,6 +2152,73 @@ body.theme-retro { --if-true-color: #5b7a2e; --if-false-color: #a8431b; --arc-ho
    nero: la differenza fra i rami si legge dal TESTO ("True"/"False", "V"/"F", "Next"/"Done"),
    non dal colore -- coerente con la filosofia del tema (nessun colore, solo forma/testo). */
 body.theme-bw { --if-true-color: #000000; --if-false-color: #000000; --stop-btn-color: #000000; --bf-danger: #000000; --exec-error-color: #9e9e9e; --node-error-text: #000; }
+
+/* WP-D6 (round 15-D, Ismail 2026-07-17, "i blocchi hanno sempre gli stessi colori qualunque
+   tema, es. neon"): CAUSA -- rendering.js legge il colore di riempimento con
+   cssVar('--node-' + tipo, ...) (vedi coloreNodo, funzione disegnaNodo), ma le 16 variabili
+   --node-<tipo> erano definite SOLO in :root, mai ridefinite da nessun tema: ogni tema
+   builtin (retro/ocean/chalk/neon/contrast) mostrava quindi la STESSA identica palette
+   pastello di default, mentre solo gli accenti (if-true/if-false/arc-*) cambiavano -- da qui
+   la sensazione di "blocchi sempre uguali". bw ESCLUSO apposta: rendering.js forza il
+   riempimento bianco/nero in JS per quel tema (filosofia "nessun colore", vedi commento
+   R12-E/E4 sopra), una palette colorata qui verrebbe ignorata comunque.
+   Palette pensata per tema (stessa famiglia semantica per tipo -- start/end/turtle ecc. -- ma
+   tonalita' coerenti con l'identita' cromatica di ciascun tema): retro = toni caldi
+   terra/seppia (il canvas ha gia' un filtro sepia(0.4) saturate(1.15) hue-rotate(-8deg), le
+   tinte sono scelte per restare distinguibili anche DOPO quel filtro); ocean = blu/verde
+   acqua con accenti corallo/sabbia; chalk/neon = pastelli chiari coerenti col gessetto/neon
+   ma NON scuri -- --node-text resta fisso nero (mai ridefinito per tema, fuori scope qui),
+   quindi ogni tinta e' stata scelta abbastanza chiara da restare leggibile con testo nero;
+   contrast = colori vivaci ma chiari per lo stesso motivo (il vero "alto contrasto" viene
+   gia' dal bordo nero 2px su .blk + sfondo bianco, non serve un riempimento scurissimo).
+   Il colore "personalizzato" (editor tema, THEME_EDITABLE in theme.js) resta coerente SENZA
+   nessuna modifica JS: _activeVarValue() legge gia' il valore CALCOLATO (getComputedStyle) al
+   momento dell'apertura, quindi l'editor parte automaticamente dalla palette del tema attivo. */
+body.theme-retro {
+  --node-start: #9ccc65; --node-end: #d7a290;
+  --node-input: #bcaaa4; --node-read: #bcaaa4;
+  --node-output: #c8b6ae; --node-print: #c8b6ae; --node-write: #c8b6ae;
+  --node-assign: #e0b34a; --node-assignment: #e0b34a;
+  --node-if: #b39ddb; --node-while: #a3b899; --node-for: #dda15e; --node-do: #bfa98e;
+  --node-comment: #e8dcc3; --node-pause: #d391a0;
+  --node-forward: #9caf88; --node-turn: #e0a458; --node-home: #d9a066; --node-pen: #8fb8b8; --node-gclear: #cbbfa9;
+}
+body.theme-ocean {
+  --node-start: #81c784; --node-end: #ef9a9a;
+  --node-input: #b3e5fc; --node-read: #b3e5fc;
+  --node-output: #4fc3f7; --node-print: #4fc3f7; --node-write: #4fc3f7;
+  --node-assign: #ffe082; --node-assignment: #ffe082;
+  --node-if: #4dd0e1; --node-while: #80cbc4; --node-for: #81d4fa; --node-do: #9fa8da;
+  --node-comment: #eceff1; --node-pause: #ff8a65;
+  --node-forward: #a5d6a7; --node-turn: #ffca28; --node-home: #ffb300; --node-pen: #80deea; --node-gclear: #cfd8dc;
+}
+body.theme-chalk {
+  --node-start: #a5d6a7; --node-end: #ef9a9a;
+  --node-input: #b0bec5; --node-read: #b0bec5;
+  --node-output: #81d4fa; --node-print: #81d4fa; --node-write: #81d4fa;
+  --node-assign: #fff59d; --node-assignment: #fff59d;
+  --node-if: #ce93d8; --node-while: #80cbc4; --node-for: #ffcc80; --node-do: #9fa8da;
+  --node-comment: #eceff1; --node-pause: #f48fb1;
+  --node-forward: #c5e1a5; --node-turn: #ffe082; --node-home: #ffd54f; --node-pen: #80deea; --node-gclear: #cfd8dc;
+}
+body.theme-neon {
+  --node-start: #69f0ae; --node-end: #ff8a80;
+  --node-input: #b388ff; --node-read: #b388ff;
+  --node-output: #84ffff; --node-print: #84ffff; --node-write: #84ffff;
+  --node-assign: #ffff8d; --node-assignment: #ffff8d;
+  --node-if: #ff80ab; --node-while: #64ffda; --node-for: #ffab40; --node-do: #b39ddb;
+  --node-comment: #f5f5f5; --node-pause: #ea80fc;
+  --node-forward: #b2ff59; --node-turn: #ffd740; --node-home: #ffca28; --node-pen: #18ffff; --node-gclear: #cfd8dc;
+}
+body.theme-contrast {
+  --node-start: #76ff03; --node-end: #ff8a80;
+  --node-input: #90caf9; --node-read: #90caf9;
+  --node-output: #40c4ff; --node-print: #40c4ff; --node-write: #40c4ff;
+  --node-assign: #ffd600; --node-assignment: #ffd600;
+  --node-if: #ea80fc; --node-while: #64ffda; --node-for: #ffab40; --node-do: #9fa8da;
+  --node-comment: #f5f5f5; --node-pause: #ff80ab;
+  --node-forward: #b2ff59; --node-turn: #ffd740; --node-home: #ffca28; --node-pen: #18ffff; --node-gclear: #cfd8dc;
+}
 
 
 /* Pulsanti di chiusura a "X" (Ismail 2026-07-07) + indicatore modifiche non salvate. */
@@ -2925,6 +3038,61 @@ body.dark-mode #sidebar-resize-handle::after { background: #4a4066; }
 body.dark-mode #sidebar-resize-handle:hover::after,
 body.dark-mode #sidebar-resize-handle.dragging::after { background: #7c3aed; }
 
+/* ============================================================
+   WP-6 (round 15 gravi, P6.3+P13.1) + R13-I resize mobile/RTL — 2026-07-19
+   ============================================================ */
+/* P13.1: durante il drag di una maniglia (sidebar o console) il body porta la classe
+   bf-live-drag (init.js / execute.js). Le transizioni qui sotto vengono SPENTE per la
+   durata del gesto: erano LORO a falsare le misure di centerGraph() ad ogni frame
+   (#main insegue la nuova larghezza della sidebar con 0.22s di ritardo, #zoom-controls
+   e #terminal-reopen con 0.2s) -> il centro veniva calcolato su larghezze non ancora
+   assestate e la vista "scattava"/si sistemava in ritardo. Col gesto in corso i valori
+   letti (getBoundingClientRect) sono cosi' quelli VERI, frame per frame; al rilascio le
+   transizioni tornano attive (nessun salto: le larghezze non cambiano piu'). */
+body.bf-live-drag #main,
+body.bf-live-drag #sidebar,
+body.bf-live-drag #canvas-container,
+body.bf-live-drag #console-popup,
+body.bf-live-drag #zoom-controls,
+body.bf-live-drag #terminal-reopen { transition: none !important; }
+
+/* R13-I: le maniglie/barre di trascinamento devono POSSEDERE il gesto touch -- senza
+   touch-action:none il browser ruba il pan per lo scroll della pagina e interrompe il
+   drag con un pointercancel (su mobile il resize "non funzionava" proprio per questo,
+   in RTL come in LTR). Vale solo per l'elemento toccato: lo scroll interno di log
+   console / tela tartaruga / iframe manuale resta normale. */
+#sidebar-resize-handle, #console-resize-handle, .tg-rz,
+#manual-overlay-bar, #draw-output-head,
+#console-popup:not(.docked) { touch-action: none; }
+
+/* Target piu' larghi a dito (8px sono troppo pochi per centrare la maniglia al tocco). */
+@media (pointer: coarse) {
+  #sidebar-resize-handle { width: 18px; }
+  #sidebar-resize-handle::after { left: 8px; }
+  #console-resize-handle { width: 18px; left: -9px; }
+  html[dir="rtl"] #console-popup.docked #console-resize-handle { left: auto; right: -9px; }
+}
+
+/* RTL: il resizer NATIVO css (resize:horizontal, angolo in basso) viene SPECCHIATO dal
+   browser con direction:rtl -- finisce sul bordo ANCORATO del pannello (sinistra dello
+   schermo) e il trascinamento risulta invertito/incomprensibile ("resize proprio rotto
+   in arabo"). In RTL si disattiva: resta la maniglia custom #console-resize-handle,
+   gia' RTL-aware (execute.js misura da e.clientX, regola right:-4px sopra). */
+html[dir="rtl"] #console-popup.docked { resize: none; }
+
+/* Mobile (passata 2026-07-19): popup con min-width FISSO piu' largo dei telefoni stretti --
+   in CSS min-width VINCE su max-width, quindi il tetto in vw non bastava: sotto i 520px
+   il popup sforava la viewport (parte dei bottoni irraggiungibile, X compresa). Qui i
+   min-width cedono e la larghezza segue la viewport. Gli altri popup (settings/draw/
+   block-help/edit-node/for) usano gia' width:min(..px, 9xvw) o hanno media query proprie. */
+@media (max-width: 520px) {
+  #console-popup:not(.docked) { min-width: 0; width: 94vw; }
+  #export-popup { min-width: 0; width: 94vw; }
+  #export-code { min-width: 0; }
+  #save-popup { min-width: 0; width: 92vw; }
+  #manual-overlay { min-width: 0; width: 96vw; height: min(84vh, 700px); }
+}
+
 /* ---- Titolo della modale ---- */
 /* R12-E/E4 (Ismail 2026-07-11): BUG trovato durante l'audit -- questa regola era SEMPRE
    rossa (pensata solo per l'errore di runtime, che e' l'UNICO caso storico con un titolo),
@@ -3406,25 +3574,33 @@ body.dark-mode #draw-scroll::-webkit-scrollbar-thumb { background: #7c3aed; back
    touch); il massimo (34px/32px) e' il valore desktop originale, invariato. --toolbar-height
    resta coerente automaticamente: e' letta da tb.offsetHeight a ogni resize (vedi
    window.syncLayoutVars in init.js), non un numero fisso da aggiornare qui a mano. */
+/* WP-D8 (round 15-D, Ismail 2026-07-17, "i pulsanti devono rimpicciolirsi con la schermata che
+   si riduce"): dal clamp() legato al solo viewport-width a --tb-scale, calcolato da
+   _bfFitToolbar() (init.js) misurando l'overflow REALE di #toolbar (scrollWidth vs
+   clientWidth) -- tiene conto anche di quanto spazio occupano sidebar/console aperti, cosa
+   che il viewport-width da solo non poteva sapere. Tutti i pulsanti/gap/select si riducono
+   INSIEME, in proporzione, nessuno sparisce ne' va in un menu. Il clamp() esterno resta come
+   rete di sicurezza: mai sotto il floor (coerente con TB_SCALE_FLOOR=0.62 in init.js), mai
+   sopra la dimensione base, anche prima che il JS calcoli --tb-scale (default 1, vedi
+   #toolbar sopra). Sotto il floor lo scale si ferma e subentra il flex-wrap (ultima rete). */
 #toolbar .tb-icon {
-  min-width: clamp(28px, 26px + 0.6vw, 34px);
-  min-height: clamp(26px, 24px + 0.55vw, 32px);
-  padding: clamp(0.22rem, 0.18rem + 0.35vw, 0.34rem);
+  min-width: clamp(21px, calc(34px * var(--tb-scale, 1)), 34px);
+  min-height: clamp(20px, calc(32px * var(--tb-scale, 1)), 32px);
+  padding: clamp(0.21rem, calc(0.34rem * var(--tb-scale, 1)), 0.34rem);
 }
-.tb-icon svg { width: clamp(16px, 14px + 0.35vw, 18px); height: clamp(16px, 14px + 0.35vw, 18px); }
-#toolbar { gap: clamp(0.2rem, 0.15rem + 0.3vw, 0.28rem); }
+.tb-icon svg { width: clamp(11px, calc(18px * var(--tb-scale, 1)), 18px); height: clamp(11px, calc(18px * var(--tb-scale, 1)), 18px); }
+#toolbar { gap: clamp(0.12rem, calc(0.28rem * var(--tb-scale, 1)), 0.28rem); }
 /* separatore un filo piu' marcato accanto al logo */
 #toolbar .tb-sep { margin: 0.25rem 0.5rem; }
 
 /* --- 32: selettore velocità nella toolbar, stessa altezza dei pulsanti --- */
 #toolbar .tb-select {
-  /* S4/P3.3: stessa logica clamp() dei pulsanti-icona qui sopra, cosi' il selettore non
-     resta a un'altezza fissa (32px) mentre i pulsanti accanto si rimpiccioliscono --
-     restava piu' alto/disallineato a finestra stretta ("in modo ordinato" = tutto scala
-     insieme, non solo una parte). */
-  height: clamp(26px, 24px + 0.55vw, 32px); align-self: center; border: none; border-radius: 8px; cursor: pointer;
-  background: rgba(255,255,255,0.92); color: var(--primary); font-size: 0.8rem; font-weight: 600;
-  padding: 0 0.5rem; margin: 0 0.1rem;
+  /* WP-D8: stessa logica --tb-scale dei pulsanti-icona qui sopra, cosi' il selettore non
+     resta a un'altezza fissa mentre i pulsanti accanto si rimpiccioliscono ("tutto scala
+     insieme, non solo una parte"). */
+  height: clamp(20px, calc(32px * var(--tb-scale, 1)), 32px); align-self: center; border: none; border-radius: 8px; cursor: pointer;
+  background: rgba(255,255,255,0.92); color: var(--primary); font-size: clamp(0.68rem, calc(0.8rem * var(--tb-scale, 1)), 0.8rem); font-weight: 600;
+  padding: 0 clamp(0.3rem, calc(0.5rem * var(--tb-scale, 1)), 0.5rem); margin: 0 0.1rem;
 }
 body.dark-mode #toolbar .tb-select { background: #2a2444; color: #c9a9fa; }
 
@@ -3957,4 +4133,3 @@ html[dir="rtl"] #console-popup.docked .console-caret { transform: scaleX(-1); }
   width: calc(100% + 0.95rem);
   border-radius: 0 10px 10px 0;
 }
-

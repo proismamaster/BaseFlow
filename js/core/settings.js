@@ -39,12 +39,36 @@ function syncPerfSettingsUI() {
   const h = document.getElementById('perf-hover'); if (h) h.checked = !!perfSettings.hoverHighlight;
 }
 
+// WP-D9 (round 15-D, Ismail 2026-07-17): impostazioni di VISTA del canvas (sotto-WP "Griglia").
+// Oggetto ISOLATO (non tocca perfSettings/consoleSettings) con la sua chiave localStorage, stesso
+// pattern robusto (Object.assign sul default -> un valore futuro non va perso su un salvataggio
+// vecchio). La griglia e' SOLO visiva (rendering.js draw): non cambia il layout logico dei nodi.
+var viewSettings = { showGrid: false };
+try {
+  const _vs = (typeof localStorage !== 'undefined') ? JSON.parse(localStorage.getItem('baseflow-view')) : null;
+  if (_vs && typeof _vs === 'object') viewSettings = Object.assign(viewSettings, _vs);
+} catch (e) { /* non bloccante */ }
+function saveViewSettings() { try { if (typeof localStorage !== 'undefined') localStorage.setItem('baseflow-view', JSON.stringify(viewSettings)); } catch (e) {} }
+function applyViewSettings() {
+  // L'unico effetto e' un redraw: draw() legge viewSettings.showGrid e disegna (o no) la griglia.
+  if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+}
+function toggleViewSetting(key, val) {
+  viewSettings[key] = !!val;
+  saveViewSettings();
+  applyViewSettings();
+}
+function syncViewSettingsUI() {
+  const g = document.getElementById('view-grid'); if (g) g.checked = !!viewSettings.showGrid;
+}
+
 function openSettingsPopup() {
   const p = document.getElementById('settings-popup');
   if (!p) return;
   // Sincronizza i controlli con lo stato corrente prima di mostrarli.
   try { if (typeof syncConsoleSettingsUI === 'function') syncConsoleSettingsUI(); } catch (e) {}
   try { syncPerfSettingsUI(); } catch (e) {}
+  try { syncViewSettingsUI(); } catch (e) {}
   try {
     const ls = document.getElementById('lang-select');
     if (ls && typeof currentLang !== 'undefined') ls.value = currentLang;
@@ -91,4 +115,8 @@ if (typeof window !== 'undefined') {
   window.togglePerfSetting = togglePerfSetting;
   window.applyPerfSettings = applyPerfSettings;
   window.syncPerfSettingsUI = syncPerfSettingsUI;
+  window.toggleViewSetting = toggleViewSetting;
+  window.applyViewSettings = applyViewSettings;
+  window.syncViewSettingsUI = syncViewSettingsUI;
+  window.viewSettings = viewSettings;
 }

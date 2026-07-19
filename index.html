@@ -3,6 +3,16 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <!-- AUDIT 2026-07-19 (#6): Content-Security-Policy come rete di sicurezza di secondo
+             livello (se un giorno sfuggisse una XSS). NB: l'app usa script inline (early-theme,
+             no-cache, contributors) e MOLTI handler onclick= inline, quindi script-src DEVE
+             includere 'unsafe-inline' (rimuoverlo richiederebbe riscrivere tutti gli onclick).
+             Anche così la CSP aggiunge valore reale: object-src 'none' (niente plugin/embed),
+             base-uri 'self' (niente dirottamento con <base>), form-action 'self', e connect-src
+             ristretto (l'esfiltrazione dati può andare solo verso api.github.com, l'unica fetch).
+             Se in futuro qualcosa si rompe (tour Shepherd, avatar, export), allentare la direttiva
+             giusta -- NON togliere object-src/base-uri/form-action, che sono a costo zero. -->
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
         <title>BaseFlow</title>
         <script>
         /* NO-CACHE in sviluppo (Ismail 2026-07-08): il service worker ha continuato a servire
@@ -59,13 +69,20 @@
             cl.toggle('dark-mode', base === 'dark' || base === 'chalk' || base === 'neon');
             ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (t) { cl.toggle('theme-' + t, base === t); });
             if (customColors && target.style && target.style.setProperty) {
-              Object.keys(customColors).forEach(function (k) { target.style.setProperty(k, customColors[k]); });
+              // AUDIT 2026-07-19 (#8): solo variabili CSS con valore hex valido (stessa regola di
+              // _bfIsValidColorVar in theme.js) -- niente proprietà/valori arbitrari nel CSSOM.
+              var _hex = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+              Object.keys(customColors).forEach(function (k) {
+                if (/^--[\w-]+$/.test(k) && typeof customColors[k] === 'string' && _hex.test(customColors[k].trim())) {
+                  target.style.setProperty(k, customColors[k]);
+                }
+              });
             }
           } catch (e) { /* localStorage non disponibile: resta il tema di default, nessun blocco */ }
         }
         _bfApplyEarlyTheme(document.documentElement);
         </script>
-        <link rel="stylesheet" href="style.css?v=20260715e">
+        <link rel="stylesheet" href="style.css?v=20260719a">
         <link rel="icon" type="image/png" href="img/icon.png" />
         <link rel="manifest" href="manifest.json">
     </head>
@@ -90,12 +107,12 @@
             }
             "><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
             <button class="tb-icon bf-icon" id="open-btn" data-i18n-title="open" title="Apri" onclick="openFileWithGuard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
-            <input type="file" id="fileInput" style="display:none;" accept=".json" multiple="false" />
+            <input type="file" id="fileInput" style="display:none;" accept=".bflow,.json,application/json" multiple="false" />
             <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="save" title="Salva" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
             <button class="tb-icon bf-icon" id="save-as-btn" data-i18n-title="save_as" title="Salva con nome" onclick="saveFileAs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l4 4v3"/><polyline points="15 21 15 14 7 14 7 21"/><polyline points="7 3 7 8 13 8"/><path d="M21.7 13.3a1.5 1.5 0 0 0-2.1 0L15 18v3h3l4.6-4.6a1.5 1.5 0 0 0 0-2.1z"/></svg></button>
-            <button class="tb-icon bf-icon" id="clear-btn" onclick="clearCanvas()" data-i18n-title="tip_clear" title="Svuota il canvas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
             <button class="tb-icon bf-icon" id="undo-btn" onclick="undo()" data-i18n-title="undo" title="Annulla (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
             <button class="tb-icon bf-icon" id="redo-btn" onclick="redo()" data-i18n-title="redo" title="Ripeti (Ctrl+Y)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+            <button class="tb-icon bf-icon" id="clear-btn" onclick="clearCanvas()" data-i18n-title="tip_clear" title="Svuota il canvas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
             <button class="tb-icon bf-icon" id="export-btn" onclick="openExportPopup()" data-i18n-title="export" title="Esporta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <span class="tb-sep"></span>
             <button class="tb-icon bf-icon" id="console-exe" onclick="(async () => { await executeFlow(flow); })();" data-i18n-title="execute" title="Esegui"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-step" onclick="(async () => { await executeStep(); })();" data-i18n-title="step" title="Passo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button><button class="tb-icon bf-icon" id="exec-pause" onclick="requestPause()" data-i18n-title="exec_pause" title="Pausa" disabled><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button><button class="tb-icon bf-icon" id="console-stop" onclick="requestStop()" data-i18n-title="stop" title="Ferma" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-reset" onclick="resetFlow()" data-i18n-title="reset" title="Reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button><select id="run-speed" class="tb-select" onchange="setRunSpeed(this.value)" data-i18n-title="tip_runspeed" title="Velocità animazione"><option value="700" data-i18n="speed_slow">Lenta</option><option value="350" selected data-i18n="speed_normal">Normale</option><option value="120" data-i18n="speed_fast">Veloce</option><option value="0" data-i18n="speed_instant">Istantanea</option></select>
@@ -113,7 +130,12 @@
                  tema/lingua da localStorage per conto proprio (script inline in testa a
                  manual.html), non serve passare stato via query string; l'iframe si carica alla
                  PRIMA apertura (openManualOverlay, popups.js) e resta in memoria dopo, cosi'
-                 riaprendo si ritrova lo stesso capitolo/scroll di prima. -->
+                 riaprendo si ritrova lo stesso capitolo/scroll di prima.
+                 WP-D8 (round 15-D, Ismail 2026-07-17): un primo tentativo aveva spostato questo
+                 pulsante (+ Svuota/Esporta/Aiuto) in un menu "⋯" separato sotto i 900px --
+                 Ismail ha chiesto di NON nascondere pulsanti ("non sono piu' coerenti"), ma di
+                 farli RIMPICCIOLIRE insieme al resto: rimesso qui al suo posto originale, il
+                 fix vero ora e' _bfFitToolbar() (init.js) + le variabili --tb-scale (style.css). -->
             <button class="tb-icon bf-icon" id="manual-btn" onclick="openManualOverlay()" data-i18n-title="manual" title="Manuale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></button>
             <input type="file" id="theme-file-input" accept=".json,application/json" style="display:none" onchange="loadThemeFromFile(this)">
             <!-- R13-D (Ismail 2026-07-12): identita' del progetto in elaborazione -- nome + autore,
@@ -280,6 +302,12 @@
                          in alto a destra fa gia' da annulla (closeSavePopup, gia' nello stack Esc),
                          resta un solo pulsante primario centrato, pattern uniforme con showUnsavedDialog
                          (niente "Annulla" testuale in nessun popup del flusso salvataggio). -->
+                    <!-- WP-D4 (round 15-D, Ismail 2026-07-17, "esteticamente brutto"): markup
+                         riscritto per usare spaziatura via flex/gap (CSS sotto) invece della
+                         vecchia sequenza di <br><br> -- ogni campo e' avvolto in .save-field cosi'
+                         label+input restano un blocco coerente e allineato SEMPRE allo stesso modo
+                         (prima le label, centrate dal genitore, sembravano "fluttuare" sopra
+                         un input a tutta larghezza). Nessuna logica JS nuova: solo struttura e CSS. -->
                     <div id="save-popup">
                     <button type="button" class="x-close" id="save-popup-xclose" onclick="closeSavePopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                     <div class="bf-modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></div>
@@ -287,19 +315,28 @@
                     <!-- R13-D punto 4: sottotitolo col nome del progetto ATTUALE, se noto (Salva con
                          nome puo' anche solo rinominare/cambiare autore dello stesso progetto). -->
                     <p id="save-popup-current" hidden></p>
-                    <label for="filename-input" data-i18n="filename_label">File name (without extension):</label><br>
+                    <div class="save-field">
+                    <label for="filename-input" data-i18n="filename_label">File name (without extension):</label>
                     <!-- WP-N12 (round 15-C, Ismail 2026-07-15): maxlength a monte, cosi' il
                          nome non diventa mai assurdamente lungo (vedi anche il fix su
                          #project-identity in style.css e i limiti di truncateName() in
                          updateProjectIdentity(), execute.js). -->
-                    <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name" maxlength="60"><br><br>
+                    <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name" maxlength="60">
+                    </div>
                     <!-- R13-D (Ismail 2026-07-12): campo Autore, precompilato da currentAuthor o
                          dall'ultimo autore usato (localStorage['baseflow-author']) -- vedi saveFileAs()/
                          confirmSaveFromPopup() in popups.js.
                          WP-N8 (round 15-C, Ismail 2026-07-15): rimossa la label "Autore:" -- solo
                          l'input, come quello del Nome sopra, col placeholder (author_ph) a fare da
-                         etichetta. author_label resta in i18n.js ma senza piu' alcun uso nel markup. -->
-                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name" maxlength="40"><br><br>
+                         etichetta.
+                         WP-D4 seguito (Ismail 2026-07-17): richiesta di rimetterla, per coerenza
+                         visiva col campo Nome file (ora anch'esso dentro un .save-field con la sua
+                         label, vedi sopra) -- author_label era rimasta in i18n.js inutilizzata dal
+                         markup, riusata qui SENZA aggiungere nulla di nuovo alle 4 lingue. -->
+                    <div class="save-field">
+                    <label for="save-author-input" data-i18n="author_label">Author:</label>
+                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name" maxlength="40">
+                    </div>
                     <div id="save-popup-actions">
                     <button id="save-confirm-btn" class="bf-modal-btn bf-modal-ok" onclick="confirmSaveFromPopup()" data-i18n="save">Save</button>
                     </div>
@@ -329,7 +366,11 @@
                         <div id="manual-overlay-bar">
                           <button type="button" class="x-close" id="manual-overlay-xclose" onclick="closeManualOverlay()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                         </div>
-                        <iframe id="manual-iframe" data-i18n-title="manual" title="Manual"></iframe>
+                        <!-- AUDIT 2026-07-19 (#7): sandbox come difesa in profondità. manual.html è
+                             same-origin e fidato; allow-scripts (il manuale usa JS proprio) +
+                             allow-same-origin (deve leggere il tema dal parent). NIENTE allow-top-navigation
+                             né allow-popups: il manuale non deve poter navigare/aprire finestre. -->
+                        <iframe id="manual-iframe" sandbox="allow-scripts allow-same-origin" data-i18n-title="manual" title="Manual"></iframe>
                       </div>
                     </div>
 
@@ -417,6 +458,10 @@
                         </div>
                       </section>
                       <section class="settings-group">
+                        <h4 data-i18n="settings_view">Vista</h4>
+                        <label class="settings-check"><input type="checkbox" id="view-grid" onchange="toggleViewSetting('showGrid', this.checked)"> <span data-i18n="view_grid">Griglia sul canvas</span></label>
+                      </section>
+                      <section class="settings-group">
                         <h4 data-i18n="settings_console">Terminal messages</h4>
                         <label class="settings-check"><input type="checkbox" id="cset-output" checked onchange="toggleConsoleSetting('output', this.checked)"> <span data-i18n="cset_output">Output</span></label>
                         <label class="settings-check"><input type="checkbox" id="cset-cond" checked onchange="toggleConsoleSetting('cond', this.checked)"> <span data-i18n="cset_cond">Esiti condizioni (if)</span></label>
@@ -455,6 +500,10 @@
                     </div>
                     <textarea id="export-code" rows="15" cols="60" readonly></textarea>
                     <img id="export-preview" alt="Diagram preview" style="display:none;">
+                    <!-- WP-D7 (round 15-D, Ismail 2026-07-17): avviso per grafi molto grandi
+                         (export ora ad alta risoluzione, vedi exportUnified.js) -- mostrato/
+                         nascosto da renderExportPopup() solo per image/pdf. -->
+                    <div id="export-large-warn" class="export-large-warn" hidden data-i18n="export_large_warn"></div>
                     <div class="export-actions">
                         <button onclick="copyExportOutput()" id="copy-export-btn" data-i18n="ctx_copy">Copy</button>
                         <button onclick="downloadExportOutput()" id="download-export-btn" data-i18n="download">Download</button>
@@ -465,6 +514,7 @@
                     <div id="overlay" ></div>
                     <div id="ctx-menu" class="ctx-menu" hidden>
                         <button class="ctx-item" data-act="copy-selection" onclick="ctxAction('copy-selection')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy_selection">Copia selezione</span><span class="ctx-sel-count"></span></button>
+                        <button class="ctx-item" data-act="cut-selection" onclick="ctxAction('cut-selection')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut_selection">Taglia selezione</span><span class="ctx-sel-count"></span></button>
                         <button class="ctx-item ctx-danger" data-act="delete-selection" onclick="ctxAction('delete-selection')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span data-i18n="ctx_delete_selection">Elimina selezione</span><span class="ctx-sel-count"></span></button>
                         <button class="ctx-item" data-act="edit" onclick="ctxAction('edit')"><span class="ctx-ico">&#9998;</span><span data-i18n="ctx_edit">Modifica</span></button>
                         <button class="ctx-item" data-act="cut" onclick="ctxAction('cut')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut">Taglia</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+X</span></button>
@@ -513,13 +563,16 @@
                     const container = document.getElementById('contributors');
                     contributors.forEach(user => {
                       const a = document.createElement('a');
-                      a.href = user.html_url;
+                      // AUDIT 2026-07-19 (#9): accetta l'href SOLO se https:// (mai javascript:/data:),
+                      // anche se la sorgente è GitHub API su HTTPS -- difesa in profondità.
+                      a.href = (typeof user.html_url === 'string' && /^https:\/\//.test(user.html_url)) ? user.html_url : '#';
                       a.target = '_blank';
                       a.rel = 'noopener';
                       a.title = user.login;
                       a.style.marginRight = '4px';
                       const img = document.createElement('img');
-                      img.src = user.avatar_url + '&s=24';
+                      // AUDIT 2026-07-19 (#9): carica l'avatar solo da URL https:// (mai data:/javascript:).
+                      img.src = (typeof user.avatar_url === 'string' && /^https:\/\//.test(user.avatar_url)) ? (user.avatar_url + '&s=24') : '';
                       img.alt = user.login;
                       img.width = 24;
                       img.height = 24;
@@ -537,23 +590,24 @@
 
         <!-- Core modules (refactored from script.js) -->
         <script src="js/core/state.js?v=20260715b"></script>
+        <script src="js/core/fileFormat.js?v=20260719b"></script>
         <script src="js/core/utils.js?v=20260712a"></script>
         <script src="js/core/variables.js?v=20260713c"></script>
-        <script src="js/core/layout.js?v=20260715b"></script>
-        <script src="js/core/rendering.js?v=20260715b"></script>
-        <script src="js/core/popups.js?v=20260715b"></script>
-        <script src="js/core/interaction.js?v=20260715d"></script>
-        <script src="js/core/fileIO.js?v=20260715a"></script>
-        <script src="js/core/theme.js?v=20260713b"></script>
-        <script src="js/core/i18n.js?v=20260715c"></script>
-        <script src="js/core/draw.js?v=20260715b"></script>
+        <script src="js/core/layout.js?v=20260719c"></script>
+        <script src="js/core/rendering.js?v=20260715o"></script>
+        <script src="js/core/popups.js?v=20260719c"></script>
+        <script src="js/core/interaction.js?v=20260715e"></script>
+        <script src="js/core/fileIO.js?v=20260719b"></script>
+        <script src="js/core/theme.js?v=20260719b"></script>
+        <script src="js/core/i18n.js?v=20260719b"></script>
+        <script src="js/core/draw.js?v=20260719a"></script>
         <script src="js/core/ux.js?v=20260715b"></script>
-        <script src="js/core/settings.js?v=20260715a"></script>
-        <script src="js/core/init.js?v=20260715a"></script>
+        <script src="js/core/settings.js?v=20260715b"></script>
+        <script src="js/core/init.js?v=20260719a"></script>
 
         <script src="js/core/safeEval.js?v=20260713a"></script>
-        <script src="js/execute.js?v=20260715d"></script>
-        <script src="js/saveOpen.js?v=20260713g"></script>
+        <script src="js/execute.js?v=20260719b"></script>
+        <script src="js/saveOpen.js?v=20260719a"></script>
         <script src="js/pythonTranslation.js?v=20260715a"></script>
         <script src="js/multiTranslation.js?v=20260715a"></script>
 
@@ -561,10 +615,17 @@
              MIT license, vedi js/vendor/jspdf.LICENSE.txt) invece che da CDN -- l'export PDF
              (exportUnified.js downloadDiagramAsPdf) ora funziona anche offline. -->
         <script src="js/vendor/jspdf.umd.min.js?v=2.5.1"></script>
-        <script src="js/exportUnified.js?v=20260715b"></script>
+        <script src="js/exportUnified.js?v=20260715c"></script>
 
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js/dist/css/shepherd.css" />
-        <script src="https://cdn.jsdelivr.net/npm/shepherd.js/dist/js/shepherd.min.js"></script>
+        <!-- AUDIT 2026-07-19 (#5): Shepherd.js resta l'unica risorsa da CDN (jsPDF è già
+             self-hostato in js/vendor/). Mitigazioni applicate: versione PINNATA a @11 (prima
+             era "shepherd.js" senza versione -> un major nuovo di jsdelivr poteva cambiare API
+             o essere compromesso a sorpresa) + crossorigin. La CSP (meta in <head>) limita
+             script-src alla sola origin cdn.jsdelivr.net. SELF-HOST completo (con SRI) da fare
+             da una macchina con rete: vedi tools/vendor-shepherd.sh (scarica in js/vendor/ e
+             calcola l'integrity). Fatto quello, sostituire questi 2 URL con i file locali. -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" crossorigin="anonymous" />
+        <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/js/shepherd.min.js" crossorigin="anonymous"></script>
         <script src="js/tutorial.js?v=20260711a"></script>
     </body>
 </html>

@@ -1,96 +1,105 @@
 #!/usr/bin/env node
-// tools/repro-r14-centering.js — R14-E (Ismail 2026-07-13), harness PERMANENTE, RICHIESTO
-// esplicitamente da Ismail ("scrivi più nel dettaglio cosa deve fare... il test deve
-// asserire numericamente, non a occhio").
+// tools/repro-r14-centering.js — harness PERMANENTE per la centratura del canvas.
 //
-// COSA VERIFICA: la centratura orizzontale del canvas (centerGraph(), layout.js) nello
-// spazio residuo fra sidebar Variabili e console agganciata, per OGNI combinazione di
-// stato che il piano round-14 elenca esplicitamente, incluso il caso segnalato rotto da
-// Ismail (sidebar E console entrambe al MASSIMO). Assertion (dal piano, verbatim):
-//   |centro_grafo - (S + W_avail/2)| <= 2      [LTR; in RTL il bersaglio e' mirror-ato,
-//                                                vedi expectedTargetCenter() sotto]
-// dove S = larghezza REALE della sidebar (0/44 se collassata), C = larghezza REALE della
-// console (0 se chiusa/non agganciata), W_avail = viewport - S - C.
+// STORIA: nato per R14-E (ordine del tick). RISCRITTO 2026-07-19 (WP-6 v2, Fable) perche'
+// lo stub PRECEDENTE modellava il DOM in modo SBAGLIATO: il container veniva simulato come
+// {left:S, right:viewport}, cioe' NON ristretto dalla console — mentre nel browser reale
+// #canvas-container ha margin-right/left: var(--console-cover-width) (style.css) e il suo
+// rect finisce AL BORDO della console. Su quel modello irreale, la vecchia centerGraph()
+// (che sottraeva SEMPRE l'intera larghezza console dal rect) risultava "giusta" — in
+// produzione invece sottraeva la console DUE volte e il grafo finiva spinto di mezza
+// console (a sinistra in LTR, a destra in RTL). Questo file ora modella il browser
+// fedelmente (container gia' ristretto dalla var CSS) e include un CONTROLLO che dimostra
+// il bug della vecchia matematica su questo stub corretto.
 //
-// PERCHE' QUESTO FILE NON CARICA layout.js/execute.js/init.js VIA vm (a differenza di
-// tools/repro-r14-scattered-move.js e affini): in QUESTA sessione Cowork il mount bash
-// risultava sistematicamente STALE/troncato proprio sui 3 file toccati da R14-E (layout.js,
-// execute.js, init.js — confermato con Grep/Read, autoritativi, contro wc -l/node --check
-// via bash, che mostravano meno righe / errori di sintassi a fine file). Caricare quei file
-// per intero via vm in questo momento avrebbe quindi verificato una versione VECCHIA senza
-// che node --check se ne accorgesse. Le 4 funzioni sotto (syncLayoutVars, updateZoomOffset,
-// centerGraph, _bfSidebarLiveResizeTick) sono percio' COPIATE LETTERALMENTE (verbatim, non
-// riscritte/reinterpretate) dal contenuto autoritativo letto in quella sessione:
-//   - syncLayoutVars    <- js/core/init.js  (corpo della chiusura dentro window.onload)
-//   - updateZoomOffset  <- js/execute.js
-//   - centerGraph       <- js/core/layout.js
-//   - _bfSidebarLiveResizeTick + _bfSidebarRafPending <- js/core/init.js
-// MANUTENZIONE: se una di queste 4 funzioni cambia, aggiorna ANCHE la copia qui sotto (o,
-// meglio, converti questo harness a un vero vm-load come repro-r14-scattered-move.js non
-// appena il mount e' verificato fresco) — altrimenti questo harness torna verde contro
-// codice ormai superato, dando falsa sicurezza. La MATEMATICA di centraggio (scroll+margine,
-// RTL) qui sotto NON e' reimplementata a parte: e' la stessa, testuale, che gira in
-// produzione — solo il DOM che la circonda e' uno stub.
+// COSA VERIFICA: centro del grafo == centro dell'area REALMENTE visibile fra sidebar
+// Variabili e console agganciata: |centro_grafo - centro_visibile| <= 2, dove l'area
+// visibile attesa e' [S, viewport-C] in LTR e [C, viewport-S] in RTL (S/C = larghezze
+// REALI di sidebar/console). Scenari: solo sidebar, solo console, entrambe medie,
+// entrambe al massimo (tetto console dipendente da --sidebar-width), grafo piu' largo
+// (scroll), RTL, variabile CSS del cover IN RITARDO di un frame (LTR e RTL), sequenza di
+// drag live della console.
+//
+// MANUTENZIONE: syncLayoutVars/updateZoomOffset/centerGraph/_bfSidebarLiveResizeTick sono
+// COPIATE VERBATIM da init.js/execute.js/layout.js (mount bash storicamente inaffidabile
+// su questi file). Se cambiano li', aggiornare ANCHE qui.
 //
 // Uso: node tools/repro-r14-centering.js — exit 0 se tutti gli scenari passano.
 
-const viewport = 1600; // larghezza finestra simulata, fissa per tutti gli scenari
+const viewport = 1600;
 
 // ---------------------------------------------------------------------------
-// DOM stub minimale: solo cio' che syncLayoutVars/updateZoomOffset/centerGraph leggono.
+// DOM stub FEDELE: container ristretto dalla var --console-cover-width (margin CSS),
+// console/sidebar con rect fisici completi (left/right), mirror automatico in RTL.
 // ---------------------------------------------------------------------------
 const mainClasses = new Set();
 const consoleClasses = new Set();
 const bodyVars = new Map();
 
-let sidebarWidthVar = 300;   // sidebarEl.offsetWidth "vero" (live)
+let sidebarWidthVar = 300;
 let consoleOpenFlag = false;
-let consoleWidthFixed = 0;   // usato quando ceilingModelFlag=false
-let ceilingModelFlag = false; // true SOLO nello scenario "both-maximum" (dipendenza reale da --sidebar-width)
-let currentGVar = 500;       // larghezza "naturale" del canvas/bbox del grafo
+let consoleWidthFixed = 0;
+let ceilingModelFlag = false;   // console max-width dipende da --sidebar-width (come style.css ~1337)
+let currentGVar = 500;
+let coverVarFrozenPx = null;    // se non-null: il MARGINE del container usa QUESTO valore
+                                // (simula la var CSS in ritardo di un frame sul valore vero)
 
-function currentS() { return mainClasses.has('sidebar-collapsed') ? 44 : sidebarWidthVar; }
+function isRtl() { return documentElementMock._dir === 'rtl'; }
+function currentS() { return mainClasses.has('sidebar-collapsed') ? 0 : sidebarWidthVar; }
 function currentG() { return currentGVar; }
-// Modello della regola CSS reale "#console-popup.docked { max-width: calc(100vw -
-// var(--sidebar-width) - 320px) }" (style.css ~1266): qui la costante e' scelta (700, non
-// 320) solo per ottenere numeri comodi (C=400 quando S=300, come l'esempio del piano), la
-// RELAZIONE (la larghezza della console dipende dalla var CSS --sidebar-width, che resta
-// stale finche' syncLayoutVars() non gira) e' quella che conta per il test.
 function currentConsoleWidth() {
   if (!consoleOpenFlag) return 0;
   if (!ceilingModelFlag) return consoleWidthFixed;
   const sidebarVarPx = parseFloat(bodyVars.get('--sidebar-width')) || 0;
   return Math.min(2000, 700 - sidebarVarPx);
 }
+// Il margine effettivamente applicato al container in questo istante (var CSS).
+function appliedCover() {
+  if (coverVarFrozenPx != null) return coverVarFrozenPx;
+  return parseFloat(bodyVars.get('--console-cover-width')) || 0;
+}
+function containerBounds() {
+  const S = currentS(), M = appliedCover();
+  return isRtl() ? { left: M, right: viewport - S } : { left: S, right: viewport - M };
+}
 
-const sidebarEl = { get offsetWidth() { return sidebarWidthVar; } };
+const sidebarEl = {
+  get offsetWidth() { return sidebarWidthVar; },
+  getBoundingClientRect: () => {
+    const S = currentS();
+    return isRtl() ? { left: viewport - S, right: viewport, width: S, top: 0, bottom: 900 }
+                   : { left: 0, right: S, width: S, top: 0, bottom: 900 };
+  },
+};
 const mainEl = { classList: { contains: (c) => mainClasses.has(c) } };
 const toolbarEl = { offsetHeight: 50 };
 const consoleEl = {
   classList: { contains: (c) => consoleClasses.has(c) },
-  getBoundingClientRect: () => ({ width: currentConsoleWidth() }),
+  getBoundingClientRect: () => {
+    const C = currentConsoleWidth();
+    return isRtl() ? { left: 0, right: C, width: C, top: 0, bottom: 900 }
+                   : { left: viewport - C, right: viewport, width: C, top: 0, bottom: 900 };
+  },
 };
 const containerEl = {
   scrollLeft: 0,
-  get clientWidth() { return viewport - currentS(); },
-  get scrollWidth() { return Math.max(viewport - currentS(), currentG()); },
+  get clientWidth() { const b = containerBounds(); return b.right - b.left; },
+  get scrollWidth() { return Math.max(this.clientWidth, currentG()); },
   getBoundingClientRect: () => {
-    const S = currentS();
-    return { left: S, right: viewport, width: viewport - S, top: 0, bottom: 900, height: 900 };
+    const b = containerBounds();
+    return { left: b.left, right: b.right, width: b.right - b.left, top: 0, bottom: 900, height: 900 };
   },
 };
 const canvasEl = {
   style: { marginLeft: '', marginRight: '' },
   getBoundingClientRect: () => {
-    const S = currentS(), G = currentG();
-    const clientW = viewport - S;
+    const b = containerBounds();
+    const clientW = b.right - b.left, G = currentG();
     const scrollLeft = containerEl.scrollLeft;
     const marginLeft = parseFloat(canvasEl.style.marginLeft) || 0;
-    // Centratura CSS "naturale" (margin:auto) del canvas DENTRO al container, ignorando
-    // (come nella realta') la console -- e' overlay/fixed, il container non la conosce.
-    // Se il canvas eccede il container, gli auto-margin collassano a 0 (allineato a
-    // sinistra, cioe' all'origine dello scroll) -- stesso comportamento di un browser reale.
-    const naturalLeft = G <= clientW ? (S + (clientW - G) / 2) : S;
+    // margin:0 auto dentro al container (direction:ltr forzata dal CSS, Punto 8):
+    // centrato se entra, altrimenti allineato all'origine dello scroll.
+    const naturalLeft = G <= clientW ? (b.left + (clientW - G) / 2) : b.left;
     const left = naturalLeft - scrollLeft + marginLeft;
     return { left, right: left + G, width: G, top: 0, bottom: 50, height: 50 };
   },
@@ -120,16 +129,15 @@ const document = {
   documentElement: documentElementMock,
 };
 const window = {
-  requestAnimationFrame: (fn) => fn(), // sincrono: il tick gira subito, niente attesa asincrona nel test
+  requestAnimationFrame: (fn) => fn(),
   getComputedStyle: (el) => ({ marginLeft: (el.style && el.style.marginLeft) || '0px' }),
 };
 
-// stesse identiche righe di state.js (canvas/container = getElementById('canvas'/'canvas-container'))
 const canvas = document.getElementById('canvas');
 const container = document.getElementById('canvas-container');
 
 // ---------------------------------------------------------------------------
-// VERBATIM: js/core/init.js, corpo di window.syncLayoutVars (dentro window.onload).
+// VERBATIM: js/core/init.js, corpo di window.syncLayoutVars.
 // ---------------------------------------------------------------------------
 function syncLayoutVars() {
   if (!(document.body && document.body.style && document.body.style.setProperty)) return;
@@ -156,7 +164,7 @@ function updateZoomOffset() {
 }
 
 // ---------------------------------------------------------------------------
-// VERBATIM: js/core/layout.js, centerGraph() (righe 122-171 al momento della lettura).
+// VERBATIM: js/core/layout.js, centerGraph() (WP-6 v2, 2026-07-19).
 // ---------------------------------------------------------------------------
 function centerGraph() {
   if (typeof container === 'undefined' || !container || !canvas) return;
@@ -164,16 +172,26 @@ function centerGraph() {
   canvas.style.marginLeft = '';
   canvas.style.marginRight = '';
 
-  let rightCover = 0;
-  const cons = (typeof document !== 'undefined') ? document.getElementById('console-popup') : null;
-  if (cons && cons.classList && typeof cons.classList.contains === 'function' && cons.classList.contains('active') && cons.classList.contains('docked') && typeof cons.getBoundingClientRect === 'function') {
-    rightCover = cons.getBoundingClientRect().width || 0;
-  }
-  const _rtl = (typeof document !== 'undefined') && document.documentElement && typeof document.documentElement.getAttribute === 'function' && document.documentElement.getAttribute('dir') === 'rtl';
-
   const cRect = container.getBoundingClientRect();
-  const visibleLeft = _rtl ? (cRect.left + rightCover) : cRect.left;
-  const visibleRight = _rtl ? cRect.right : (cRect.right - rightCover);
+  let visibleLeft = cRect.left, visibleRight = cRect.right;
+  const _bfShaveOverlap = function (el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') return;
+    const r = el.getBoundingClientRect();
+    if (!r || !(r.width > 0) || !(visibleRight > visibleLeft)) return;
+    if (r.right <= visibleLeft || r.left >= visibleRight) return;
+    const fromLeft = r.right - visibleLeft;
+    const fromRight = visibleRight - r.left;
+    if (fromLeft <= fromRight) visibleLeft += fromLeft; else visibleRight -= fromRight;
+  };
+  const cons = (typeof document !== 'undefined') ? document.getElementById('console-popup') : null;
+  if (cons && cons.classList && typeof cons.classList.contains === 'function' && cons.classList.contains('active') && cons.classList.contains('docked')) {
+    _bfShaveOverlap(cons);
+  }
+  const _sb = (typeof document !== 'undefined') ? document.getElementById('sidebar') : null;
+  const _mainEl = (typeof document !== 'undefined') ? document.getElementById('main') : null;
+  const _sbCollapsed = _mainEl && _mainEl.classList && typeof _mainEl.classList.contains === 'function' && _mainEl.classList.contains('sidebar-collapsed');
+  if (_sb && !_sbCollapsed) _bfShaveOverlap(_sb);
+
   const visibleW = Math.max(60, visibleRight - visibleLeft);
   const targetCenter = visibleLeft + visibleW / 2;
 
@@ -197,9 +215,9 @@ function centerGraph() {
 }
 
 // ---------------------------------------------------------------------------
-// VERBATIM: js/core/init.js, _bfSidebarRafPending + _bfSidebarLiveResizeTick().
-// requestAnimationFrame e' stubbato SINCRONO sopra (window.requestAnimationFrame), quindi
-// il tick esegue subito la callback -- niente attesa asincrona necessaria nel test.
+// VERBATIM: js/core/init.js, _bfSidebarRafPending + _bfSidebarLiveResizeTick()
+// (rAF stubbato sincrono; _bfPlaceSidebarHandle/_bfFitToolbar assenti nello stub: il
+// tick reale le chiama con guardia typeof, qui semplicemente non esistono).
 // ---------------------------------------------------------------------------
 let _bfSidebarRafPending = false;
 function _bfSidebarLiveResizeTick() {
@@ -221,6 +239,8 @@ function resetCommon() {
   canvasEl.style.marginLeft = '';
   canvasEl.style.marginRight = '';
   _bfSidebarRafPending = false;
+  coverVarFrozenPx = null;
+  bodyVars.delete('--console-cover-width');
 }
 function setScenario(cfg) {
   resetCommon();
@@ -235,17 +255,14 @@ function setScenario(cfg) {
   currentGVar = cfg.G != null ? cfg.G : 500;
   documentElementMock._dir = cfg.rtl ? 'rtl' : 'ltr';
   if (cfg.staleSidebarVarPx != null) bodyVars.set('--sidebar-width', cfg.staleSidebarVarPx + 'px');
+  if (cfg.frozenCoverPx != null) coverVarFrozenPx = cfg.frozenCoverPx;
 }
-// Bersaglio ATTESO indipendente (stessa formula del piano: S + W_avail/2 in LTR, mirror-ato
-// in RTL) -- NON e' la matematica di centerGraph() riscritta: e' il valore di riferimento
-// contro cui l'output REALE di centerGraph() viene confrontato.
+// Bersaglio ATTESO, indipendente dalla matematica di centerGraph: centro dell'area
+// [S, viewport-C] (LTR) / [C, viewport-S] (RTL), con S/C larghezze REALI in questo istante.
 function expectedTargetCenter() {
-  const S = currentS();
-  const C = currentConsoleWidth();
-  const rtl = documentElementMock._dir === 'rtl';
-  const cLeft = S, cRight = viewport;
-  const visibleLeft = rtl ? (cLeft + C) : cLeft;
-  const visibleRight = rtl ? cRight : (cRight - C);
+  const S = currentS(), C = currentConsoleWidth();
+  const visibleLeft = isRtl() ? C : S;
+  const visibleRight = isRtl() ? (viewport - S) : (viewport - C);
   const visibleW = Math.max(60, visibleRight - visibleLeft);
   return visibleLeft + visibleW / 2;
 }
@@ -260,7 +277,7 @@ function check(name, cond, extra) { if (cond) { pass++; console.log('  OK   ' + 
 function runScenario(name, cfg) {
   console.log('=== ' + name + ' ===');
   setScenario(cfg);
-  _bfSidebarLiveResizeTick(); // il percorso UNIFICATO (R14-E): sync -> zoom -> center
+  _bfSidebarLiveResizeTick();
   const got = measureCenter();
   const want = expectedTargetCenter();
   const diff = Math.abs(got - want);
@@ -268,54 +285,83 @@ function runScenario(name, cfg) {
   return { got, want };
 }
 
+// S0 — CONTROLLO STORICO: la VECCHIA matematica (sottrazione cieca dell'intera console dal
+// rect del container) su questo stub FEDELE sbaglia di ~C/2. Se questo controllo smette di
+// fallire, lo stub non modella piu' il margine CSS e l'intero harness va rivisto.
+console.log('=== S0 CONTROLLO: la vecchia matematica (doppia sottrazione) sbaglia sul DOM fedele ===');
+{
+  setScenario({ sidebarWidth: 300, consoleOpen: true, consoleWidth: 400, G: 500 });
+  syncLayoutVars(); updateZoomOffset(); // var applicata: container GIA' ristretto
+  // vecchia formula, verbatim dal centerGraph pre-2026-07-19:
+  const rightCover = consoleEl.getBoundingClientRect().width || 0;
+  const cRect = containerEl.getBoundingClientRect();
+  const oldTarget = cRect.left + Math.max(60, (cRect.right - rightCover) - cRect.left) / 2;
+  const trueTarget = expectedTargetCenter();
+  check('S0: bersaglio vecchio fuori tolleranza (bug riprodotto, atteso ~C/2=' + (rightCover / 2) + 'px)', Math.abs(oldTarget - trueTarget) > 2, 'old=' + oldTarget.toFixed(2) + ' true=' + trueTarget.toFixed(2));
+}
+
 // S1: sidebar espansa, console chiusa.
 runScenario('S1 sidebar-only (S=300, console chiusa)', { sidebarWidth: 300, consoleOpen: false, G: 500 });
 
-// S2: sidebar collassata, console aperta (medium).
+// S2: sidebar collassata, console aperta (media).
 runScenario('S2 console-only (sidebar collassata, C=250)', { sidebarCollapsed: true, consoleOpen: true, consoleWidth: 250, G: 500 });
 
 // S3: entrambe presenti, valori medi.
 runScenario('S3 both-medium (S=300, C=250)', { sidebarWidth: 300, consoleOpen: true, consoleWidth: 250, G: 500 });
 
-// S4: IL CASO SEGNALATO ROTTO DA ISMAIL -- sidebar E console ENTRAMBE al MASSIMO. La
-// larghezza REALE della console dipende (ceilingModel) dalla var CSS --sidebar-width, che
-// resta STALE finche' syncLayoutVars() non gira -- questo e' esattamente il meccanismo del
-// bug storico (vedi commento in init.js: "causa piu' probabile del centraggio sbagliato").
-console.log('=== S4 both-maximum (S=300, tetto console dipendente da --sidebar-width) ===');
-{
-  // 4a: CONTROLLO -- riproduce il bug storico chiamando updateZoomOffset()+centerGraph()
-  // DIRETTAMENTE (come facevano toggleVariables/run/closeConsole/toggleConsoleDock PRIMA
-  // del fix R14-E), senza sincronizzare prima --sidebar-width: la console viene misurata
-  // con un tetto calcolato sul valore VECCHIO (44, collassato) invece di quello vero (300).
-  // Questo blocco DEVE restare fuori tolleranza: se non lo fosse, il "controllo" non
-  // starebbe piu' dimostrando nulla (o il modello dello stub e' cambiato, o il bug non
-  // esisteva mai) -- vedi l'assert dedicato sotto.
-  setScenario({ sidebarWidth: 300, consoleOpen: true, ceilingModel: true, G: 500, staleSidebarVarPx: 44 });
-  updateZoomOffset(); centerGraph(); // NIENTE syncLayoutVars() prima -- pattern pre-fix
-  const gotBuggy = measureCenter();
-  const wantTrue = (function () { const savedVar = bodyVars.get('--sidebar-width'); bodyVars.set('--sidebar-width', '300px'); const w = expectedTargetCenter(); bodyVars.set('--sidebar-width', savedVar); return w; })();
-  check('S4 CONTROLLO: senza syncLayoutVars() prima, il centraggio sbaglia (bug storico riprodotto)', Math.abs(gotBuggy - wantTrue) > 2, 'got=' + gotBuggy.toFixed(2) + ' vero_target=' + wantTrue.toFixed(2));
+// S4: sidebar E console al MASSIMO, tetto console dipendente da --sidebar-width (stale
+// all'ingresso): il tick unificato (sync -> zoom -> center) deve comunque centrare.
+runScenario('S4 both-maximum (tetto console da --sidebar-width, var stale in ingresso)', { sidebarWidth: 300, consoleOpen: true, ceilingModel: true, G: 500, staleSidebarVarPx: 44 });
 
-  // 4b: percorso FISSATO (R14-E) -- stesso scenario, ma passando dal tick unificato, che
-  // chiama syncLayoutVars() PRIMA di misurare la console: --sidebar-width riflette il
-  // valore vero (300) quando updateZoomOffset()/centerGraph() leggono la console.
-  runScenario('S4 both-maximum (percorso unificato R14-E, atteso entro tolleranza)', { sidebarWidth: 300, consoleOpen: true, ceilingModel: true, G: 500, staleSidebarVarPx: 44 });
+// S5: grafo piu' largo dello spazio visibile E dell'intero container -> scroll.
+{
+  runScenario('S5 G>W_avail, scroll-centering (S=300, C=400, G=1400)', { sidebarWidth: 300, consoleOpen: true, consoleWidth: 400, G: 1400 });
+  check('S5: lo scroll e\' stato usato (overflow reale)', containerEl.scrollLeft > 0, 'scrollLeft=' + containerEl.scrollLeft);
 }
 
-// S5: grafo piu' largo dello spazio visibile (G > W_avail) -- E piu' largo dell'INTERO
-// container (assorbimento via SCROLL, non solo margine): verifica requisito 2 del piano.
-{
-  const r = runScenario('S5 G>W_avail, scroll-centering (S=300, C=400, G=1400)', { sidebarWidth: 300, consoleOpen: true, consoleWidth: 400, G: 1400 });
-  check('S5: lo scroll e\' stato usato (non solo margine, c\'era overflow reale)', containerEl.scrollLeft > 0, 'scrollLeft=' + containerEl.scrollLeft);
-}
-
-// S6: RTL -- console/sidebar "si specchiano" (requisito 3 del piano).
+// S6: RTL — la console sta fisicamente a SINISTRA, il ritaglio deve invertirsi da solo.
 runScenario('S6 RTL (S=300, C=400, dir=rtl)', { sidebarWidth: 300, consoleOpen: true, consoleWidth: 400, rtl: true, G: 500 });
+check('S6: nessuno scroll usato quando G <= W_avail', containerEl.scrollLeft === 0, 'scrollLeft=' + containerEl.scrollLeft);
 
-// Sanity aggiuntiva: nei casi SENZA overflow (G <= W_avail, S1/S2/S3/S6) niente scrollbar
-// orizzontale (requisito 1 del piano) -- si verifica su S6 (l'ultimo eseguito) che lo
-// scroll sia rimasto a 0 e la correzione sia passata dal margine.
-check('S6: nessuno scroll usato quando G <= W_avail (niente scrollbar)', containerEl.scrollLeft === 0, 'scrollLeft=' + containerEl.scrollLeft);
+// S7: la var del cover e' IN RITARDO (margine ancora a 0, console gia' aperta e larga):
+// la console SI SOVRAPPONE al container e il ritaglio per overlap deve compensare.
+// NB: qui si chiama SOLO centerGraph() (la fase del tick che gira col margine vecchio).
+console.log('=== S7 cover-var in ritardo (LTR, margine=0, C=300) ===');
+{
+  setScenario({ sidebarWidth: 300, consoleOpen: true, consoleWidth: 300, G: 500, frozenCoverPx: 0 });
+  syncLayoutVars(); // --sidebar-width ok, ma il margine del container resta congelato a 0
+  centerGraph();
+  const got = measureCenter(), want = expectedTargetCenter();
+  check('S7: centrato anche col margine in ritardo', Math.abs(got - want) <= 2, 'got=' + got.toFixed(2) + ' want=' + want.toFixed(2));
+}
+
+// S8: come S7 ma in RTL (console a sinistra, margin-left in ritardo).
+console.log('=== S8 cover-var in ritardo (RTL, margine=0, C=300) ===');
+{
+  setScenario({ sidebarWidth: 300, consoleOpen: true, consoleWidth: 300, G: 500, rtl: true, frozenCoverPx: 0 });
+  syncLayoutVars();
+  centerGraph();
+  const got = measureCenter(), want = expectedTargetCenter();
+  check('S8: centrato anche col margine in ritardo (RTL)', Math.abs(got - want) <= 2, 'got=' + got.toFixed(2) + ' want=' + want.toFixed(2));
+}
+
+// S9: DRAG LIVE della console (LTR e RTL): larghezza che cresce a passi, un tick per
+// "frame" (transizioni spente da bf-live-drag nel browser: la var segue subito) — il
+// centro deve essere giusto AD OGNI passo, non solo alla fine.
+for (const rtl of [false, true]) {
+  const label = 'S9 drag live console ' + (rtl ? '(RTL)' : '(LTR)');
+  console.log('=== ' + label + ' ===');
+  setScenario({ sidebarWidth: 300, consoleOpen: true, consoleWidth: 250, G: 500, rtl });
+  let allOk = true, detail = '';
+  for (const cw of [250, 300, 350, 420, 500]) {
+    consoleWidthFixed = cw;
+    _bfSidebarRafPending = false;
+    _bfSidebarLiveResizeTick();
+    const got = measureCenter(), want = expectedTargetCenter();
+    if (Math.abs(got - want) > 2) { allOk = false; detail = 'C=' + cw + ' got=' + got.toFixed(2) + ' want=' + want.toFixed(2); break; }
+  }
+  check(label + ': centrato ad ogni passo del drag', allOk, detail);
+}
 
 console.log('');
 console.log('=== TOTALE: ' + pass + '/' + (pass + fail) + ' PASS ===');

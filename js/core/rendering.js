@@ -19,6 +19,36 @@ function cssVar(name, fallback) {
 function arcHoverColor() { return cssVar('--arc-hover-color', '#e53935'); }
 function arcDragColor()  { return cssVar('--arc-drag-color', '#1e88e5'); }
 
+// WP-D3 (Ismail 2026-07-17, "c'e' sempre un leggero pixel sbagliato"): durante l'esecuzione
+// l'overlay arancione (punto 6bis di draw) ridisegna la punta della freccia percorsa SOPRA quella
+// nera di base disegnata da drawLine. Le due punte non coincidono al pixel: il litGroup usa
+// coordinate ARROTONDATE (_segsOfArc -> Math.round), i frecce coordinate FLOAT. Scalare la punta
+// arancione (scala 1.4) ne allarga solo la BASE all'indietro, MAI il VERTICE: se il vertice nero
+// cade anche mezzo pixel oltre quello arancione, non viene coperto -> la "punta nera che spunta".
+// Fix definitivo: NON disegnare affatto la punta nera dove l'overlay disegnera' quella arancione.
+// Questo array, ricalcolato a ogni draw() dai SEGMENTI-punta accesi (litGroup, segmenti con a=true),
+// viene consultato da drawLine per saltare la propria punta nera SOLO se l'INTERO segmento coincide.
+// REGRESSIONE (Ismail 2026-07-17, "l'arco prima del do-while cancella la punta della risalita"): la
+// prima versione confrontava solo il VERTICE (x2,y2) -> spegneva la punta di QUALSIASI arco che
+// finisse sullo stesso punto, incluse due frecce distinte che convergono li' (arco entrante nel
+// do-while + risalita del do-while rientrano ENTRAMBE nella cima del corpo). Ora si confronta anche
+// la BASE (x1,y1): due archi che arrivano allo stesso vertice da direzioni diverse NON si
+// confondono, e viene soppressa solo la punta dell'arco effettivamente acceso. Se due archi
+// coincidono davvero (stesso segmento, es. ramo if vuoto = back-edge) sopprimerli entrambi e'
+// corretto: l'overlay arancione copre comunque quel punto.
+var _bfLitArrowSegs = null;
+// Segmento-punta ~coincidente: BASE e VERTICE entrambi entro tolleranza (assorbe l'arrotondamento
+// litGroup vs float dei frecce). Confronto orientato (base->vertice), come la direzione della punta.
+function _bfArrowSegMatchesLit(x1, y1, x2, y2) {
+  if (!_bfLitArrowSegs) return false;
+  for (var i = 0; i < _bfLitArrowSegs.length; i++) {
+    var s = _bfLitArrowSegs[i];
+    if (Math.abs(s[2] - x2) <= 3 && Math.abs(s[3] - y2) <= 3 &&
+        Math.abs(s[0] - x1) <= 3 && Math.abs(s[1] - y1) <= 3) return true;
+  }
+  return false;
+}
+
 // Adapta le dimensioni del canvas quando la finestra del browser viene ridimensionata e ridisegna l'intero flowchart.
 function resizeCanvas() {
   // Il dimensionamento effettivo lo fa resizeCanvasToFitNodes() (dentro draw),
@@ -67,6 +97,29 @@ function resizeCanvas() {
 // (punto 5/6 di draw(), sotto) di ridisegnare la STESSA identica punta in rosso/blu
 // sopra quella nera di base, invece di lasciarla nera anche quando l'arco e' evidenziato
 // -- default a themeCanvasLineColor() per non cambiare nessuna chiamata esistente.
+// WP-D3 (Ismail 2026-07-17, "l'highlight d'esecuzione/hover viene disegnato male, l'arco esce
+// dalla punta della freccia"): quando un segmento EVIDENZIATO (linea SPESSA e colorata) termina
+// con una punta, la LINEA non deve arrivare fino a (x2,y2) -- il vertice della punta, sul bordo del
+// nodo -- ma fermarsi alla BASE della punta (x2 - dir*ARROW_LEN). Altrimenti il tratto spesso
+// sbuca oltre il triangolo (evidente con lo zoom, dove tutto e' scalato), facendo sembrare che
+// "l'arco esca dalla freccia". Poi si disegna la punta. `scale` = scala della punta (default 1).
+function _strokeExecSeg(x1, y1, x2, y2, hasArrow, color, scale, noArrowhead) {
+  const sc = (typeof scale === 'number' && scale > 0) ? scale : 1;
+  if (hasArrow) {
+    const dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0.5) {
+      const cut = Math.min(9 * sc, len); // ARROW_LEN = 9*scale, senza oltrepassare l'inizio del segmento
+      const bx = x2 - (dx / len) * cut, by = y2 - (dy / len) * cut;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+    }
+    // WP-D3: noArrowhead => si traccia solo la linea FINO ALLA BASE (sopra), la punta NON si disegna
+    // qui (la ridisegnera' l'overlay arancione). Fermarsi alla base -- non a (x2,y2) -- evita che un
+    // moncone di linea nera spunti oltre il vertice arancione (che sta al punto arrotondato).
+    if (!noArrowhead) drawArrowhead(x1, y1, x2, y2, color, sc);
+  } else {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+}
 function drawArrowhead(x1, y1, x2, y2, color, scale) {
   const dx = x2 - x1, dy = y2 - y1;
   const len = Math.sqrt(dx * dx + dy * dy);
@@ -169,15 +222,22 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType, 
     _execHl = (executingEdge.phase === 'back') ? _isReturnSeg : !_isReturnSeg;
   }
   var _execEdgeCol = (typeof cssVar === "function") ? cssVar('--exec-edge-color', '#ff9800') : '#ff9800';
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.strokeStyle = _execHl ? _execEdgeCol : themeCanvasLineColor();
+  var _lineCol = _execHl ? _execEdgeCol : themeCanvasLineColor();
+  ctx.strokeStyle = _lineCol;
   // C1 (round 11): spessore uniformato a 3 con la nuova evidenziazione "arco intero"
   // (punto 7 di draw(), sotto) -- prima era 4 solo qui (FIX #12), disallineato.
   ctx.lineWidth = _execHl ? 3 : 2;
-  ctx.stroke();
-  if (arrow) drawArrowhead(x1, y1, x2, y2, _execHl ? _execEdgeCol : undefined);
+  // WP-D3 (Ismail 2026-07-17): la linea si ferma alla BASE della punta, non a (x2,y2)=vertice sul
+  // bordo del nodo -- cosi' NESSUN arco (nero normale o arancione evidenziato) sbava oltre la
+  // freccia. Prima solo l'highlight era stato accorciato -> restava la sbavatura NERA dell'arco
+  // sottostante disegnato qui. Ora e' coerente.
+  // WP-D3 (2o giro, "c'e' sempre un leggero pixel sbagliato"): se questa freccia porta una punta e
+  // il suo VERTICE coincide con una punta ACCESA dell'esecuzione (litGroup), NON si disegna la punta
+  // nera qui: la ridisegnera' in arancione l'overlay (punto 6bis), senza il vertice nero che
+  // spuntava. Solo la linea arriva al bordo (coperta dalla punta arancione, piena). Non tocca il
+  // caso non-esecuzione (_bfLitArrowTips null) ne' l'arco arancione stesso (_execHl, gia' colorato).
+  var _suppressArrow = (!!arrow && !_execHl && _bfLitArrowSegs && _bfArrowSegMatchesLit(x1, y1, x2, y2));
+  _strokeExecSeg(x1, y1, x2, y2, !!arrow, _lineCol, 1, _suppressArrow);
 }
 
 // ============================================================================
@@ -195,12 +255,19 @@ function drawLine(x1, y1, x2, y2, salva, fromNodeIndex, toNodeIndex, arrowType, 
 function _segsOfArc(f) {
   const out = [{ x1: Math.round(f.inzioX), y1: Math.round(f.inzioY), x2: Math.round(f.fineX), y2: Math.round(f.fineY), a: !!f.hasArrow }];
   if (f.visualExtra) for (const s of f.visualExtra) out.push({ x1: Math.round(s[0]), y1: Math.round(s[1]), x2: Math.round(s[2]), y2: Math.round(s[3]), a: !!s[4] });
+  // ROUND-15F WP-E3 (Ismail: lo stelo if->fork deve accendersi SOLO in esecuzione, mai in
+  // hover/hit-test): execOnlyExtra e' come visualExtra ma NON letta da arcHitTest
+  // (interaction.js) ne' dall'overlay hover/drag (draw() punti 5/6, piu' sotto) -- solo da
+  // questa funzione, che alimenta ESCLUSIVAMENTE la pipeline di evidenziazione esecuzione
+  // (computeEdgeGroups/_bfsSegPath, chiamati da execute.js/animateExecEdge).
+  if (f.execOnlyExtra) for (const s of f.execOnlyExtra) out.push({ x1: Math.round(s[0]), y1: Math.round(s[1]), x2: Math.round(s[2]), y2: Math.round(s[3]), a: !!s[4] });
   return out;
 }
 function _segKey(s) { return (s.x1 < s.x2 || (s.x1 === s.x2 && s.y1 <= s.y2)) ? (s.x1 + ',' + s.y1 + ',' + s.x2 + ',' + s.y2) : (s.x2 + ',' + s.y2 + ',' + s.x1 + ',' + s.y1); }
 function _dedupeSegs(segs) { const seen = new Set(); const out = []; for (const s of segs) { if (s.x1 === s.x2 && s.y1 === s.y2) continue; const k = _segKey(s); if (seen.has(k)) continue; seen.add(k); out.push(s); } return out; }
 // Ordina i segmenti in una polilinea connessa, partendo dal punto piu' vicino al nodo F.
-function _orderSegsFromNode(segs, fromIdx) {
+// selfLoopWF: se true, il nodo F e' un While/For a corpo VUOTO (self-loop) -> ancora speciale (WP-D2).
+function _orderSegsFromNode(segs, fromIdx, selfLoopWF) {
   if (segs.length <= 1) return segs.slice();
   const near = (a, b) => Math.abs(a - b) <= 3;
   const fn = (typeof nodi !== "undefined" && nodi[fromIdx]) ? nodi[fromIdx] : null;
@@ -211,6 +278,17 @@ function _orderSegsFromNode(segs, fromIdx) {
     // non dal fondo -- geometria capovolta. Ancorando qui l'ordine e' risalita -> rientro nel corpo,
     // non discesa-al-contrario. (Ismail: "prima freccia sinistra, poi tratto verticale verso il figlio".)
     fx = Math.round(fn.relX * w - (fn.width || 0) / 2); fy = Math.round(fn.relY * h);
+  } else if (fn && selfLoopWF) {
+    // WP-D2 (Ismail 2026-07-15, "colorazione while vuoto: arco verticale e ricongiunzione si
+    // illumina disegnando l'arco al CONTRARIO, idem for"): per il SELF-LOOP di un While/For a
+    // corpo VUOTO il loop_body ESCE dal LATO DESTRO dell'header (lo stub va verso la colonna del
+    // corpo) e RIENTRA in alto nell'header (dove sta l'arrowhead). L'ancora di default (bordo
+    // INFERIORE-centro) e' piu' vicina al punto di RIENTRO che a quello d'USCITA -> la catena
+    // partiva dal rientro e percorreva tutta la polilinea AL CONTRARIO, con l'arrowhead sul primo
+    // segmento invece che sull'arrivo. Ancorando all'uscita reale (lato destro dell'header) la
+    // catena segue il verso del flusso (uscita -> giro -> rientro), arrowhead che arriva
+    // correttamente all'header. NON tocca il caso NON vuoto ne' il do-while.
+    fx = Math.round(fn.relX * w + (fn.width || 0) / 2); fy = Math.round(fn.relY * h);
   } else {
     fx = fn ? Math.round(fn.relX * w) : (segs[0].x1);
     fy = fn ? Math.round(fn.relY * h + fn.height / 2) : (segs[0].y1);
@@ -304,7 +382,9 @@ function computeEdgeGroups(from, to, branch, showRisalita) {
       groups.push({ order: order + 0.5, from: f.fromNodeIndex, to: f.toNodeIndex, type: 'do_discesa', segs: _dedupeSegs(discesa) });
       return;
     }
-    groups.push({ order: order, from: f.fromNodeIndex, to: f.toNodeIndex, type: f.type, segs: _orderSegsFromNode(_dedupeSegs(_segsOfArc(f)), from) });
+    // WP-D2: self-loop di un While/For a corpo vuoto -> ancora d'ordine sull'uscita (vedi _orderSegsFromNode).
+    const _selfWF = (f.fromNodeIndex === f.toNodeIndex) && typeof flow !== "undefined" && flow.nodes && flow.nodes[from] && (flow.nodes[from].type === 'while' || flow.nodes[from].type === 'for');
+    groups.push({ order: order, from: f.fromNodeIndex, to: f.toNodeIndex, type: f.type, segs: _orderSegsFromNode(_dedupeSegs(_segsOfArc(f)), from, _selfWF) });
   };
   // 1) arco d'USCITA di F verso T (specifico del ramo preso)
   for (const f of frecce) if (f.fromNodeIndex === from && f.toNodeIndex === to && typeOkForBranch(f.type)) addArc(f, 0);
@@ -373,6 +453,35 @@ function computeEdgePath(from, to, branch) {
   return _orderSegsFromNode(_dedupeSegs(segs), from);
 }
 
+// WP-N1 (Ismail 2026-07-15, "il colore d'esecuzione resta nella posizione vecchia su resize/zoom;
+// deve essere legato all'arco e seguirlo"): l'highlight P6 accende executingEdge.litGroup, che pero'
+// contiene COORDINATE ASSOLUTE CONGELATE al momento in cui animateExecEdge ha acceso il gruppo. Se poi
+// il layout cambia SENZA una nuova animazione (resize finestra, zoom, ricentraggio -- tipicamente in
+// PAUSA), il litGroup resta nel punto vecchio, scollegato dagli archi ridisegnati. Qui, ad ogni draw()
+// (chiamata subito PRIMA di disegnare il litGroup, quando frecce[] e' gia' stato ricostruito), si
+// RI-DERIVA la geometria del gruppo acceso dai frecce CORRENTI, usando l'identita' logica salvata in
+// executingEdge._grp (from/to/branch/showRis/indice-gruppo). Cosi' l'arco acceso SEGUE il layout.
+// Guardie: nessun _grp (fase-nodo o highlightExecEdge legacy) -> non fa nulla (quel percorso rilegge
+// gia' i frecce correnti da solo). Se il numero di gruppi e' cambiato (non dovrebbe: un edit del grafo
+// azzera l'esecuzione via _bfAbortExecOnEdit) si tiene il litGroup precedente.
+function refreshExecEdgeGeometry() {
+  if (typeof executingEdge === 'undefined' || !executingEdge || !executingEdge._grp) return;
+  if (typeof computeEdgeGroups !== 'function') return;
+  const g = executingEdge._grp;
+  try {
+    const groups = computeEdgeGroups(g.from, g.to, g.branch, g.showRis);
+    if (!groups || !groups.length) return;
+    if (g.gi === 'all') {
+      // WP-E2: frame FUSO (ramo + discesa if accesi insieme) -> ri-deriva concatenando TUTTI i gruppi.
+      let all = [];
+      for (let k = 0; k < groups.length; k++) if (groups[k] && groups[k].segs) all = all.concat(groups[k].segs);
+      if (all.length) executingEdge.litGroup = all;
+    } else if (groups[g.gi] && groups[g.gi].segs && groups[g.gi].segs.length) {
+      executingEdge.litGroup = groups[g.gi].segs;
+    }
+  } catch (e) { /* geometria non ricalcolabile: si tiene il litGroup precedente */ }
+}
+
 
 // FUNZIONE PRINCIPALE draw(forme):
 //  Calcola quanti collegamenti in entrata (incoming) ha ciascun nodo logico (flow.nodes).
@@ -419,7 +528,64 @@ function draw(forme) {
   // backing supersamplato -> disegno nitido a ogni zoom. clearRect in coord logiche copre tutto.
   if (ctx.setTransform && canvas && canvas.width && w) { try { ctx.setTransform(canvas.width / w, 0, 0, canvas.height / h, 0, 0); } catch (e) {} }
   ctx.clearRect(0, 0, w, h); // Pulisce il canvas
+  // ROUND-15F WP-E3 punto 2 (Ismail, screenshot con freccia rossa: "le frecce non si connettono
+  // bene agli angoli, in generale, sia cicli che if" -- gomito rombo/fork, gomito ponte/discesa,
+  // qualunque punto dove un segmento orizzontale incontra uno verticale). Causa: OGNI segmento e'
+  // disegnato con un ctx.beginPath()/moveTo/lineTo/stroke() INDIPENDENTE (mai un unico path
+  // continuo con piu' lineTo), quindi ctx.lineJoin non si applica mai fra due segmenti diversi --
+  // e il default di ctx.lineCap e' 'butt' (taglio netto, perpendicolare alla direzione, che NON
+  // sconfina di un pixel oltre l'estremo dichiarato). Per due segmenti perpendicolari che
+  // condividono lo STESSO punto (es. verticale che finisce a (cx,forkY), orizzontale che parte da
+  // (cx,forkY)), il rettangolo del verticale copre l'angolo SOLO per la meta' di sua competenza e
+  // quello dell'orizzontale SOLO per la sua meta' -- il quadratino esattamente all'esterno
+  // dell'angolo (l'ultimo mezzo-pixel di linewidth in entrambe le direzioni) non viene coperto da
+  // NESSUNO dei due, lasciando un micro-varco che l'antialiasing rende visibile come una minuscola
+  // tacca/sfrangiatura -- esattamente il "non si collegano bene" segnalato, presente su OGNI
+  // gomito ortogonale dell'app (if e cicli), non solo sul pallino di ricongiunzione. Fix: 'square'
+  // (non 'round') -- estende ogni segmento di META' linewidth OLTRE il proprio estremo, nella
+  // propria direzione: per un incrocio a 90 gradi chiude ESATTAMENTE il quadratino mancante,
+  // senza arrotondare gli estremi "liberi" (dove un arco parte/finisce su un nodo, non su un
+  // altro segmento) in modo percettibile (mezzo pixel di linewidth, sotto la soglia visibile).
+  // Impostato UNA VOLTA qui, prima di qualunque ctx.save()/stroke(): lo stato del canvas persiste
+  // attraverso i save()/restore() successivi (restore torna allo stato del save piu' vicino, che
+  // include gia' questo lineCap), quindi copre l'intero disegno BASE e tutte le sovrapposizioni di
+  // evidenziazione (hover punto 5, drag punto 6, esecuzione punto 6bis) nella stessa draw().
+  ctx.lineCap = 'square';
+  // WP-D9 (round 15-D, Ismail 2026-07-17): GRIGLIA opzionale del canvas -- SOLO visiva, non tocca
+  // il layout logico dei nodi. Disegnata subito dopo il clear (quindi SOTTO nodi e archi), in
+  // coordinate LOGICHE (0..w / 0..h, lo STESSO spazio in cui sono posizionati i nodi -> allineata
+  // ai blocchi e nitida sotto la trasformazione di supersampling gia' applicata sopra). Colore =
+  // linea-canvas del tema a bassa opacita': chiara su sfondo chiaro, chiara su sfondo scuro, quindi
+  // discreta e leggibile su OGNI tema senza variabili CSS dedicate. Guardia su viewSettings: se
+  // settings.js non e' caricato o la griglia e' spenta, non disegna nulla (comportamento invariato).
+  if (typeof viewSettings !== 'undefined' && viewSettings && viewSettings.showGrid) {
+    const _gstep = 24;
+    ctx.save();
+    ctx.strokeStyle = (typeof themeCanvasLineColor === 'function') ? themeCanvasLineColor() : '#000';
+    ctx.globalAlpha = 0.08;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let _gx = 0; _gx <= w; _gx += _gstep) { ctx.moveTo(_gx, 0); ctx.lineTo(_gx, h); }
+    for (let _gy = 0; _gy <= h; _gy += _gstep) { ctx.moveTo(0, _gy); ctx.lineTo(w, _gy); }
+    ctx.stroke();
+    ctx.restore();
+  }
   frecce = []; // Resetta l'array delle frecce visuali
+
+  // WP-D3 (Ismail 2026-07-17): raccogli i SEGMENTI-punta ACCESI dell'esecuzione (litGroup, a=true),
+  // PRIMA di disegnare gli archi -> drawLine (chiamato durante il layout, piu' sotto) puo' saltare
+  // la propria punta nera dove l'overlay arancione (punto 6bis) disegnera' la sua. Si salvano BASE
+  // e VERTICE (non solo il vertice) per non confondere due archi che convergono sullo stesso punto
+  // da direzioni diverse (vedi _bfArrowSegMatchesLit e la nota sulla regressione do-while).
+  // Ricalcolato a ogni frame dallo stato corrente; null fuori esecuzione (nessun effetto normale).
+  _bfLitArrowSegs = null;
+  if (typeof executingEdge !== "undefined" && executingEdge && executingEdge.litGroup && executingEdge.litGroup.length) {
+    _bfLitArrowSegs = [];
+    for (var _li = 0; _li < executingEdge.litGroup.length; _li++) {
+      var _ls = executingEdge.litGroup[_li];
+      if (_ls && _ls.a) _bfLitArrowSegs.push([_ls.x1, _ls.y1, _ls.x2, _ls.y2]);
+    }
+  }
 
   // R12-G/Fase1 (Ismail 2026-07-12): calcolato UNA volta per frame (non per nodo) l'insieme
   // di tutti gli indici appartenenti a un'unita' multi-selezionata (dedup "outer wins" gia'
@@ -711,29 +877,19 @@ function draw(forme) {
                && f.fineX === hoverArc.bx && f.fineY === hoverArc.by);
       }
       if (hit) {
-        ctx.beginPath(); ctx.moveTo(f.inzioX, f.inzioY); ctx.lineTo(f.fineX, f.fineY); ctx.stroke();
-        // FIX round-4o (Ismail, "vorrei che anche la punta si illuminasse al click
-        // dell'arco"): se questo arco disegna una punta (hasArrow), ridisegnarla nello
-        // stesso rosso dell'evidenziazione -- altrimenti restava nera anche quando il
-        // resto dell'arco si coloriva, dando l'impressione che l'evidenziazione fosse
-        // incompleta.
-        if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, arcHoverColor(), 1);
-        // FIX round-4j (vedi nota su drawLine/visualExtra): il placeholder di un corpo
-        // VUOTO di While/For e' visivamente un anello (giu' - lato - su fino
-        // all'esagono), ma solo il primo tratto e' cliccabile/in frecce[] -- gli altri
-        // tratti (solo visivi, salva=false all'origine) viaggiano qui come
-        // visualExtra e vanno ridisegnati in rosso insieme al tratto principale,
-        // altrimenti l'utente vede colorarsi "solo la parte alta" invece di tutto
-        // l'anello che percepisce come un unico arco.
+        // WP-E1 (Ismail 2026-07-17, "hover: arco più lungo della punta, esce fuori"): come drawLine e
+        // l'overlay d'esecuzione, si passa da _strokeExecSeg -> la LINEA si ferma alla BASE della
+        // punta (non al vertice), così il bordo piatto della linea (spessore 2) non sporge oltre il
+        // triangolo. Era l'ULTIMO percorso rimasto a disegnare linea-fino-al-vertice + punta sopra
+        // (il difetto D3, qui sull'hover). _strokeExecSeg usa ctx.strokeStyle per la linea (già
+        // arcHoverColor(), impostato sopra) e passa il colore alla punta (round-4o: anche la punta
+        // si illumina). round-4p: seg[4] segna quale segmento visualExtra porta la punta.
+        _strokeExecSeg(f.inzioX, f.inzioY, f.fineX, f.fineY, !!f.hasArrow, arcHoverColor(), 1);
+        // round-4j: i tratti di continuazione (anello dei corpi vuoti While/For, back-edge) viaggiano
+        // come visualExtra e vanno ridisegnati in rosso insieme al principale.
         if (f.visualExtra) {
           for (const seg of f.visualExtra) {
-            ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
-            // FIX round-4p (Ismail, "deve colorarsi anche dove e' selezionato la
-            // punta arco cicli"): seg[4] (booleano) segna quale segmento di
-            // continuazione porta davvero una punta -- solo quello la ridisegna nel
-            // colore di evidenziazione, altrimenti restava nera anche con l'intero
-            // anello/back-edge acceso.
-            if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], arcHoverColor(), 1);
+            _strokeExecSeg(seg[0], seg[1], seg[2], seg[3], !!seg[4], arcHoverColor(), 1);
           }
         }
       }
@@ -786,10 +942,10 @@ function draw(forme) {
     // computeEdgeGroups/animateExecEdge forniscono la polilinea esatta F->T (back-edge condivisi
     // inclusi), un arco alla volta. Il vecchio percorso sotto resta come FALLBACK quando litGroup
     // non c'e' (compatibilita' con eventuali chiamate diverse).
+    if (typeof refreshExecEdgeGeometry === 'function') refreshExecEdgeGeometry(); // WP-N1: ri-deriva la geometria del litGroup dai frecce CORRENTI -> l'highlight segue resize/zoom/ricentraggio
     if (executingEdge.litGroup && executingEdge.litGroup.length) {
       for (const s of executingEdge.litGroup) {
-        ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
-        if (s.a) drawArrowhead(s.x1, s.y1, s.x2, s.y2, _execEdgeCol2, 1);
+        _strokeExecSeg(s.x1, s.y1, s.x2, s.y2, !!s.a, _execEdgeCol2, 1); // WP-D3 (2o giro): la punta nera sottostante ora e' SOPPRESSA da drawLine (vedi _bfLitArrowTips) dove cade questa punta accesa -> non serve piu' sovradimensionare l'arancione per coprirla: scala 1.0, STESSA dimensione delle altre frecce, nessuna sbavatura
       }
       ctx.restore();
       return; // salta il matching legacy sotto (durante l'esecuzione non c'e' drag-ghost da disegnare)
@@ -839,11 +995,18 @@ function draw(forme) {
         const _mainPhase = (_isLBE && !_lbeMainOut) ? 'back' : 'out';
         const _extraPhase = _isLBE ? 'back' : 'out'; // visualExtra: ritorno per il back-edge, uscita per i rami
         if (!_phase || _phase === _mainPhase) {
-          ctx.beginPath(); ctx.moveTo(f.inzioX, f.inzioY); ctx.lineTo(f.fineX, f.fineY); ctx.stroke();
-          if (f.hasArrow) drawArrowhead(f.inzioX, f.inzioY, f.fineX, f.fineY, _execEdgeCol2, 1);
+          _strokeExecSeg(f.inzioX, f.inzioY, f.fineX, f.fineY, !!f.hasArrow, _execEdgeCol2, 1); // WP-D3: linea fino alla base della punta
         }
         if (f.visualExtra && (!_phase || _phase === _extraPhase)) {
           for (const seg of f.visualExtra) {
+            ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
+            if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], _execEdgeCol2, 1);
+          }
+        }
+        // ROUND-15F WP-E3: execOnlyExtra (es. lo stelo if->fork) nel fallback legacy, stessa
+        // fase del visualExtra (e' "uscita", mai "ritorno" -- lo stelo non e' un back-edge).
+        if (f.execOnlyExtra && (!_phase || _phase === _extraPhase)) {
+          for (const seg of f.execOnlyExtra) {
             ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
             if (seg[4]) drawArrowhead(seg[0], seg[1], seg[2], seg[3], _execEdgeCol2, 1);
           }
@@ -1000,7 +1163,19 @@ function entryTopY(targetIdx) {
     // (misurato: y=-43, fuori dal canvas). Si usa la costante come ovunque -> per un Do a
     // altezza base (40) il risultato e' identico (nessuna regressione), per uno alto e'
     // corretto.
-    return v.doBodyTopPxY - NODE_BASE_HEIGHT_PX / 2;
+    // ROUND-15F WP-E3 seguito (Ismail, "fai come nel if, stessa distanza, tra cerchio e
+    // archi, anche nel do-while"): il punto (cx,bodyTopY) e' il pallino di convergenza in
+    // cima al Do-While (drawDoWhileBranches, "analogo al '*' di merge dell'IF" -- vedi
+    // commento li'), dove arrivano l'arco d'ingresso ESTERNO (questo, calcolato qui) E il
+    // back-edge di ritorno (con la propria punta, vedi drawDoWhileBranches). Prima l'arco
+    // d'ingresso puntava ESATTAMENTE al centro del pallino (nessun gap), a differenza del
+    // pallino dell'IF che dal R13-G tiene tutti gli archi a JOIN_DOT_GAP_PX di distanza per
+    // non far impastare le punte -> qui le due frecce (ingresso dall'alto + back-edge da
+    // sinistra) convergevano entrambe ESATTAMENTE sullo stesso punto. Stessa costante
+    // GLOBALE (JOIN_DOT_GAP_PX, state.js, gia' usata da 3 funzioni per lo stesso motivo):
+    // l'arco d'ingresso si ferma JOIN_DOT_GAP_PX PRIMA del pallino (sopra di esso, visto che
+    // arriva dall'alto), esattamente come i ponti dell'IF si fermano prima del proprio.
+    return v.doBodyTopPxY - NODE_BASE_HEIGHT_PX / 2 - JOIN_DOT_GAP_PX;
   }
   return v.relY * h - v.height / 2;
 }
@@ -1080,6 +1255,17 @@ function drawIfBranches(ifIdx, node) {
   // il tratto verticale, mai il ponte, anche se insieme formano un'unica "parte libera"
   // continua. Si salva qui il riferimento all'arco (frecce[frecce.length-1]) per
   // agganciargli, piu' sotto, il segmento del ponte come visualExtra.
+  // ROUND-15F WP-E3 (Ismail, correzione dopo prima implementazione sbagliata): lo stelo
+  // rombo->forkY deve illuminarsi SOLO durante l'esecuzione -- MAI con hover, MAI come
+  // area cliccabile per inserire un blocco. Un primo tentativo lo aveva agganciato dentro
+  // visualExtra: SBAGLIATO, perche' visualExtra e' letta anche da arcHitTest
+  // (interaction.js, click/inserimento) e dall'overlay hover/drag (rendering.js punti 5/6)
+  // -- lo stelo diventava (in parte) cliccabile e si accendeva in rosso al semplice hover,
+  // esattamente cio' che Ismail NON voleva. Fix corretto: proprieta' separata
+  // `execOnlyExtra`, letta SOLO da _segsOfArc (quindi da computeEdgeGroups/_bfsSegPath, la
+  // pipeline di evidenziazione ESECUZIONE) e dal fallback legacy dello stesso overlay
+  // d'esecuzione (piu' sotto in draw(), punto 6bis) -- mai da arcHitTest ne' da hover/drag.
+  const stemSeg = [cx, diaBottom, cx, forkY, false];
   let trueEmptyArc = null, falseEmptyArc = null;
   if (sub.trueList.length === 0) {
     // FIX BUG 3b (Ismail 2026-07-07, ramo VUOTO): siccome non ci sono blocchi in mezzo,
@@ -1089,6 +1275,7 @@ function drawIfBranches(ifIdx, node) {
     // inizializza visualExtra col segmento del fork superiore.
     drawLine(trueX, forkY, trueX, reconnectY, true, ifIdx, sub.joinIndex, 'if_true', [[cx, forkY, trueX, forkY, false]]);
     trueEmptyArc = frecce[frecce.length - 1];
+    trueEmptyArc.execOnlyExtra = [stemSeg];
   } else {
     // FIX BUG 3 (Ismail 2026-07-07, "quando prendi la parte in alto dell'arco di un IF per
     // inserire un blocco deve illuminarsi tutta la parte libera, ORIZZONTALE compreso"):
@@ -1099,13 +1286,16 @@ function drawIfBranches(ifIdx, node) {
     // l'evidenziazione hover/drag lo ridisegna in rosso insieme al verticale, come gia'
     // accade per il ponte di ricongiunzione sull'arco "dopo l'ultimo".
     drawLine(trueX, forkY, trueX, entryTopY(sub.trueList[0]), true, ifIdx, sub.trueList[0], 'if_true', [[cx, forkY, trueX, forkY, false]], true);
+    frecce[frecce.length - 1].execOnlyExtra = [stemSeg];
   }
 
   if (sub.falseList.length === 0) {
     drawLine(falseX, forkY, falseX, reconnectY, true, ifIdx, sub.joinIndex, 'if_false', [[cx, forkY, falseX, forkY, false]]);
     falseEmptyArc = frecce[frecce.length - 1];
+    falseEmptyArc.execOnlyExtra = [stemSeg];
   } else {
     drawLine(falseX, forkY, falseX, entryTopY(sub.falseList[0]), true, ifIdx, sub.falseList[0], 'if_false', [[cx, forkY, falseX, forkY, false]], true);
+    frecce[frecce.length - 1].execOnlyExtra = [stemSeg];
   }
 
   // Collegamenti interni ai rami e archi di ricongiunzione
@@ -1836,7 +2026,12 @@ function drawDoWhileBranches(loopIdx, node) {
     // (stesso punto dell'ingresso alla struttura) fino alla cima dell'esagono --
     // self-loop, come il placeholder di While/For ma capovolto (qui scende VERSO
     // l'esagono, non parte DALL'esagono).
-    drawLine(cx, bodyTopY, cx, diaTop, true, loopIdx, loopIdx, 'loop_body', null, true);
+    // ROUND-15F WP-E3 seguito: parte JOIN_DOT_GAP_PX SOTTO il pallino (non dal suo
+    // centro esatto), stessa logica dell'arco che esce sotto il pallino di
+    // ricongiunzione dell'IF (drawIfBranches, reconnectY + JOIN_DOT_GAP_PX). bodyBottomY
+    // resta il valore SEMANTICO (centro del pallino, "cima del corpo"): usato altrove
+    // per calcoli di geometria, non per questo singolo punto di disegno.
+    drawLine(cx, bodyTopY + JOIN_DOT_GAP_PX, cx, diaTop, true, loopIdx, loopIdx, 'loop_body', null, true);
     bodyBottomY = bodyTopY;
   } else {
     // FIX (trovato dal nuovo test-if.js, Test 13, cicli annidati): a differenza del
@@ -1851,11 +2046,18 @@ function drawDoWhileBranches(loopIdx, node) {
     // impediva anche di trovare un arco dedicato quando un Do-While e' annidato nel
     // corpo di un ciclo esterno (l'esterno cercava un arco da se' verso il primo
     // membro, che c'e' -- ma il Do-While stesso non registrava mai la propria
-    // versione interna). Per costruzione bodyTopY combacia esattamente con
-    // entryTopY(primo nodo del corpo) (nessuno scostamento laterale in questa
-    // geometria), quindi il segmento e' degenere (lunghezza zero) ma resta un
-    // target cliccabile valido, esattamente come il placeholder del corpo vuoto.
-    drawLine(cx, bodyTopY, cx, entryTopY(body.bodyList[0]), true, loopIdx, body.bodyList[0], 'loop_body', null, true);
+    // versione interna). Per un primo nodo "semplice" bodyTopY combacia quasi
+    // esattamente con entryTopY(primo nodo del corpo) (nessuno scostamento laterale in
+    // questa geometria) -- ma NON e' garantito in generale: verificato con harness che
+    // quando il primo membro e' un While/For (propria testa/etichetta piu' alta) il
+    // segmento e' REALE, non degenere (es. 22px), e prima di questo fix partiva
+    // ESATTAMENTE dal centro del pallino, senza alcuna distanza -- incoerente con
+    // l'IF (if_join parte sempre reconnectY + JOIN_DOT_GAP_PX sotto il proprio
+    // pallino). FIX (Ismail, "anche quello sotto cerchio deve avere distanza,
+    // coerente con l'if"): parte sempre JOIN_DOT_GAP_PX sotto il pallino, semplice o
+    // degenere che sia -- se il segmento era davvero lunghezza zero resta comunque un
+    // target cliccabile valido (ora lungo JOIN_DOT_GAP_PX invece di zero, innocuo).
+    drawLine(cx, bodyTopY + JOIN_DOT_GAP_PX, cx, entryTopY(body.bodyList[0]), true, loopIdx, body.bodyList[0], 'loop_body', null, true);
 
     // Collegamenti interni fra nodi consecutivi del corpo (stessa colonna: a
     // differenza di While/For qui il corpo non e' mai un ramo scostato lateralmente).
@@ -2059,9 +2261,17 @@ function drawDoWhileBranches(loopIdx, node) {
   // loopIdx && executingEdge.to===primo-nodo-del-corpo). Corpo vuoto: nessun target
   // reale (il placeholder self-loop dedicato, sopra, gestisce gia' quel caso da solo).
   const _backToBody = body.bodyList.length ? body.bodyList[0] : null;
+  // ROUND-15F WP-E3 seguito (Ismail, stessa distanza del pallino dell'IF): l'ultimo tratto
+  // della risalita (orizzontale, CON punta) arriva al pallino da SINISTRA -- si ferma
+  // JOIN_DOT_GAP_PX PRIMA di cx, esattamente come i ponti dell'IF si fermano prima del
+  // proprio pallino (bridgeEndX = cx +/- JOIN_DOT_GAP_PX, drawIfBranches). Stesso identico
+  // endX va nel visualExtra gemello subito sotto, altrimenti hover/hit-test userebbero un
+  // endpoint diverso da quello REALMENTE disegnato (stesso principio gia' documentato per
+  // il ponte dell'IF).
+  const backEdgeEndX = cx - JOIN_DOT_GAP_PX;
   drawLine(diaLeft, cy, backEdgeX, cy, false, loopIdx, _backToBody);
   drawLine(backEdgeX, cy, backEdgeX, bodyTopY, false, loopIdx, _backToBody);
-  drawLine(backEdgeX, bodyTopY, cx, bodyTopY, false, loopIdx, _backToBody, null, null, true);
+  drawLine(backEdgeX, bodyTopY, backEdgeEndX, bodyTopY, false, loopIdx, _backToBody, null, null, true);
   // P6 (Ismail 2026-07-14, "nel do-while non si colora la freccia sinistra di ritorno"): questi
   // 3 segmenti della RISALITA sono salva=false -> NON entrano in frecce[], quindi computeEdgeGroups
   // (che legge frecce[]) non li vedeva e la freccia di ritorno restava nera. Li si aggancia come
@@ -2071,7 +2281,7 @@ function drawDoWhileBranches(loopIdx, node) {
   if (_doEntryArc) _doEntryArc.visualExtra = (_doEntryArc.visualExtra || []).concat([
     [diaLeft, cy, backEdgeX, cy, false],
     [backEdgeX, cy, backEdgeX, bodyTopY, false],
-    [backEdgeX, bodyTopY, cx, bodyTopY, true]
+    [backEdgeX, bodyTopY, backEdgeEndX, bodyTopY, true]
   ]);
 
   // FIX (Ismail 2026-07-07): pallino di convergenza in ALTO del Do-While, nel punto in cui

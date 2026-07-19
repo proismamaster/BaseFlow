@@ -120,9 +120,19 @@ console.log('=== R14/S2: corpo-while + ramo-if -> altro ramo dell\'if ===');
 }
 
 // ---------------------------------------------------------------------------
-// S3: target che TOCCA la selezione -> rifiuto pulito, grafo intatto.
+// S3: target che TOCCA la selezione (esce dalla prima unita' stessa) -> RIORDINO valido,
+// non piu' un rifiuto. AGGIORNATO 2026-07-18 (Ismail, dopo conferma esplicita col caso
+// "input->output->assign, sposti sull'arco output->assign -> deve diventare
+// output->input->assign, ha senso cosi'"): la vecchia versione di questo test si aspettava
+// un rifiuto pulito, ma era una cautela nata PRIMA che questo caso d'uso (riordinare una
+// selezione droppandola su un arco che tocca la sua stessa prima unita') fosse chiarito.
+// Verificato con moveScatteredSelection col nuovo fix (skip del passo se l'unita' e' gia'
+// posizionata esattamente sull'arco del proprio passo): il risultato NON e' corrotto (la
+// validazione finale della catena, invariata, resta la vera rete di sicurezza) -- e' un
+// riordino coerente: T resta il primo membro del ramo true, F si sposta SUBITO DOPO T (il
+// ramo false del padre resta vuoto, punta direttamente ad AFTER).
 // ---------------------------------------------------------------------------
-console.log('=== R14/S3: arco target dentro la selezione -> rifiuto pulito ===');
+console.log('=== R14/S3: drop sull\'arco che esce dalla PRIMA unita\' della selezione -> riordina (T resta, F si sposta dopo T) ===');
 {
   const ctx = makeContext();
   setFlow(ctx, [
@@ -132,13 +142,16 @@ console.log('=== R14/S3: arco target dentro la selezione -> rifiuto pulito ===')
     { type: 'print', info: 'F', next: '4' },
     { type: 'print', info: 'AFTER', next: '5' },
     { type: 'end', info: '', next: null },
-  ], [{ fromNodeIndex: 2, toNodeIndex: 4, type: 'normal' }]); // arco che ESCE da un membro selezionato
+  ], [{ fromNodeIndex: 2, toNodeIndex: 4, type: 'normal' }]); // arco che ESCE dalla prima unita' selezionata (T)
   run(ctx, 'multiSelected = [2, 3];');
-  const before = JSON.stringify(dumpNodes(ctx));
   const ok = run(ctx, 'moveSelectionGroup(0)');
-  check('S3: rifiutato', ok === false, 'ok=' + ok);
-  check('S3: grafo INTATTO', JSON.stringify(dumpNodes(ctx)) === before);
-  check('S3: undoStack intatto', run(ctx, 'undoStack.length') === 0);
+  const after = dumpNodes(ctx);
+  const val = JSON.parse(run(ctx, 'JSON.stringify(validateFlow(flow))'));
+  check('S3: accettato (riordino, non rifiuto)', ok === true, 'ok=' + ok);
+  check('S3: grafo VALIDO dopo il riordino', val.valid === true, JSON.stringify(val.errors || []));
+  check('S3: T resta primo del ramo true, F si sposta subito dopo T', nextOf(after, 'T') === byInfo(after, 'F'));
+  check('S3: il ramo false del padre resta vuoto (va diretto ad AFTER)', byInfo(after, 'A') >= 0 && after[byInfo(after, 'A')].next.false === String(byInfo(after, 'AFTER')));
+  check('S3: nessun tag residuo', !JSON.stringify(after).includes('_gmOrder'));
 }
 
 // ---------------------------------------------------------------------------
