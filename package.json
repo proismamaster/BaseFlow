@@ -18,18 +18,15 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --inspect",
-
     "dist": "electron-builder --publish never",
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "dist:linux": "electron-builder --linux --publish never",
     "pack": "electron-builder --dir --publish never",
-
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "android:open": "cap open android",
     "android:run": "cap run android",
-
     "icons": "node tools/generate-icons.mjs",
     "vendor:shepherd": "node tools/vendor-shepherd.mjs",
     "test:2026-07-21": "node tools/run-repro-2026-07-21.js"
@@ -46,5 +43,9 @@
     "png-to-ico": "^2.1.8",
     "sharp": "^0.34.5",
     "shepherd.js": "^11.2.0"
+  },
+  "allowScripts": {
+    "electron-winstaller@5.4.0": true,
+    "sharp@0.34.5": true
   }
 }

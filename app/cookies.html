@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cookie Policy — BaseFlow</title>
-  <link rel="stylesheet" href="style.css?v=20260721r">
+  <link rel="stylesheet" href="style.css?v=20260722b">
   <link rel="icon" type="image/png" href="img/icon.png" />
   <script>
     // Eredita il tema/dark-mode scelto nell'app (stesse classi usate da theme.js), cosi'
@@ -20,21 +20,6 @@
           });
         });
       } catch (e) { /* localStorage non disponibile: resta il tema di default */ }
-    })();
-    // WP-D5 (round 11): traduce SOLO il link "Manual" leggendo la stessa chiave lingua
-    // dell'app (baseflow-lang / I18N_STORAGE_KEY in js/core/i18n.js) -- questa pagina resta
-    // per il resto in inglese fisso (nessun i18n completo qui, fuori scope), quindi il
-    // fallback senza preferenza salvata e' 'en' (coerente col resto del testo della pagina).
-    (function () {
-      var LABELS = { it: 'Manuale', en: 'Manual', ar: 'دليل', zh: '手册' };
-      try {
-        var lang = localStorage.getItem('baseflow-lang') || 'en';
-        if (!LABELS[lang]) lang = 'en';
-        document.addEventListener('DOMContentLoaded', function () {
-          var el = document.getElementById('legal-manual-link');
-          if (el) el.textContent = LABELS[lang];
-        });
-      } catch (e) { /* resta l'etichetta inglese di default nel markup */ }
     })();
   </script>
   <style>
@@ -60,7 +45,6 @@
 <body>
   <div class="legal-page">
     <a class="legal-back" href="index.html">&larr; Back to BaseFlow</a>
-    <a class="legal-back" href="manual.html">&#128214; <span id="legal-manual-link">Manual</span></a>
     <h1>Cookie &amp; Local Storage Policy</h1>
     <div class="legal-updated">Last updated: July 2026</div>
 

@@ -76,7 +76,11 @@ for (const b of regoleConsole) {
 // Le regole bianche storiche esistono ancora (non vanno cancellate: sono la storia del file)
 // ma DEVONO perdere: il test sulla cascata qui sopra lo verifica gia' elemento per elemento.
 // Qui basta accertare che l'ULTIMA parola sul tema sia delle regole a variabili.
-const ultimaConsole = regoleConsole[regoleConsole.length - 1];
+// NB: si guarda solo fra le regole che dichiarano un COLORE (background/color/border-color) --
+// regole puramente geometriche (width/height, es. il resize mobile WP-M11) possono legittimamente
+// stare dopo nel foglio senza dire nulla sul tema, e non vanno considerate "l'ultima parola".
+const regoleConsoleColore = regoleConsole.filter(b => /(?:^|;)\s*(?:background|color|border(?:-\w+)?)\s*:/.test(b[2]));
+const ultimaConsole = regoleConsoleColore[regoleConsoleColore.length - 1];
 c('l ultima regola del terminale usa le variabili del tema',
   /var\(--|color-mix/.test(ultimaConsole ? ultimaConsole[2] : ''), 'true');
 

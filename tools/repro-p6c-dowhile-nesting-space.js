@@ -46,7 +46,7 @@ function makeApp() {
   }
   vm.runInContext('window.onload();', context);
   const run = (c) => vm.runInContext(c, context);
-  const ins = (filter, tipo) => { run(`frecceSelected = frecce.findIndex(f=>${filter}); if(frecceSelected===-1) console.error("NO ARC ${tipo} (${filter})"); else inserisciNodo(${JSON.stringify(tipo)});`); run('draw(nodi);'); };
+  const ins = (filter, tipo) => { run(`frecceSelected = frecce.findIndex(f=>${filter}); if(frecceSelected===-1) console.error(${JSON.stringify('NO ARC ' + tipo + ' (' + filter + ')')}); else inserisciNodo(${JSON.stringify(tipo)});`); run('draw(nodi);'); };
   return { run, ins };
 }
 let fails = 0;

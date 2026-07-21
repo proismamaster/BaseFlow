@@ -81,7 +81,8 @@ linux:
   synopsis: Editor di diagrammi di flusso
   description: BaseFlow -- editor di diagrammi di flusso con esecuzione passo-passo e traduzione in codice.
   desktop:
-    StartupWMClass: BaseFlow
+    entry:
+      StartupWMClass: BaseFlow
   target:
     - target: AppImage       # gira su qualsiasi distro, zero installazione
       arch: [x64]
