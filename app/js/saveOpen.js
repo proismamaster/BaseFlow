@@ -49,6 +49,34 @@ async function save(json, name) {
         if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
     }
 
+    // WP (Ismail 2026-07-22, packaging desktop): nell'app Electron si scrive un file VERO su
+    // disco via IPC (dialog nativo + fs.writeFile nel main, vedi electron/main.js/preload.js)
+    // invece di affidarsi a showSaveFilePicker/download del browser. Serve un PATH reale (che il
+    // browser non espone mai) cosi' il prossimo "Salva" (saveToCurrentFile) puo' scrivere in
+    // modo silenzioso sullo STESSO file invece di riaprire un dialog che chiede di sovrascrivere.
+    if (window.BaseFlowDesktop && window.BaseFlowDesktop.isDesktop && window.BaseFlowDesktop.saveFileDialog) {
+        try {
+            const filePath = await window.BaseFlowDesktop.saveFileDialog(name);
+            if (!filePath) return; // dialog annullato: niente scrittura, niente stato toccato
+            const res = await window.BaseFlowDesktop.writeFile(filePath, _bfSerialize(json));
+            if (!res || !res.ok) {
+                console.error('Salvataggio desktop fallito:', res && res.error);
+                if (typeof showStyledAlert === 'function') showStyledAlert(String((res && res.error) || 'Salvataggio fallito.'), { danger: true });
+                return;
+            }
+            currentFilePath = filePath;
+            currentFileName = filePath.replace(/^.*[\\/]/, ''); // basename, funziona sia con \ che /
+            currentFileHandle = null;
+            saved = true;
+            savedThisSession = true;
+            if (typeof markSaved === 'function') markSaved();
+            if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
+        } catch (err) {
+            console.error('Salvataggio desktop fallito:', err);
+        }
+        return;
+    }
+
     if (window.showSaveFilePicker) {
         const options = {
             suggestedName: name,
@@ -90,6 +118,34 @@ async function saveToCurrentFile() {
     // resta solo per "Salva con nome" (saveFileAs) e per il PRIMO salvataggio di un progetto
     // NUOVO senza nome (ramo finale in fondo a questa funzione). Il flag savedThisSession non
     // e' piu' usato come gate qui (resta settato altrove, innocuo).
+    //
+    // WP (Ismail 2026-07-22, packaging desktop): bug segnalato -- su Windows, "Salva" su un file
+    // gia' aperto/salvato riapriva SEMPRE un dialog nativo che chiedeva di sovrascrivere, invece
+    // di scrivere subito. Causa: dopo un "Apri" (che usa <input type=file>, non l'API browser)
+    // `currentFileHandle` e' sempre null -- quindi si cadeva nel ramo "riusa il NOME" qui sotto,
+    // che con l'API File System Access disponibile in Electron riapre un picker nativo
+    // precompilato, e Windows/macOS lo trattano come un salvataggio NUOVO su un nome esistente:
+    // da li' il prompt di overwrite. Con un path VERO (currentFilePath, popolato da fileIO.js su
+    // desktop) si scrive via IPC senza alcun dialog -- comportamento "Salva" onesto.
+    if (window.BaseFlowDesktop && window.BaseFlowDesktop.isDesktop && currentFilePath) {
+        try {
+            const res = await window.BaseFlowDesktop.writeFile(
+                currentFilePath,
+                _bfSerialize(Object.assign({}, flow, { author: (typeof currentAuthor !== 'undefined' ? currentAuthor : null) }))
+            );
+            if (res && res.ok) {
+                saved = true;
+                savedThisSession = true;
+                if (typeof markSaved === 'function') markSaved();
+                if (typeof syncUnsavedIndicator === 'function') syncUnsavedIndicator();
+                return;
+            }
+            console.error('Scrittura silenziosa fallita, ripiego sul dialog:', res && res.error);
+        } catch (err) {
+            console.error('Scrittura silenziosa fallita, ripiego sul dialog:', err);
+        }
+        currentFilePath = null; // path non piu' valido (es. file spostato/cancellato): non ritentarlo, ricadi sotto
+    }
     if (currentFileHandle) {
         try {
             // Alcuni browser richiedono ri-conferma del permesso di scrittura su handle riusati

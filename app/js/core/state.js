@@ -280,6 +280,14 @@ let saved; // Flag per indicare se ci sono modifiche non salvate nel flowchart
 // completo: l'API File System Access non lo espone comunque, per privacy).
 let currentFileName = null;
 let currentFileHandle = null;
+// WP (Ismail 2026-07-22, packaging desktop): path ASSOLUTO del file su disco, popolato SOLO
+// nell'app Electron (dialog nativo, vedi fileIO.js/saveOpen.js) -- l'API File System Access del
+// browser non lo espone mai (per privacy, vedi commento sopra), quindi su web/PWA resta sempre
+// null e il comportamento e' invariato. Serve perche' su desktop "Salva" deve scrivere in modo
+// SILENZIOSO sullo stesso file gia' aperto/salvato, invece di riaprire un dialog nativo che
+// chiede di sovrascrivere (bug segnalato da Ismail: succedeva SEMPRE dopo un "Apri", perche'
+// currentFileHandle -- un handle del browser -- non esiste per un file aperto via IPC nativo).
+let currentFilePath = null;
 // R14-A (Ismail 2026-07-13, regola confermata): il PRIMO Salva di OGNI sessione (dopo reload,
 // apertura file o Nuovo -- tutti e tre azzerano questo flag per costruzione, essendo un reload
 // completo della pagina) deve SEMPRE chiedere il popup nome+autore, anche se currentFileName e'

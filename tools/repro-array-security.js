@@ -28,12 +28,32 @@ const eq = (a, b, what) => {
   if (ja !== jb) throw new Error((what || '') + ' atteso ' + jb + ', avuto ' + ja);
 };
 
+// Estrae "function <name>(...) { ... }" contando le graffe invece di affidarsi a un livello
+// di indentazione fisso nella regex -- fragile: si e' gia' rotto una volta (WP 2026-07-22,
+// refactor di fileIO.js che ha spostato la funzione di un livello di nesting, cambiando
+// l'indentazione della sua chiusura da 8 a 4 spazi e facendo matchare la regex vecchia su
+// una graffa interna sbagliata, con un frammento troncato -> SyntaxError nel vm).
+function extractFunctionSrc(src, name) {
+  const startMatch = src.match(new RegExp('function ' + name + '\\([^)]*\\)\\s*\\{'));
+  if (!startMatch) return null;
+  const start = startMatch.index;
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  return null; // graffe non bilanciate: sorgente tagliata
+}
+
 // ---------------------------------------------------------- 1) validatore variabili da file
-// Estrae _bfValidateVariables dal sorgente vero di fileIO.js (e' definita dentro il listener
-// 'change': la si isola per testarla senza un DOM completo).
+// Estrae _bfValidateVariables dal sorgente vero di fileIO.js (e' definita dentro
+// _bfLoadFlowFromContent: la si isola per testarla senza un DOM completo).
 const fileIOSrc = fs.readFileSync(path.join(APP, 'js/core/fileIO.js'), 'utf8');
-const mV = fileIOSrc.match(/function _bfValidateVariables\(vars\) \{[\s\S]*?\n {8}\}/);
-if (!mV) { console.log('  FAIL estrazione _bfValidateVariables da fileIO.js'); process.exit(1); }
+const vSrc = extractFunctionSrc(fileIOSrc, '_bfValidateVariables');
+if (!vSrc) { console.log('  FAIL estrazione _bfValidateVariables da fileIO.js'); process.exit(1); }
 const sbV = { console, Array, Object, Number, String, RegExp, isFinite, JSON };
 sbV.window = sbV; vm.createContext(sbV);
 // Il tetto celle si LEGGE dal sorgente vero: prima era hardcodato qui a 10000 e il test
@@ -42,7 +62,7 @@ sbV.window = sbV; vm.createContext(sbV);
 const mMax = fileIOSrc.match(/const BF_ARRAY_MAX_CELLS = (\d+)/);
 if (!mMax) { console.log('  FAIL BF_ARRAY_MAX_CELLS non trovata in fileIO.js'); process.exit(1); }
 const MAX_CELLS = parseInt(mMax[1], 10);
-vm.runInContext('const BF_ARRAY_MAX_CELLS = ' + MAX_CELLS + '; const _SCALAR_TYPES = ["int","float","string","bool","boolean"];\n' + mV[0], sbV);
+vm.runInContext('const BF_ARRAY_MAX_CELLS = ' + MAX_CELLS + '; const _SCALAR_TYPES = ["int","float","string","bool","boolean"];\n' + vSrc, sbV);
 const validate = v => vm.runInContext('_bfValidateVariables(' + JSON.stringify(v) + ')', sbV);
 
 console.log('--- 1) file: variabili non fidate ---');
@@ -154,11 +174,11 @@ T('divisione per zero resta un errore controllato', () => {
 // ---------------------------------------------------------- 3) XSS nella griglia celle
 console.log('\n--- 3) valori utente mostrati in UI ---');
 const varsSrc = fs.readFileSync(path.join(APP, 'js/core/variables.js'), 'utf8');
-const mEsc = varsSrc.match(/function _bfEscapeHtml\(s\) \{[\s\S]*?\n\}/);
-if (!mEsc) { console.log('  FAIL estrazione _bfEscapeHtml'); fail++; }
+const escSrc = extractFunctionSrc(varsSrc, '_bfEscapeHtml');
+if (!escSrc) { console.log('  FAIL estrazione _bfEscapeHtml'); fail++; }
 else {
   const sbX = { console, String }; sbX.window = sbX; vm.createContext(sbX);
-  vm.runInContext(mEsc[0], sbX);
+  vm.runInContext(escSrc, sbX);
   const esc = s => vm.runInContext('_bfEscapeHtml(' + JSON.stringify(s) + ')', sbX);
   T('escape di < > & nelle celle (niente markup iniettato)', () => {
     eq(esc('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');

@@ -2381,6 +2381,7 @@ function _doClearCanvas() {
     currentFileName = null;
     currentAuthor = null;
     currentFileHandle = null;
+    currentFilePath = null; // WP (Ismail 2026-07-22): altrimenti il prossimo Salva scriverebbe silenziosamente sul vecchio file invece di chiedere un nome nuovo
     saved = true; // stato "progetto nuovo": come all'avvio, pallino spento
     if (typeof calcoloY === 'function') calcoloY(nodi);
     if (typeof draw === 'function') draw(nodi);

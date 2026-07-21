@@ -79,6 +79,14 @@ jobs:
       - name: Add Android project
         run: npx cap add android
 
+      # Capacitor 8's generated project targets compileSdk/targetSdk 36 (android/variables.gradle) --
+      # newer than the default package set android-actions/setup-android installs, so the first
+      # Gradle build failed trying to fetch it without pre-accepted licenses (2026-07-22, run #1).
+      - name: Install Android SDK platform matching the generated project
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" || sdkmanager "platforms;android-36"
+
       - name: Sync web assets
         run: npx cap sync android
 

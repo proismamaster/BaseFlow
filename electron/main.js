@@ -21,7 +21,7 @@
  *    porta via l'intera app dentro la stessa finestra.
  */
 
-const { app, BrowserWindow, Menu, shell, protocol, net, dialog } = require('electron');
+const { app, BrowserWindow, Menu, shell, protocol, net, dialog, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const url = require('node:url');
@@ -110,6 +110,59 @@ function registerAppProtocol() {
 }
 
 /* --------------------------------------------------------------------------
+ * IPC: apertura/salvataggio file nativi (WP Ismail 2026-07-22)
+ * Perche' non basta l'API File System Access del browser: non espone MAI un
+ * path reale (privacy by design), quindi ogni "Salva" su un file gia' noto
+ * puo' solo riusare il NOME e riaprire un picker nativo precompilato -- che
+ * su un nome gia' esistente sul disco Windows/macOS trattano come un
+ * salvataggio NUOVO e chiedono conferma di overwrite. Con un path VERO (che
+ * qui possiamo dare, essendo codice Node nel main) il dialog nativo serve
+ * solo alla PRIMA apertura/salvataggio; i "Salva" successivi scrivono
+ * direttamente con fs, zero dialog, zero prompt di overwrite.
+ * ------------------------------------------------------------------------ */
+const BF_FILE_FILTERS = [{ name: 'BaseFlow files', extensions: ['bflow', 'json'] }];
+const BF_ALLOWED_EXT = /\.(?:bflow|json)$/i;
+
+function registerFileIpc() {
+  ipcMain.handle('bf:open-dialog', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, { filters: BF_FILE_FILTERS, properties: ['openFile'] });
+    if (res.canceled || !res.filePaths[0]) return null; // annullato: nessuno stato da toccare
+    const filePath = res.filePaths[0];
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      return { ok: true, path: filePath, content };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
+  ipcMain.handle('bf:save-dialog', async (event, suggestedName) => {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: (typeof suggestedName === 'string' && suggestedName) ? suggestedName : 'flowchart.bflow',
+      filters: BF_FILE_FILTERS
+    });
+    if (res.canceled || !res.filePath) return null;
+    return res.filePath;
+  });
+
+  // Scrittura diretta: nessun dialog. Il path arriva SEMPRE da bf:open-dialog/bf:save-dialog
+  // (scelto dall'utente in un picker nativo) o da un path gia' scritto in precedenza nella
+  // stessa sessione -- l'estensione e' comunque ricontrollata qui come difesa in profondita'.
+  ipcMain.handle('bf:write-file', async (event, filePath, content) => {
+    if (typeof filePath !== 'string' || !BF_ALLOWED_EXT.test(filePath)) {
+      return { ok: false, error: 'Estensione file non ammessa.' };
+    }
+    if (typeof content !== 'string') return { ok: false, error: 'Contenuto non valido.' };
+    try {
+      fs.writeFileSync(filePath, content, 'utf8');
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+}
+
+/* --------------------------------------------------------------------------
  * Finestra principale
  * ------------------------------------------------------------------------ */
 let mainWindow = null;
@@ -127,6 +180,11 @@ function createWindow() {
     backgroundColor: '#ffffff', // evita il flash bianco/nero prima del primo paint
     show: false,                // si mostra a "ready-to-show": niente finestra vuota
     title: 'BaseFlow',
+    // WP (Ismail 2026-07-22): la barra File/Modifica/Visualizza/Finestra/? e' ridondante con la
+    // UI dell'app (manuale/editor gia' raggiungibili da li') e su Windows/Linux occupa spazio in
+    // alto senza motivo -- nascosta di default, si riapre con un tocco di Alt se mai servisse
+    // (es. DevTools). Su macOS non si applica: la barra dei menu vive fuori dalla finestra.
+    autoHideMenuBar: true,
     icon: process.platform === 'linux' ? path.join(__dirname, '..', 'build', 'icon.png') : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -137,6 +195,10 @@ function createWindow() {
       spellcheck: false
     }
   });
+
+  // Cintura e bretelle: autoHideMenuBar copre gia' la maggior parte delle build di Electron, ma
+  // setMenuBarVisibility(false) e' il modo esplicito per assicurarsi che la barra parta nascosta.
+  if (!IS_MAC) mainWindow.setMenuBarVisibility(false);
 
   if (state.maximized) mainWindow.maximize();
 
@@ -249,6 +311,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     registerAppProtocol();
+    registerFileIpc();
     buildMenu();
     createWindow();
 
