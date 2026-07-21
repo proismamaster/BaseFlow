@@ -34,7 +34,7 @@ Se pubblichi via FTP/rsync o GitHub Pages, la cartella da caricare adesso è `ap
 - **Windows**: niente altro
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
 - **Linux**: per il `.rpm` serve `rpm` (`sudo apt install rpm`)
-- **Android**: [Android Studio](https://developer.android.com/studio) + JDK 17
+- **Android**: [Android Studio](https://developer.android.com/studio) + JDK 21 (JDK 17 fallisce: `capacitor-android` compila con `--release 21`, serve un JDK almeno cosi' recente -- scoperto nella CI, 2026-07-22)
 
 Prima cosa, una volta sola:
 

@@ -63,10 +63,13 @@ jobs:
         with:
           node-version: 22
 
+      # JDK 17 fails the Gradle build: capacitor-android's compileDebugJavaWithJavac wants
+      # --release 21 ("invalid source release: 21"), so javac needs to run under a JDK that's
+      # at least that new (2026-07-22, run #2). BUILD.md's "JDK 17" prerequisite is stale too.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - uses: android-actions/setup-android@v3
 
