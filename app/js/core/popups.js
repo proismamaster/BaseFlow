@@ -267,6 +267,13 @@ function showRuntimeError(message, idx) {
 // spiega COSA fa il blocco, COME funziona e il significato delle impostazioni. Anche i blocchi
 // SENZA impostazioni (Home/Clear) aprono questo popup direttamente (solo ?, X e descrizione).
 // Le descrizioni riusano le chiavi tut_edit_* gia' localizzate in 4 lingue.
+// WP-M11 (Ismail 2026-07-21): blocchi che non hanno NULLA da configurare. Il loro dialog e'
+// #edit-node-popup (come tutti gli altri, stesso stile) ma in modalita' "sola descrizione +
+// Elimina" -- vedi _bfSetupEditFields sotto e openNodeEditor in interaction.js.
+var PARAMLESS_TYPES = ['pause', 'home', 'gclear'];
+function _bfIsParamlessType(t) { return PARAMLESS_TYPES.indexOf(t) !== -1; }
+if (typeof window !== 'undefined') { window.PARAMLESS_TYPES = PARAMLESS_TYPES; window._bfIsParamlessType = _bfIsParamlessType; }
+
 var BLOCK_HELP_KEY = {
   input: 'tut_edit_input', print: 'tut_edit_print', output: 'tut_edit_print', read: 'tut_edit_input',
   assign: 'tut_edit_assign', if: 'tut_edit_if', while: 'tut_edit_while', for: 'tut_edit_for',
@@ -439,6 +446,7 @@ function _manualSetupDragResize(ov) {
       dragging = false; rz = false;
       if (document.body && document.body.style) document.body.style.userSelect = '';
       if (ifr && ifr.style) ifr.style.pointerEvents = '';
+      if (typeof bfSavePopupGeom === 'function') bfSavePopupGeom(ov); // WP-M11
     }
   };
   window.addEventListener('pointerup', _manDragEnd);
@@ -473,9 +481,28 @@ function chiudiPopup() {
     const newlineCheck = document.getElementById('out-newline-check');
     const isAssign = node.type === 'assign';
     const isPrint = node.type === 'print';
+    // WP-M6q (Ismail: "perche' chiede un input su pause??"): il blocco Pausa non ha CONTENUTO
+    // da modificare -- e' un punto di sospensione, non un'istruzione. Mostrargli il campo di
+    // testo faceva credere che servisse scriverci qualcosa. Il campo sparisce; il popup resta
+    // (spiega cos'e' il blocco e permette di chiuderlo), coerente con gli altri.
+    // WP-M11 (Ismail 2026-07-21): stessa logica estesa a TUTTI i blocchi senza parametri
+    // (Pausa, Home, Pulisci -- PARAMLESS_TYPES sotto). Niente campi, niente Salva: il popup
+    // mostra la DESCRIZIONE del blocco (stesse chiavi tut_edit_* della guida "?") e la sola
+    // azione Elimina. Home/Pulisci prima aprivano direttamente la guida (openBlockHelp), quindi
+    // non c'era modo di eliminarli dal loro dialog: ora sono coerenti con gli altri blocchi.
+    const isParamless = _bfIsParamlessType(node.type);
     if (assignFields) assignFields.hidden = !isAssign;
-    if (input) input.hidden = isAssign;
+    if (input) input.hidden = isAssign || isParamless;
     if (newlineRow) newlineRow.hidden = !isPrint;
+    // Al posto del campo: la scritta "Nessun parametro", centrata. Non e' la spiegazione del
+    // blocco -- quella resta una sola, dietro il "?" (openBlockHelp), come per tutti gli altri.
+    const desc = document.getElementById('edit-node-desc');
+    if (desc) {
+      desc.textContent = isParamless ? ((typeof i18nText === 'function' && i18nText('no_params')) || 'Nessun parametro') : '';
+      desc.hidden = !isParamless;
+    }
+    const saveBtn = document.getElementById('save-node-info');
+    if (saveBtn) saveBtn.hidden = isParamless;
     if (isAssign) {
       // FIX #37-style: parsing TOLLERANTE, non perde MAI l'input utente. Spezza sul PRIMO '='.
       const info = String(node.info || '');

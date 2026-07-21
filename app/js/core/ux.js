@@ -132,6 +132,61 @@
   // qualunque punto vuoto del popup (non su bottoni/input). I popup sono centrati via
   // transform translate(-50%,-50%): al primo gesto la posizione si "congela" in left/top
   // assoluti (transform none), come gia' fa _manualSetupDragResize.
+  // ==========================================================================
+  // WP-M11 (Ismail 2026-07-21): "fai in modo che posizione e dimensione dei vari popup
+  // siano salvate in cache". Un solo posto per TUTTE le finestre (palette, Impostazioni,
+  // crea-tema, manuale, tela tartaruga, terminale flottante): quelle qui sotto passano da
+  // bfMakeWindowPopup, le altre tre hanno un drag/resize proprio e chiamano bfSavePopupGeom
+  // dal loro pointerup -- l'importante e' che il FORMATO e il clamp stiano scritti una volta
+  // sola, altrimenti sei finestre significano sei modi diversi di salvare la stessa cosa.
+  // Si salva solo cio' che l'utente ha davvero scelto; una finestra mai spostata ne'
+  // ridimensionata non ha voce nello storage e continua ad aprirsi centrata come sempre.
+  // ==========================================================================
+  const GEOM_KEY = 'bf.popup.geom.v1';
+  function _geomAll() {
+    try { const o = JSON.parse(localStorage.getItem(GEOM_KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; }
+    catch (e) { return {}; } // storage pieno/disattivato (Safari privato): si continua senza memoria
+  }
+  function bfSavePopupGeom(el) {
+    if (!el || !el.id) return;
+    let r; try { r = el.getBoundingClientRect(); } catch (e) { return; }
+    if (!r || r.width < 20 || r.height < 20) return; // finestra chiusa/non ancora misurabile
+    const all = _geomAll();
+    all[el.id] = {
+      l: Math.round(r.left), t: Math.round(r.top),
+      w: Math.round(r.width), h: Math.round(r.height),
+      sized: !!(el.classList && el.classList.contains('bf-user-sized'))
+    };
+    try { localStorage.setItem(GEOM_KEY, JSON.stringify(all)); } catch (e) {}
+  }
+  // Riapplica la geometria salvata. `withSize`: false per le finestre la cui DIMENSIONE e'
+  // gestita da altro (es. il terminale, che ha una scala sua) -- si rimette solo la posizione.
+  // Il clamp non e' un dettaglio: lo schermo di oggi puo' essere piu' piccolo di quello di
+  // ieri (telefono dopo desktop, rotazione, finestra ridotta) e una finestra ripristinata
+  // fuori viewport sarebbe irraggiungibile, senza modo di rimediare se non svuotando la cache.
+  function bfRestorePopupGeom(el, withSize) {
+    if (!el || !el.id) return false;
+    const g = _geomAll()[el.id];
+    if (!g) return false;
+    const vw = window.innerWidth || 1200, vh = window.innerHeight || 900;
+    let w = g.w, h = g.h;
+    if (withSize !== false && g.sized) {
+      w = Math.max(160, Math.min(Math.floor(vw * 0.98), w));
+      h = Math.max(120, Math.min(Math.floor(vh * 0.96), h));
+      el.style.width = w + 'px'; el.style.height = h + 'px';
+      el.style.minWidth = '0'; el.style.maxWidth = 'none'; el.style.maxHeight = 'none';
+      el.classList.add('bf-user-sized');
+    }
+    // Almeno un angolo abbondante deve restare cliccabile dentro lo schermo.
+    const l = Math.max(0, Math.min(vw - 80, g.l));
+    const t = Math.max(0, Math.min(vh - 60, g.t));
+    el.style.left = l + 'px'; el.style.top = t + 'px';
+    el.style.transform = 'none'; el.style.margin = '0';
+    return true;
+  }
+  window.bfSavePopupGeom = bfSavePopupGeom;
+  window.bfRestorePopupGeom = bfRestorePopupGeom;
+
   function bfMakeWindowPopup(el, opts) {
     if (!el || el._bfWinWired) return;
     el._bfWinWired = true;
@@ -150,7 +205,13 @@
       // Palette (drag "da qualunque punto vuoto", nessun handle dedicato): su TOUCH il
       // gesto sul corpo del popup deve restare per lo SCROLL del contenuto (overflow:auto
       // su mobile) -- il drag a dito resta possibile dalle maniglie/bordi. Col mouse invariato.
-      if (!opts.dragHandle && e.pointerType === 'touch') return;
+      // WP-M11 (Ismail 2026-07-21, "rendi il popup per aggiungere blocchi spostabile da
+      // tablet"): il blocco totale del drag a dito rendeva la palette IMMOBILE su tablet, dove
+      // non esiste il mouse. Ora il dito trascina quando tocca il popup STESSO -- cioe' la
+      // fascia di padding attorno alla griglia, dove la X e il "?" gia' vivono e dove non c'e'
+      // niente da scorrere. Dentro la griglia (e.target e' un discendente) lo scroll resta
+      // intatto: e' la distinzione che mancava, non "touch si / touch no".
+      if (!opts.dragHandle && e.pointerType === 'touch' && e.target !== el) return;
       // Mai iniziare un drag da un controllo interattivo (o dalle maniglie di resize).
       if (e.target && e.target.closest && e.target.closest('button, input, select, textarea, label, a, .tg-rz')) return;
       const r = freeze();
@@ -203,6 +264,7 @@
       if (drag || rz) {
         drag = false; rz = false;
         if (document.body && document.body.style) document.body.style.userSelect = '';
+        bfSavePopupGeom(el); // WP-M11: si memorizza a gesto FINITO, non a ogni pointermove
       }
     };
     window.addEventListener('pointerup', end);
@@ -212,6 +274,13 @@
     bfMakeWindowPopup(document.getElementById('settings-popup'), { dragHandle: 'h3', minW: 280, minH: 260 });
     bfMakeWindowPopup(document.getElementById('theme-editor'), { dragHandle: '.te-head', minW: 280, minH: 260 });
     bfMakeWindowPopup(document.getElementById('popup-window'), { minW: 300, minH: 240 });
+    // WP-M11: geometria dell'ultima sessione. Si riapplica SUBITO, anche a finestra chiusa:
+    // sono stili inline su elementi display:none, non costano nulla e cosi' la finestra e' gia'
+    // al posto giusto alla prima apertura, senza un salto visibile.
+    ['settings-popup', 'theme-editor', 'popup-window', 'manual-overlay', 'draw-output-panel'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) bfRestorePopupGeom(el);
+    });
   }
 
   window.addEventListener('load', function () {

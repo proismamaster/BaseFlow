@@ -336,6 +336,10 @@ function run(){
     const wasActive = c.classList.contains('active');
     if (!wasActive) {
         c.classList.add('docked');
+        // WP-M11 (Ismail 2026-07-21): il terminale riparte SEMPRE agganciato (righe sopra) --
+        // su telefono quindi ruba la larghezza alla barra Variabili, che va chiusa. Vale solo
+        // da agganciato: il terminale mobile/flottante puo' convivere con le Variabili.
+        if (typeof _bfPhoneLayout === 'function' && _bfPhoneLayout() && typeof _bfCollapseVariables === 'function') _bfCollapseVariables();
         const _mt = document.getElementById('console-mobile-toggle'); if (_mt) _mt.classList.remove('is-mobile');
         c.style.left = ''; c.style.top = ''; c.style.transform = ''; c.style.margin = '';
         c.style.width = ''; c.style.height = ''; c.style.maxWidth = ''; c.style.maxHeight = '';
@@ -410,6 +414,15 @@ function toggleConsoleDock() {
     const c = document.getElementById('console-popup');
     const docked = c.classList.toggle('docked');
     const active = c.classList.contains('active');
+    // WP-M11: passando da mobile/flottante ad AGGANCIATO su telefono vale la stessa regola di
+    // run() -- da qui in poi il terminale occupa una colonna, le Variabili si chiudono.
+    if (docked && active && typeof _bfPhoneLayout === 'function' && _bfPhoneLayout() && typeof _bfCollapseVariables === 'function') _bfCollapseVariables();
+    // WP-M11: il terminale FLOTTANTE riprende posizione/dimensione dell'ultima volta. Non si
+    // ripristina al load come le altre finestre perche' qui gli stili inline vengono azzerati
+    // apposta a ogni cambio modalita' (righe sotto) e da run(): il momento giusto e' quello in
+    // cui diventa flottante, cioe' adesso. Da agganciato non si ripristina nulla: la sua
+    // geometria la decide il layout laterale, non l'utente.
+    if (!docked && typeof bfRestorePopupGeom === 'function') setTimeout(function () { bfRestorePopupGeom(c); }, 0);
     { const _ov = document.getElementById('overlay'); if (_ov) _ov.classList.remove('active'); } // console non modale (#38)
     // Stato del toggle "Terminale mobile": attivo quando la console e' sganciata (floating).
     { const _mt = document.getElementById('console-mobile-toggle'); if (_mt) _mt.classList.toggle('is-mobile', !docked); }
@@ -570,7 +583,10 @@ function toggleConsoleDock() {
             el.style.setProperty('--console-scale', scale.toFixed(3));
         });
         const _bfMobRzEnd = function () {
-            if (rz) { rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
+            if (rz) {
+                rz = false; if (document.body && document.body.style) document.body.style.userSelect = '';
+                if (!el.classList.contains('docked') && typeof bfSavePopupGeom === 'function') bfSavePopupGeom(el); // WP-M11
+            }
         };
         window.addEventListener('pointerup', _bfMobRzEnd);
         window.addEventListener('pointercancel', _bfMobRzEnd); // gesto touch interrotto: mai lasciare il resize "appeso"
@@ -976,11 +992,14 @@ async function executeFlow(json){
             currentNode = await executeNode(node, currentNode, variables, prevNode);
             prevNode = nodeIdxBeforeExec;
             refreshVariablesWatch(variables, touchedVarName(node));
-            // R12-F: il breakpoint Pause MANTIENE il comportamento di prima -- salto diretto
-            // all'evidenziazione del nodo successivo, SENZA fase-arco (il run e' comunque
-            // interrotto qui: l'arco eventuale si vedra' al prossimo Esegui/Step, quando la
-            // scansione riparte normalmente dal nodo corrente).
-            highlightExecNode(currentNode != null ? parseInt(currentNode) : -1);
+            // WP-M6q (Ismail 2026-07-21, "il blocco pausa deve stare evidenziato su pause e
+            // non su comment quando ci arriva"): si evidenziava il nodo SUCCESSIVO, perche'
+            // `currentNode` a questo punto e' gia' avanzato. Chi guarda lo schermo vede pero'
+            // l'esecuzione FERMA su un blocco che non ha ancora eseguito -- e se dopo la Pausa
+            // c'e' un Commento, sembra che sia stato il Commento a fermare tutto.
+            // Si evidenzia il blocco Pausa STESSO: e' li' che l'esecuzione e' sospesa, ed e'
+            // quello che si riprendera' a scorrere premendo Esegui o Passo.
+            highlightExecNode(idxBeforeExec2);
             // C7 (round 11): un breakpoint Pause interrompe il run ma resta RIPRENDIBILE
             // (Esegui/Step), esattamente come pauseRequested qui sotto -- deve quindi settare
             // _paused come quel caso, cosi' il ramo "if (!_paused)" a fine funzione NON
@@ -2540,6 +2559,8 @@ if (typeof window !== 'undefined') window.updateProjectIdentity = updateProjectI
   const _bfConsDragEnd = function () {
     if (!dragging) return;
     dragging = false; el.classList.remove('dragging');
+    // WP-M11: solo da flottante -- da agganciato la posizione la decide il layout, non l'utente.
+    if (!el.classList.contains('docked') && typeof bfSavePopupGeom === 'function') bfSavePopupGeom(el);
   };
   window.addEventListener('pointerup', _bfConsDragEnd);
   window.addEventListener('pointercancel', _bfConsDragEnd); // WP-6: gesto touch interrotto

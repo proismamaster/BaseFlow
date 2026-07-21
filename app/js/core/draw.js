@@ -179,7 +179,11 @@ function _tgSetupDragResize(p) {
     }
   });
   const _tgDragEnd = function () {
-    if (drag || rz) { drag = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = ''; }
+    if (drag || rz) {
+      drag = false; rz = false; if (document.body && document.body.style) document.body.style.userSelect = '';
+      // WP-M11: posizione/dimensione ricordate fra le sessioni (helper condiviso in ux.js).
+      if (typeof bfSavePopupGeom === 'function') bfSavePopupGeom(p);
+    }
   };
   window.addEventListener('pointerup', _tgDragEnd);
   window.addEventListener('pointercancel', _tgDragEnd); // WP-6: gesto touch interrotto
@@ -593,7 +597,7 @@ function ensureTurtleDialog() {
   d.innerHTML =
     '<button class="blk-help-btn" onclick="openBlockHelp((flow.nodes[turtleNodeIndex]||{}).type)" data-i18n-title="tip_block_help" title="' + _dt('tip_block_help', 'Guida al blocco') + '" aria-label="?">?</button>' +
     '<button class="x-close" onclick="closeTurtleDialog()" data-i18n-title="close" title="' + _dt('close', 'Chiudi') + '" aria-label="close">&times;</button>' +
-    '<h3 id="tg-title">' + _dt('tg_title', 'Configura') + '</h3>' +
+    '<h3 id="tg-title" data-i18n="edit_title">' + _dt('edit_title', 'Modifica nodo') + '</h3>' +
     '<div id="tg-forward-wrap"><label>' + _dt('tg_distance', 'Distanza') + ':</label>' +
       '<input type="text" id="tg-dist" class="draw-input" value="50"></div>' +
     '<div id="tg-turn-wrap">' +
@@ -613,25 +617,33 @@ function ensureTurtleDialog() {
         '<div><label>' + _dt('draw_color', 'Colore') + ':</label><input type="color" id="tg-color" value="#000000"></div>' +
         '<div><label>' + _dt('tg_width', 'Spessore') + ':</label><input type="text" id="tg-width" class="draw-input" value="2" style="width:70px"></div>' +
       '</div></div>' +
+    // WP-M11 (Ismail 2026-07-21): stesse azioni di #edit-node-popup (Salva + Elimina, non piu'
+    // un solo "OK") -- i blocchi Grafica non devono essere un caso a parte.
     '<div class="draw-actions">' +
-      '<button id="tg-ok" onclick="saveTurtleNode()">' + _dt('ok', 'OK') + '</button>' +
+      // data-i18n: il dialog viene costruito UNA volta sola, quindi senza questi attributi le
+      // due etichette resterebbero nella lingua attiva al momento della creazione.
+      '<button id="tg-ok" data-i18n="save" onclick="saveTurtleNode()">' + _dt('save', 'Salva') + '</button>' +
+      '<button id="tg-delete" data-i18n="delete" onclick="deleteTurtleNode()">' + _dt('delete', 'Elimina') + '</button>' +
     '</div>';
   if (!host || typeof host.appendChild !== 'function') return null;
   try { host.appendChild(d); } catch (e) { return null; }
   return d;
 }
 
-// home/gclear non hanno parametri -> nessun dialog.
+// home/gclear non hanno parametri -> non passano di qui: openNodeEditor (interaction.js) li
+// manda su #edit-node-popup in modalita' "descrizione + Elimina" (WP-M11, PARAMLESS_TYPES in
+// popups.js), cosi' hanno lo stesso dialog e lo stesso stile di tutti gli altri blocchi.
 function openTurtleDialog(idx) {
   if (typeof flow === 'undefined' || !flow.nodes[idx]) return;
   const t = flow.nodes[idx].type;
-  if (t === 'home' || t === 'gclear') { turtleNodeIndex = idx; if (typeof openBlockHelp === 'function') openBlockHelp(t); return; }
   turtleNodeIndex = idx;
   ensureTurtleDialog();
   const show = function (id, on) { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
   show('tg-forward-wrap', t === 'forward'); show('tg-turn-wrap', t === 'turn'); show('tg-pen-wrap', t === 'pen');
-  const titleKey = { forward: 'tg_title_forward', turn: 'tg_title_turn', pen: 'tg_title_pen' }[t] || 'tg_title';
-  const ttl = document.getElementById('tg-title'); if (ttl) ttl.textContent = _dt(titleKey, 'Configura');
+  // WP-M11 (Ismail 2026-07-21): titolo UNICO "Modifica nodo" (edit_title), lo stesso di
+  // #edit-node-popup, invece di uno per tipo ("Turn - degrees", "Pen ...", ...). E' la stessa
+  // azione sullo stesso genere di oggetto: il tipo di blocco si vede gia' dai campi sotto.
+  const ttl = document.getElementById('tg-title'); if (ttl) ttl.textContent = _dt('edit_title', 'Modifica nodo');
   const p = _parseTurtle(t, flow.nodes[idx].info || '');
   if (t === 'forward') { const e = document.getElementById('tg-dist'); if (e) e.value = p.dist; }
   else if (t === 'turn') {
@@ -659,6 +671,17 @@ function closeTurtleDialog() {
   const ov = document.getElementById('overlay'); if (ov) ov.classList.remove('active');
   if (typeof _bfPopOverlay === 'function') _bfPopOverlay('draw-popup');
 }
+// WP-M11: Elimina dal dialog del blocco Grafica. deleteNode() (interaction.js) lavora su
+// nodoSelected, non su turtleNodeIndex: si allinea l'indice, si chiude il dialog e si delega --
+// history/ridisegno sono gia' dentro deleteNode, nessuna logica di cancellazione duplicata qui.
+function deleteTurtleNode() {
+  if (turtleNodeIndex < 0 || typeof flow === 'undefined' || !flow.nodes[turtleNodeIndex]) { closeTurtleDialog(); return; }
+  if (typeof nodoSelected !== 'undefined') nodoSelected = turtleNodeIndex;
+  closeTurtleDialog();
+  if (typeof deleteNode === 'function') deleteNode();
+}
+if (typeof window !== 'undefined') window.deleteTurtleNode = deleteTurtleNode;
+
 function saveTurtleNode() {
   if (turtleNodeIndex < 0 || typeof flow === 'undefined' || !flow.nodes[turtleNodeIndex]) { closeTurtleDialog(); return; }
   const t = flow.nodes[turtleNodeIndex].type;

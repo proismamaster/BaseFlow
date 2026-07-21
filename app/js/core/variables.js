@@ -1282,10 +1282,49 @@ function toggleValueLock(btn) {
 
 // Mostra/nasconde COMPLETAMENTE la sidebar variabili (classe su #main).
 // Da chiusa resta un pulsante laterale (#sidebar-reopen) per riaprirla.
+// ============================================================================
+// WP-M11 (Ismail 2026-07-21): su TELEFONO la barra Variabili e il terminale AGGANCIATO non
+// possono stare aperti insieme -- sono due pannelli laterali che si spartiscono una larghezza
+// che su un telefono non c'e', e il canvas in mezzo sparisce. Aprendo uno si chiude l'altro,
+// in entrambi i versi. Il terminale in modalita' MOBILE (flottante, .docked assente) e'
+// escluso apposta: e' una finestrella sopra il canvas, non ruba larghezza -- richiesta
+// esplicita di Ismail ("se mette terminale mobile ok").
+// Le due funzioni stanno qui e non in execute.js perche' variables.js e' caricato prima e
+// deve poterle usare anche il terminale (window.*, sotto).
+// ============================================================================
+function _bfPhoneLayout() {
+  try { return !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 760px)').matches); }
+  catch (e) { return false; }
+}
+// Chiude la barra Variabili se aperta. Ritorna true se ha davvero chiuso qualcosa.
+function _bfCollapseVariables() {
+  const main = document.getElementById('main');
+  if (!main || main.classList.contains('sidebar-collapsed')) return false;
+  main.classList.add('sidebar-collapsed');
+  if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
+  return true;
+}
+// Chiude il terminale se e' aperto E agganciato (quello mobile/flottante resta).
+function _bfCloseDockedTerminal() {
+  const c = document.getElementById('console-popup');
+  if (!c || !c.classList.contains('active') || !c.classList.contains('docked')) return false;
+  if (typeof closeConsole === 'function') closeConsole();
+  else c.classList.remove('active');
+  if (typeof updateTerminalTab === 'function') updateTerminalTab();
+  return true;
+}
+if (typeof window !== 'undefined') {
+  window._bfPhoneLayout = _bfPhoneLayout;
+  window._bfCollapseVariables = _bfCollapseVariables;
+  window._bfCloseDockedTerminal = _bfCloseDockedTerminal;
+}
+
 function toggleVariables() {
   const main = document.getElementById('main');
   if (!main) return;
   main.classList.toggle('sidebar-collapsed');
+  // WP-M11: se si sta APRENDO la barra su telefono, il terminale agganciato lascia il posto.
+  if (!main.classList.contains('sidebar-collapsed') && _bfPhoneLayout()) _bfCloseDockedTerminal();
   if (typeof draw === 'function' && typeof nodi !== 'undefined') draw(nodi);
   // R14-E (Ismail 2026-07-13): PRIMA queste 3 chiamate erano in ordine SBAGLIATO --
   // updateZoomOffset()/centerGraph() giravano PRIMA di syncLayoutVars(), quindi misuravano

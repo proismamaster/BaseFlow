@@ -2556,17 +2556,25 @@ function openNodeEditor(idx) {
   const n = flow.nodes[idx]; if (!n) return;
   nodoSelected = idx;
   if (n.type === 'for' && typeof openForDialog === 'function') { openForDialog(idx); return; }
-  if (typeof TURTLE_TYPES !== 'undefined' && TURTLE_TYPES.indexOf(n.type) !== -1) { if (typeof openTurtleDialog === 'function') openTurtleDialog(idx); return; }
+  // WP-M11 (Ismail 2026-07-21): Home e Pulisci sono blocchi Grafica SENZA parametri -- non
+  // hanno un dialog turtle proprio (prima aprivano la guida "?", senza modo di eliminarli).
+  // Cadono quindi sul popup comune #edit-node-popup, che per loro mostra descrizione +
+  // Elimina (vedi PARAMLESS_TYPES/_bfSetupEditFields in popups.js).
+  const _paramless = (typeof _bfIsParamlessType === 'function') && _bfIsParamlessType(n.type);
+  if (!_paramless && typeof TURTLE_TYPES !== 'undefined' && TURTLE_TYPES.indexOf(n.type) !== -1) { if (typeof openTurtleDialog === 'function') openTurtleDialog(idx); return; }
   if (n.type !== 'start' && n.type !== 'end') {
     const pop = document.getElementById('edit-node-popup'); const ov = document.getElementById('overlay');
     if (pop) pop.classList.add('active'); if (ov) ov.classList.add('active');
+    // Titolo SEMPRE "Modifica nodo" (edit_title), stessa dimensione per tutti i blocchi: e' lo
+    // stesso popup, cambiargli intestazione a seconda del tipo lo faceva sembrare un'altra cosa.
     const title = document.getElementById('edit-node-title'); if (title) title.innerHTML = (typeof i18nText === 'function' && i18nText('edit_title')) || ('Edit ' + n.type + ' node');
     // A1+A4 (round 11): stesso helper condiviso di clickNodo() -- vedi popups.js.
     if (typeof _bfSetupEditFields === 'function') _bfSetupEditFields(n);
     // R13-F (Ismail 2026-07-12): registra l'apertura nello stack condiviso Esc (popups.js).
     if (typeof _bfPushOverlay === 'function') _bfPushOverlay('edit-node-popup');
-    // WP-D5 (round 15-D): Enter = Salva.
-    if (typeof _bfWireDialogKeys === 'function' && typeof salvaInfo === 'function') _bfWireDialogKeys(pop, salvaInfo);
+    // WP-D5 (round 15-D): Enter = Salva. WP-M11: nei blocchi senza parametri non c'e' un Salva
+    // (il pulsante e' nascosto), quindi Enter si limita a chiudere -- non deve "salvare" nulla.
+    if (typeof _bfWireDialogKeys === 'function') _bfWireDialogKeys(pop, _paramless ? chiudiEditPopup : salvaInfo);
     // P2.4 (round 15-B S1): l'apertura porta SEMPRE il popup in primo piano (ux.js) -- coerente
     // col raise-on-click su successivi click, non solo relativo ai default statici di style.css.
     if (typeof bfBringToFrontPopup === 'function' && pop) bfBringToFrontPopup(pop);

@@ -87,7 +87,7 @@
         }
         _bfApplyEarlyTheme(document.documentElement);
         </script>
-        <link rel="stylesheet" href="style.css?v=20260721l">
+        <link rel="stylesheet" href="style.css?v=20260722b">
         <link rel="icon" type="image/png" href="img/icon.png" />
         <link rel="manifest" href="manifest.json">
     </head>
@@ -249,12 +249,24 @@
                     </div>
                     </div>
                     <button id="close-popup" class="x-close" onclick="chiudiPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <!-- WP-M6h (Ismail 2026-07-21): "dentro il popup dei blocchi ci deve essere,
+                         nel lato opposto alla x, un punto di domanda che mostra tutti i blocchi
+                         uno a uno usando la spiegazione del manuale". Sta all'angolo opposto
+                         (start) proprio perche' e' l'azione simmetrica alla chiusura. -->
+                    <button id="palette-help" class="x-help" onclick="startAllBlocksTutorial()" data-i18n-title="tip_palette_help" title="Spiega tutti i blocchi" aria-label="?">?</button>
                     </div>
                     
                     <div id="edit-node-popup">
                         <button class="blk-help-btn" onclick="openBlockHelp((flow.nodes[nodoSelected]||{}).type)" data-i18n-title="tip_block_help" title="Guida al blocco" aria-label="?">?</button>
                         <button class="x-close" onclick="chiudiEditPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
                         <h3 id="edit-node-title" data-i18n="edit_title">Edit Node</h3>
+                        <!-- WP-M11 (Ismail 2026-07-21): blocchi SENZA parametri (Pausa/Home/Pulisci)
+                             aprono QUESTO popup come tutti gli altri -- stesso titolo "Modifica
+                             nodo", stessi "?" e X. Al posto del campo di testo compare un
+                             segnaposto con un trattino centrato (niente da compilare) e l'unica
+                             azione e' Elimina: il Salva viene nascosto da _bfSetupEditFields
+                             (popups.js), non c'e' niente da salvare. -->
+                        <p id="edit-node-desc" hidden></p>
                         <input type="text" id="edit-node-input" data-i18n-ph="edit_ph" placeholder="Enter node information">
                         <div id="assign-fields" hidden>
                           <div class="assign-row"><label for="assign-var-input" data-i18n="assign_var_label">Variabile</label><input type="text" id="assign-var-input"></div>
@@ -455,6 +467,9 @@
                     <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
                     <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
                     <button class="x-close" onclick="closeSettingsPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <!-- WP-M6h: "come quello per i blocchi, anche nelle impostazioni un ? opposto
+                         alla x che mostri cosa faccia ogni impostazione e a cosa serva". -->
+                    <button id="settings-help" class="x-help" onclick="startSettingsTutorial()" data-i18n-title="tip_settings_help" title="A cosa serve ogni impostazione" aria-label="?">?</button>
                     <h3 data-i18n="settings_title">Settings</h3>
                     <div class="settings-body">
                       <section class="settings-group">
@@ -634,21 +649,21 @@
         <script src="js/core/state.js?v=20260720c"></script>
         <script src="js/core/fileFormat.js?v=20260719b"></script>
         <script src="js/core/utils.js?v=20260712a"></script>
-        <script src="js/core/variables.js?v=20260721l"></script>
+        <script src="js/core/variables.js?v=20260721m"></script>
         <script src="js/core/layout.js?v=20260721a"></script>
         <script src="js/core/rendering.js?v=20260720b"></script>
-        <script src="js/core/popups.js?v=20260720e"></script>
-        <script src="js/core/interaction.js?v=20260720c"></script>
+        <script src="js/core/popups.js?v=20260722a"></script>
+        <script src="js/core/interaction.js?v=20260721b"></script>
         <script src="js/core/fileIO.js?v=20260721f"></script>
         <script src="js/core/theme.js?v=20260720c"></script>
-        <script src="js/core/i18n.js?v=20260721k"></script>
-        <script src="js/core/draw.js?v=20260721a"></script>
-        <script src="js/core/ux.js?v=20260720c"></script>
+        <script src="js/core/i18n.js?v=20260721m"></script>
+        <script src="js/core/draw.js?v=20260722a"></script>
+        <script src="js/core/ux.js?v=20260722a"></script>
         <script src="js/core/settings.js?v=20260720e"></script>
         <script src="js/core/init.js?v=20260720e"></script>
 
         <script src="js/core/safeEval.js?v=20260720e"></script>
-        <script src="js/execute.js?v=20260720f"></script>
+        <script src="js/execute.js?v=20260722a"></script>
         <script src="js/saveOpen.js?v=20260719a"></script>
         <script src="js/pythonTranslation.js?v=20260720f"></script>
         <script src="js/multiTranslation.js?v=20260720f"></script>

@@ -1,7 +1,10 @@
 // BaseFlow Service Worker
 // Strategia NETWORK-FIRST + CACHE_NAME versionato (bump = invalida la cache vecchia).
 // activate: cancella le cache vecchie + clients.claim(). Offline: fallback alla cache.
-const CACHE_NAME = 'baseflow-v19';
+// WP-M6l (2026-07-21): bump obbligatorio ad OGNI modifica dei file precacheati. Senza, una
+// copia installata continua a servire la versione vecchia dalla cache e le correzioni
+// "non arrivano" -- e' successo esattamente questo col terminale.
+const CACHE_NAME = 'baseflow-v25';
 
 // 2026-07-21: PRECACHE completato -- MANCAVANO il manuale in-app (manual.html, aperto in
 // iframe dal pulsante libro) e le librerie ora self-hostate in js/vendor/ (Shepherd per il

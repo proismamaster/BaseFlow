@@ -678,7 +678,9 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
   border: 2px solid var(--primary);
   border-radius: 0.5rem;
   box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
-  padding: 2rem 2.5rem 1.5rem 2.5rem;
+  /* WP-M11: padding-top ridotto da 2rem (Ismail: "perche' e' tutto spinto verso il basso?").
+     Stesso valore di #draw-popup: i due dialog devono restare identici. */
+  padding: 1.6rem 2.5rem 1.5rem 2.5rem;
   z-index: 1100;
   display: none;
   flex-direction: column;
@@ -691,7 +693,7 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
 }
 
 #edit-node-popup h3 {
-  margin: 0 0 1rem 0;
+  margin: 0 0 0.2rem 0; /* WP-M11: il gap:1.2rem della colonna basta gia' a staccare il titolo */
   color: var(--primary);
   font-size: 1.3rem;
   font-weight: bold;
@@ -737,7 +739,15 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
 .assign-row input:focus { border-color: var(--primary); outline: none; }
 
 /* A4 (round 11): checkbox "a capo dopo la stampa" nel dialog dell'Output. */
-#out-newline-row {
+/* WP-M6q (Ismail 2026-07-21, "perche' c'e' scritto sia in Comment che in Pause 'New line
+   after printing?'"): questa riga viene nascosta da JS con l'attributo `hidden`
+   (_bfSetupEditFields: `newlineRow.hidden = !isPrint`), ma `hidden` funziona solo grazie alla
+   regola del browser `[hidden]{display:none}` -- che una regola d'autore con `display:flex`
+   SOVRASCRIVE. Risultato: la riga restava visibile in OGNI blocco, non solo in Output.
+   `:not([hidden])` limita il display alla riga davvero visibile e ristabilisce l'attributo
+   come interruttore. Vale per qualunque elemento che si nasconde con `hidden` e ha un
+   `display` esplicito nel CSS: sono incompatibili se non si aggiunge questa condizione. */
+#out-newline-row:not([hidden]) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -751,7 +761,13 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
 #out-newline-row input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
 
 
-#edit-node-popup button {
+/* WP-M11 (Ismail 2026-07-21): i pulsanti del dialog dei blocchi Grafica sono gli STESSI
+   pulsanti, non una copia con gli stessi valori -- la prima versione duplicava le proprieta'
+   e restava fuori da tutte le regole per tema/dark-mode scritte per `#edit-node-popup button`
+   (piu' sotto in questo file), quindi appariva diverso appena si cambiava tema. Aggiungere il
+   selettore qui e' l'unico modo perche' resti allineato anche in futuro. */
+#edit-node-popup button,
+#draw-popup .draw-actions button {
   margin: 0 0.5rem;
   padding: 0.5rem 1.3rem;
   border: none;
@@ -771,10 +787,18 @@ body.dark-mode #save-popup-current { color: #b39ddb; }
   width: 100%;
 }
 
-#edit-node-popup button:hover {
+#edit-node-popup button:hover,
+#draw-popup .draw-actions button:hover {
   background: #d1c4e9;
   color: var(--primary-dark);
+  transform: none; filter: none; /* annulla il sollevamento della vecchia .draw-actions button */
 }
+
+/* WP-M11 (Ismail 2026-07-21): STESSA trappola documentata su #out-newline-row -- la regola
+   sopra ha `display: flex`, che sovrascrive `[hidden]{display:none}` del browser. Senza questa
+   riga il pulsante Salva nascosto da _bfSetupEditFields (blocchi senza parametri) resterebbe
+   visibile. Vale per QUALUNQUE pulsante di questo popup nascosto via attributo `hidden`. */
+#edit-node-popup button[hidden], #draw-popup .draw-actions button[hidden] { display: none !important; }
 
 #edit-node-popup #close-edit-popup {
   background: var(--primary);
@@ -1620,6 +1644,7 @@ body.dark-mode .error-message {
 
 /* ---- Popup generici (edit-node, save, new, export, popup-window) ---- */
 body.dark-mode #edit-node-popup,
+body.dark-mode #draw-popup,
 body.dark-mode #save-popup,
 body.dark-mode #export-popup,
 body.dark-mode #popup-window {
@@ -1629,6 +1654,7 @@ body.dark-mode #popup-window {
 }
 
 body.dark-mode #edit-node-popup h3,
+body.dark-mode #draw-popup h3,
 body.dark-mode #export-popup h3,
 body.dark-mode #popup-window .section h3,
 body.dark-mode #save-popup label {
@@ -1671,6 +1697,7 @@ body.dark-mode #assign-val-input:focus {
 /* Pulsanti "secondari" (sfondo chiaro lavanda + testo viola nel tema chiaro):
    in dark mode diventano sfondo viola scuro + testo lavanda, stesso contrasto. */
 body.dark-mode #edit-node-popup button,
+body.dark-mode #draw-popup .draw-actions button,
 body.dark-mode #popup-window .section button,
 body.dark-mode #export-popup #close-export-btn,
 body.dark-mode #console-buttons button,
@@ -1681,6 +1708,7 @@ body.dark-mode #run-speed {
   border-color: #6a4fb3;
 }
 body.dark-mode #edit-node-popup button:hover,
+body.dark-mode #draw-popup .draw-actions button:hover,
 body.dark-mode #popup-window .section button:hover,
 body.dark-mode #export-popup #close-export-btn:hover,
 body.dark-mode #console-buttons button:hover,
@@ -1909,7 +1937,7 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
      da 2), per restare sempre dentro la viewport senza scroll orizzontale. Non richiesto
      esplicitamente dal piano (che chiede solo "1 riga -> 2 righe da 3"), ma necessario per
      non introdurre una regressione di overflow sui telefoni piu' stretti. */
-  #popup-window .palette-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #popup-window .palette-grid { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
 }
 /* Puntatori "coarse" (touch): target un filo piu' grandi per il tocco */
 @media (pointer: coarse) {
@@ -1929,8 +1957,13 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
    che si restringono INSIEME (scalano) finche' c'e' spazio; sotto il breakpoint (vedi
    grid-template-columns dentro le media query qui sotto) diventano ESATTAMENTE 2 righe da
    3, mai un a-capo irregolare. align-items:start (non flex-start, equivalente in grid) */
+/* WP-M11: `minmax(0, 1fr)` lasciava le colonne libere di scendere sotto la larghezza dei
+   blocchi (da cui la sovrapposizione sul tablet). Il minimo passa da 0 a 128px: quando lo
+   spazio non basta per 6 colonne da 128px la griglia ne mette meno, invece di stringerle
+   fino a far sbordare i blocchi. `auto-fit` tiene comunque le righe regolari (stesso numero
+   di colonne per riga), che era il motivo per cui erano state fissate a 6. */
 #popup-window .palette-grid {
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 1.1rem; width: 100%; align-items: start;
 }
 #popup-window .palette-grid .section {
@@ -1945,6 +1978,23 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
   font-size: 1rem; color: #555; font-weight: 600; letter-spacing: 0.02em;
   margin: 0 0 0.6rem 0; text-align: center; width: 100%;
 }
+/* WP-M11 (Ismail 2026-07-21, screenshot da tablet: blocchi appiccicati/sovrapposti fra
+   colonne vicine -- "Assegna" che tocca "Se", "Commento" che tocca "Move/Draw").
+   NON era una questione di gap: le colonne sono `minmax(0, 1fr)`, quindi possono diventare
+   piu' strette del contenuto, mentre i blocchi hanno un `min-width` PROPRIO (108px, 116px il
+   rombo) tarato sul desktop. Appena la palette e' piu' stretta della somma di quei minimi, ogni
+   blocco sfora la sua cella e invade il gap e la colonna accanto: le colonne restano
+   perfettamente allineate (i titoli lo sono), sono i blocchi a uscirne.
+   La correzione non e' un breakpoint -- il primo tentativo, una fascia tablet 641-1000px, non
+   ha risolto niente proprio perche' il tablet di Ismail e' PIU' largo di 1000px e il problema
+   dipende dalla larghezza della PALETTE, non della finestra. Qui i blocchi si limitano alla
+   propria cella a qualunque larghezza: le forme sono maschere SVG con preserveAspectRatio
+   "none", quindi si restringono pulite invece di sbordare. Effetto collaterale gradito: tutti i
+   blocchi di una colonna diventano larghi uguale, incolonnati. */
+#popup-window .palette-grid .section { min-width: 0; }
+#popup-window .palette-grid .section .blk {
+  width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box;
+}
 /* S4/P8.3: breakpoint dedicato (non riuso i 900px del popup-window qui sopra: a quella
    soglia il contenuto minimo di 6 colonne, ~120px l'una + i gap, sfiora/supera il tetto
    max-width:98vw del popup con margine quasi zero -- 1000px lascia un margine di sicurezza
@@ -1953,7 +2003,7 @@ body.dark-mode .value-cell .value-input[readonly] { color: #b9b3d0; }
    resta sempre fuori dalla grid stessa (che vive nel content-box, gia' al netto di quel
    padding) quindi non si sovrappone in nessuna delle due modalita'. */
 @media (max-width: 1000px) {
-  #popup-window .palette-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #popup-window .palette-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 }
 .blk {
   position: relative;
@@ -2954,9 +3004,85 @@ body.dark-mode #canvas-container::-webkit-scrollbar-thumb { background: #7c3aed;
 .draw-actions button:hover { transform: translateY(-1px); filter: brightness(1.06); }
 #draw-ok { background: var(--primary); color: #fff; }
 #draw-cancel { background: var(--border, #e0e0e0); color: var(--primary-dark, #333); }
-body.dark-mode #draw-popup { background: #241f38; color: #e8e6f0; border-color: #7c3aed; }
-body.dark-mode #draw-popup select, body.dark-mode #draw-popup .draw-input { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+/* (la superficie dark di #draw-popup NON e' piu' qui: e' nella regola condivisa
+   `body.dark-mode #edit-node-popup, body.dark-mode #draw-popup, ...` piu' sopra -- con due
+   valori diversi, #241f38/#7c3aed qui contro #1e1a2e/#6a4fb3 li', i due dialog erano di due
+   viola diversi affiancati. WP-M11.) */
 body.dark-mode #draw-cancel { background: #3a3260; color: #e8e6f0; }
+
+/* ---------------------------------------------------------------------------
+   WP-M11 (Ismail 2026-07-21): "i blocchi Pen/Clear/Home/Turn/Move-Draw devono essere
+   stilisticamente coerenti agli altri (stessa dimensione caratteri, impostazioni
+   pulsanti)". Il dialog dei blocchi Grafica nasceva piu' piccolo e compatto di
+   #edit-node-popup (titolo 1.05rem vs 1.3rem, campi 0.9rem con padding meta', pulsante
+   singolo piccolo allineato a destra invece dei due pulsanti a larghezza piena): a video
+   sembravano due finestre di due app diverse.
+   Qui si allinea SOLO la tipografia (i valori sono ripresi da #edit-node-popup piu' sopra in
+   questo file: se cambiano li', vanno cambiati anche qui). I PULSANTI invece non sono
+   duplicati: il selettore #draw-popup .draw-actions button e' stato aggiunto alle regole di
+   #edit-node-popup button, cosi' non possono divergere. La geometria del popup (larghezza,
+   bordo, ombra, drag/resize) resta quella sua.
+   --------------------------------------------------------------------------- */
+/* Contenitore: STESSI valori di #edit-node-popup (padding, gap, raggio, ombra, larghezza,
+   align-items:center) -- prima erano padding 1.3rem/raggio 14px/ombra nera, cioe' una finestra
+   visibilmente diversa affiancata all'altra. max-height/overflow restano suoi: e' l'unico
+   dialog che puo' diventare piu' alto dello schermo. */
+/* Ismail (screenshot): "perche' e' tutto spinto verso il basso? perche' il ? e' ad altezza
+   diversa dalla x?" -- UNA sola causa per entrambi. Il "?" e' `position:absolute` (regola
+   generica .blk-help-btn), la X qui NON lo era: #for-popup e #edit-node-popup hanno ciascuno la
+   propria regola, #draw-popup non l'aveva mai avuta. Restava quindi un normale figlio della
+   colonna flex, occupava una riga tutta sua sopra il titolo (da cui il contenuto spinto in
+   basso) e finiva piu' in basso del "?" invece che al suo fianco. Stesso `top` dei due, cosi'
+   sono allineati davvero e non a occhio. */
+#draw-popup .x-close { position: absolute; top: 0.55rem; right: 0.6rem; }
+#edit-node-popup .x-close, #for-popup .x-close { top: 0.55rem; }
+
+#draw-popup {
+  padding: 1.6rem 2.5rem 1.5rem; gap: 1.2rem; align-items: center;
+  border-radius: 0.5rem; box-shadow: 0 0.5rem 2rem rgba(98,0,234,0.15), 0 1px 4px rgba(0,0,0,0.08);
+  min-width: 340px; width: auto; max-width: 90vw;
+}
+/* align-items:center farebbe collassare i blocchi-campo sulla loro larghezza naturale: come in
+   #edit-node-popup i figli occupano la riga intera, con lo stesso tetto di 350px dei campi. */
+#draw-popup > div:not(.tg-rz):not(.draw-actions) { width: 100%; max-width: 350px; box-sizing: border-box; }
+#draw-popup h3 { font-size: 1.3rem; font-weight: bold; letter-spacing: 0.02em; text-align: center; margin: 0 0 0.2rem; }
+#draw-popup label { font-size: 0.85rem; color: var(--primary); margin-bottom: 0.25rem; }
+#draw-popup select, #draw-popup .draw-input {
+  padding: 0.7rem 1rem; font-size: 1rem; border: 1.5px solid #b39ddb; border-radius: 0.3rem;
+  background: #f7f5ff; color: #333; transition: border 0.2s;
+}
+#draw-popup .tg-radios label { font-size: 0.9rem; font-weight: 500; margin-bottom: 0; }
+#draw-popup #tg-color { width: 100%; height: 44px; padding: 3px; border: 1.5px solid #b39ddb; border-radius: 0.3rem; background: #f7f5ff; }
+#draw-popup #tg-width { width: 100% !important; }
+#draw-popup .draw-row { gap: 0.7rem; }
+#draw-popup .draw-row > div { flex: 1 1 0; min-width: 0; }
+/* Pulsanti: l'ASPETTO non e' qui -- il selettore `#draw-popup .draw-actions button` e' stato
+   aggiunto direttamente alla regola di `#edit-node-popup button` (e alle sue varianti hover/
+   dark-mode) piu' sopra, cosi' sono letteralmente gli stessi pulsanti e non possono divergere.
+   Qui resta solo la DISPOSIZIONE, gemella di `.edit-actions`.
+   LARGHEZZA (Ismail, screenshot: "sono ancora troppo larghi"): in #edit-node-popup la riga
+   azioni NON e' larga quanto il popup -- il contenitore ha align-items:center e `.edit-actions`
+   non ha una larghezza propria, quindi si stringe sul contenuto e i due pulsanti (width:100% +
+   flex-wrap) finiscono impilati e stretti al centro. Qui la regola `#draw-popup > div` sopra
+   forzava width:100% anche su .draw-actions, allargandoli fino al bordo: e' esclusa apposta. */
+#draw-popup .draw-actions { width: auto; max-width: none; justify-content: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+/* niente `margin: 0` qui: i pulsanti tengono il `margin: 0 0.5rem` della regola condivisa,
+   che concorre alla larghezza finale della riga -- azzerarlo li faceva gia' venire diversi. */
+#draw-popup .draw-actions button { flex: 1 1 auto; }
+body.dark-mode #draw-popup select, body.dark-mode #draw-popup .draw-input,
+body.dark-mode #draw-popup #tg-color { background: #14111f; color: #e8e6f0; border-color: #4a4066; }
+
+/* "Nessun parametro" nei blocchi che non hanno impostazioni (Pausa/Casa/Pulisci). Prima
+   riservava 52px per "occupare lo stesso spazio del campo di testo": Ismail, giustamente --
+   e' un popup piu' piccolo perche' ha meno dentro, non c'e' nessuna ragione di tenere alto un
+   vuoto. Ora e' alta quanto la riga di testo, il resto lo fa il gap della colonna. */
+#edit-node-desc:not([hidden]) {
+  display: block; text-align: center;
+  width: 100%; max-width: 350px; margin: 0; box-sizing: border-box;
+  font-size: 1rem; font-style: italic; line-height: 1.4; user-select: none;
+  color: color-mix(in srgb, var(--text, #333) 60%, transparent);
+}
+body.dark-mode #edit-node-desc:not([hidden]) { color: #b39ddb; }
 
 /* Tela grafica del risultato (creata dinamicamente da draw.js) */
 #draw-output-panel {
@@ -3096,7 +3222,21 @@ body.dark-mode #console-popup .console-x { color: #c9a9fa; background: rgba(201,
 
 /* ---- Dialog di modifica nodo: layout coerente (× in alto a destra + riga azioni) ---- */
 /* (rimosso #edit-node-popup{position:relative}: sovrascriveva il position:fixed che centra il modale -> popup in fondo alla pagina. Il position:fixed base fa gia' da ancora per la .x-close absolute.) */
-#edit-node-popup .x-close { position: absolute !important; top: 0.5rem; right: 0.6rem; width: 30px !important; height: 30px !important; flex: 0 0 auto; align-self: flex-end; }
+/* WP-M11 (Ismail 2026-07-21, dagli screenshot): la X qui usciva QUADRATA e bordata, mentre in
+   tutte le altre finestre e' il cerchietto di .x-close -- stessa contaminazione gia' nota di
+   `#edit-node-popup button` (border/border-radius/box-shadow), che qui non era ancora stata
+   annullata. Stesso rimedio del "?" sotto. */
+#edit-node-popup .x-close {
+  position: absolute !important; top: 0.5rem; right: 0.6rem;
+  width: 30px !important; height: 30px !important; flex: 0 0 auto; align-self: flex-end;
+  margin: 0 !important; padding: 0 !important;
+  border: none !important; border-radius: 50% !important; box-shadow: none !important;
+  background: rgba(0,0,0,0.08) !important; color: inherit !important;
+  font-size: 1.35rem !important; line-height: 1;
+}
+#edit-node-popup .x-close:hover { background: rgba(0,0,0,0.18) !important; }
+body.dark-mode #edit-node-popup .x-close { background: rgba(255,255,255,0.12) !important; color: #e8e6f0 !important; }
+body.dark-mode #edit-node-popup .x-close:hover { background: rgba(255,255,255,0.24) !important; }
 /* il pulsante "?" eredita da #edit-node-popup button (width:100%, display:flex, ecc.) e diventa una barra piena
    invece del cerchietto: stessa causa del bug gia' risolto sopra per .x-close, stesso rimedio con !important. */
 #edit-node-popup .blk-help-btn {
@@ -4851,3 +4991,287 @@ body.dark-mode #tabVariabili .array-cells.live .ac-v { color: #c9a9fa; }
   padding: 5px 8px; border-radius: 6px; pointer-events: none;
   letter-spacing: 0.03em;
 }
+
+/* ============================================================================
+   WP-M6g v2 (Ismail 2026-07-21, "il terminale risulta ancora bianco in tutte"): il primo
+   tentativo derivava i colori da `var(--surface)`/`var(--text)`. SBAGLIATO, e per un motivo
+   che si poteva verificare in due minuti: in style.css quelle variabili sono definite SOLO in
+   :root, con valori CHIARI (--surface: #ede7f6, --text: #333); `body.dark-mode` cambia
+   background-color e color dell'elemento, ma NON ridefinisce le variabili. Quindi su dark,
+   chalk e neon `var(--surface)` valeva comunque #ede7f6 e il terminale restava quasi bianco --
+   esattamente il difetto che volevo togliere, in tutti i temi invece che in alcuni.
+   (Il test non l'aveva colto perche' asseriva solo "non e' bianco puro" e jsdom non calcola
+   color-mix: passava per caso. Ora verifica la LUMINANZA effettiva.)
+   Scelta definitiva: il terminale e' un TERMINALE e resta scuro in ogni tema -- come in ogni
+   editor di codice -- mentre bordo e accenti seguono il tema. Cosi' e' coerente ovunque senza
+   dipendere da variabili che alcuni temi non definiscono, e non c'e' piu' differenza fra
+   agganciato e flottante (era proprio quella l'incoerenza: bianco da agganciato, scuro da
+   flottante). Colori pieni, non color-mix: verificabili e prevedibili. */
+#console-output,
+#console-popup.docked #console-output,
+#console-popup:not(.docked) #console-output {
+  background: #18162b;
+  color: #e0e0e0;
+  border: 1px solid var(--border, #33305a);
+}
+#console-popup.docked #console-input,
+#console-popup.docked #console-input.active,
+#console-popup:not(.docked) #console-input {
+  background: #14121f;
+  color: #e0e0e0;
+  border: 1px solid var(--border, #33305a);
+}
+/* Errori: rosso pieno leggibile sul fondo scuro del terminale, uguale in ogni tema. */
+#console-output p.error,
+#console-popup.docked #console-output p.error {
+  background: rgba(229, 57, 53, 0.16);
+  color: #ff8a80;
+  border-left-color: #e53935;
+}
+
+/* WP-M6j (Ismail 2026-07-21, screenshot: "si sovrappone il ?, sposta il titolo più a destra"):
+   il "?" e' in posizione assoluta all'angolo iniziale del popup, mentre il titolo <h3> parte
+   dal bordo -- quindi si sovrapponevano. Il titolo dei popup che HANNO il "?" riceve un
+   rientro pari alla larghezza del pulsante piu' un margine.
+   `padding-inline-start` (non `padding-left`) cosi' in arabo, dove "?" e X si scambiano di
+   lato insieme al resto dell'interfaccia, il rientro si sposta con loro senza una regola in
+   piu'. Il selettore parte dal popup che contiene il pulsante, cosi' i popup senza "?"
+   restano esattamente come prima. */
+/* WP-M6k: la versione precedente usava `#popup-window ... h3:first-of-type` credendo di
+   colpire IL titolo del popup. Ma `:first-of-type` guarda i FRATELLI: ogni sezione della
+   palette ha il suo h3, quindi ognuno era "il primo del suo genitore" e li ha rientrati
+   TUTTI e sei (Interaction, Math, Selection...). La palette non ha nemmeno un titolo:
+   il rientro serve solo al popup Impostazioni, e va al suo h3 DIRETTO. */
+#settings-popup > h3 { padding-inline-start: 42px; }
+
+/* ============================================================================
+   WP-M6r (Ismail 2026-07-21, "la console e' sempre nera, deve essere coerente con i temi e
+   personalizzabile dai temi di creazione"). Ha ragione: "sempre scura" era una scorciatoia
+   mia per aggirare un difetto, non la soluzione.
+   IL DIFETTO VERO, alla radice di tutta la catena di oggi (tabelle del manuale, terminale,
+   intestazione del tutorial): --surface/--text/--border sono il contratto che il resto del
+   CSS usa per seguire il tema, ma TRE temi predefiniti non lo rispettavano. `body.dark-mode`
+   (dark, chalk, neon) cambiava solo background-color/color dell'elemento e lasciava le
+   variabili ai valori CHIARI di :root. Ogni componente che le usava diventava quindi chiaro
+   su fondo scuro, e la toppa era una catena di override per nome che i temi PERSONALIZZATI
+   -- che le variabili le portano davvero -- non ricevevano mai.
+   Qui si chiude alla fonte: i tre temi scuri dichiarano le proprie variabili, con le tinte
+   che gia' usano per canvas e toolbar (verde lavagna per chalk, viola notte per neon).
+   Da qui in poi il terminale (e tutto il resto) puo' derivare i colori dalle variabili e
+   funzionare per OGNI tema, builtin e creato dall'utente, senza regole dedicate. */
+body.dark-mode:not(.has-custom-colors) {
+  --surface: #241f38;
+  --text: #e8e6f0;
+  --border: #4a4066;
+  --bg: #121212;
+}
+body.theme-chalk:not(.has-custom-colors) {
+  --surface: #2b3a33;
+  --text: #dcefdc;
+  --border: #3f5649;
+  --bg: #22302a;
+}
+body.theme-neon:not(.has-custom-colors) {
+  --surface: #1b0b3a;
+  --text: #f2e9ff;
+  --border: #3d1f6e;
+  --bg: #0d0221;
+}
+
+/* ---- TERMINALE: colori dal TEMA, non piu' costanti ----
+   Resta riconoscibile come terminale perche' il fondo e' una versione piu' PROFONDA della
+   superficie del tema (color-mix verso il colore del testo): su un tema chiaro resta chiaro
+   ma leggermente piu' contrastato, su uno scuro resta scuro. Il testo e' quello del tema,
+   quindi il contrasto e' garantito da come il tema stesso e' costruito.
+   I selettori ripetono la forma `:not(.docked)` / `.docked` delle regole bianche originali:
+   quelle hanno una classe in piu' di specificita' (`:not()` conta come classe) e altrimenti
+   vincerebbero comunque -- e' l'errore che ha fatto sembrare irrisolvibile questo bug. */
+#console-popup:not(.docked) #console-outwrap,
+#console-popup.docked #console-outwrap,
+#console-popup:not(.docked) #console-cardbar,
+#console-popup.docked #console-cardbar,
+#console-popup:not(.docked) #console-outwrap #console-output,
+#console-popup.docked #console-outwrap #console-output,
+#console-popup:not(.docked) #console-output,
+#console-popup.docked #console-output,
+#console-popup:not(.docked) #console-bottombar,
+#console-popup.docked #console-bottombar {
+  background: color-mix(in srgb, var(--text, #2c2338) 10%, var(--surface, #ede7f6));
+  color: var(--text, #2c2338);
+  border-color: var(--border, #d1c4e9);
+}
+#console-popup:not(.docked) #console-input,
+#console-popup.docked #console-input,
+#console-popup:not(.docked) #console-input.active,
+#console-popup.docked #console-input.active,
+#console-popup:not(.docked) #console-buttons select,
+#console-popup.docked #console-buttons select {
+  background: color-mix(in srgb, var(--text, #2c2338) 16%, var(--surface, #ede7f6));
+  color: var(--text, #2c2338);
+  border-color: var(--border, #d1c4e9);
+}
+/* Errore: rosso mescolato al FONDO corrente, cosi' resta leggibile sia su chiaro sia su scuro
+   (un rosa fisso diventava una macchia chiara sui temi scuri). */
+#console-popup:not(.docked) #console-outwrap #console-output p.error,
+#console-popup.docked #console-outwrap #console-output p.error,
+#console-popup:not(.docked) #console-output p.error,
+#console-popup.docked #console-output p.error {
+  background: color-mix(in srgb, #e53935 18%, transparent);
+  color: color-mix(in srgb, #e53935 60%, var(--text, #2c2338));
+  border-left-color: #e53935;
+}
+
+/* WP-M6k: `.x-help` -- pulsante "?" all'angolo opposto alla X. */
+.x-help {
+  position: absolute; top: 10px; inset-inline-start: 12px;
+  width: 28px; height: 28px; line-height: 1; border-radius: 50%;
+  border: 1px solid var(--border, #d1c4e9);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary); font-weight: 700; font-size: 1rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  padding: 0; margin: 0; z-index: 5;
+}
+.x-help:hover { background: color-mix(in srgb, var(--primary) 26%, transparent); border-color: var(--primary); }
+
+/* ============================================================================
+   WP-M6n (Ismail 2026-07-21): FRECCIA del tutorial, non piu' un rombo.
+   Shepherd disegna la punta come un quadrato 16x16 ruotato di 45 gradi con
+   `background:#fff` fisso (vedi js/vendor/shepherd.css). Su un tooltip scuro e bordato
+   quel quadrato resta bianco e INTERO: si vede come un rombo staccato, non come la punta
+   del riquadro. Qui si completa il disegno che la libreria lascia a meta': stesso fondo e
+   stesso bordo del tooltip, e bordo solo sui DUE lati esterni -- dopo la rotazione quei due
+   lati formano la punta triangolare, mentre gli altri due restano coperti dal riquadro.
+   I due lati da bordare dipendono da dove sta il tooltip rispetto al bersaglio: Shepherd
+   lo scrive in `data-popper-placement`, quindi la regola giusta si sceglie da sola. */
+.shepherd-element .shepherd-arrow:before {
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 2px;
+}
+.shepherd-element[data-popper-placement^="top"] .shepherd-arrow:before {
+  border-top: none; border-left: none;      /* punta verso il BASSO */
+}
+.shepherd-element[data-popper-placement^="bottom"] .shepherd-arrow:before {
+  border-bottom: none; border-right: none;  /* punta verso l'ALTO */
+}
+.shepherd-element[data-popper-placement^="left"] .shepherd-arrow:before {
+  border-left: none; border-bottom: none;   /* punta verso DESTRA */
+}
+.shepherd-element[data-popper-placement^="right"] .shepherd-arrow:before {
+  border-right: none; border-top: none;     /* punta verso SINISTRA */
+}
+body.dark-mode .shepherd-element .shepherd-arrow:before {
+  background: #1e1a2e; border-color: #6a4fb3;
+}
+
+/* WP-M6n (Ismail: "va disattivato il tutorial da tutti i popup su mobile che da problemi"):
+   sotto i 760px i tour ancorati ai popup sono inutilizzabili -- il riquadro di Shepherd e il
+   popup si contendono lo stesso schermo, l'overlay modale copre i bersagli e per uscirne si
+   deve chiudere tutto. I pulsanti che li avviano spariscono quindi da mobile (restano su
+   desktop, dove funzionano). Il manuale resta raggiungibile e copre gli stessi contenuti.
+   Nasconderli non basta -- una funzione si puo' chiamare anche senza il suo pulsante -- quindi
+   c'e' anche una guardia in tutorial.js: qui si toglie l'accesso, li' si toglie l'effetto. */
+@media (max-width: 760px) {
+  #palette-help, #settings-help, .blk-help-btn { display: none !important; }
+}
+
+/* WP-M11 (Ismail 2026-07-21): "il ? che si trova nell'header sparisce nei telefoni". Si
+   aggiunge il "?" dell'intestazione (#help-btn, avvia il tour principale) alla lista sopra.
+   NOTA: il commento WP-M6n qui sopra escludeva apposta il tour principale, perche' su mobile
+   era stato adattato e funzionava -- questa e' una scelta NUOVA di Ismail che lo sovrascrive,
+   non una svista. `startTutorial()` resta funzionante e non ha guardia: su telefono
+   semplicemente non c'e' piu' un modo per lanciarlo. Il manuale copre gli stessi contenuti.
+   Regola separata (non accorpata sopra) proprio per non far sembrare la nuova decisione parte
+   della vecchia. */
+@media (max-width: 760px) {
+  #help-btn { display: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+   WP-M11 (Ismail 2026-07-21): "da mobile questi popup piu' piccoli di DEFAULT (tanto poi sono
+   ridimensionabili)". Sono le dimensioni di PARTENZA delle quattro finestre che su un telefono
+   si prendevano quasi tutto lo schermo: terminale mobile, Impostazioni, Manuale, tela della
+   tartaruga. Restano tutte ridimensionabili: appena l'utente trascina una maniglia, ux.js
+   scrive width/height inline e gli stili inline vincono su queste regole -- quindi qui si tocca
+   solo il punto di partenza, non il tetto.
+   Un unico blocco per tutte e quattro: sono la stessa decisione, se un domani il breakpoint
+   cambia deve cambiare in un posto solo.
+   --------------------------------------------------------------------------- */
+@media (max-width: 760px) {
+  /* Terminale MOBILE (flottante). Quello agganciato non c'entra: ha una larghezza sua. */
+  #console-popup:not(.docked) {
+    width: 88vw; height: min(300px, 52vh);
+    min-width: 0; min-height: 160px;
+  }
+  #settings-popup { width: min(300px, 88vw); max-height: 72vh; }
+  #manual-overlay { width: 92vw; height: min(64vh, 520px); min-width: 0; min-height: 240px; }
+  #draw-output-panel { width: min(250px, 72vw); height: min(300px, 42vh); min-width: 150px; min-height: 160px; }
+}
+
+/* ---------------------------------------------------------------------------
+   WP-M11 (Ismail 2026-07-21): "sul tablet i blocchi nel popup per inserire i blocchi sono
+   troppo attaccati tra di loro". Causa: la compattazione della palette (`gap: 0.55rem`,
+   `.blk { margin: 0.22rem 0 }`, forme e testo ridotti) sta nel blocco `@media (max-width:900px)`
+   -- scritto e tarato per i TELEFONI (commento "WP-M: popup e blocchi leggermente piu' piccoli
+   su mobile"), ma 900px prende dentro anche i tablet, dove di spazio ce n'e' eccome. Un tablet
+   si ritrovava la spaziatura da telefono su uno schermo grande: blocchi appiccicati.
+   Qui la fascia tablet (641-1000px) riprende valori intermedi fra il telefono e il desktop.
+   Il limite alto e' 1000px, lo stesso della griglia a 3 colonne: sopra torna a 6 colonne ed
+   e' desktop a tutti gli effetti. Il limite basso e' 640px, lo stesso gia' usato dall'altro
+   blocco telefono piu' sopra -- non un terzo valore inventato qui.
+   --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   WP-M11 (Ismail 2026-07-21): "rendi il popup per aggiungere blocchi spostabile da tablet" +
+   "vorrei che Impostazioni sia movibile in giro per lo schermo".
+   Il drag c'era gia' in ux.js per entrambe, ma A DITO non partiva: senza `touch-action: none`
+   il browser interpreta il gesto come scroll/pan della pagina, si prende il puntatore e i
+   pointermove non arrivano piu' al nostro handler. Con mouse funzionava, da tablet no --
+   e' il motivo per cui sembravano "non spostabili" pur essendo cablate. Le maniglie .tg-rz
+   avevano gia' questa regola (per lo stesso motivo), le zone di trascinamento no.
+   La griglia della palette resta `pan-y`: dentro l'elenco dei blocchi lo scroll col dito deve
+   continuare a funzionare, si trascina dalla fascia di padding attorno (vedi ux.js).
+   --------------------------------------------------------------------------- */
+#popup-window { touch-action: none; }
+#popup-window .palette-grid { touch-action: pan-y; }
+#settings-popup > h3, #theme-editor .te-head { touch-action: none; cursor: move; }
+
+/* Tablet e telefoni (puntatore a dito): Impostazioni piu' contenuto -- Ismail, "che non esca
+   dallo schermo in altezza". Il tetto era 88vh ma su un tablet in orizzontale il pannello a
+   grandezza piena ci arriva davvero. `pointer: coarse` invece di una soglia in px perche' il
+   problema e' il touch, non la larghezza: un desktop stretto non ha questo bisogno. */
+@media (pointer: coarse) and (max-width: 1200px) {
+  #settings-popup { width: min(340px, 88vw); max-height: 74vh; padding: 0.8rem 0.9rem 0.7rem; gap: 0.45rem; }
+  #settings-popup h3 { font-size: 1rem; }
+  #settings-popup .settings-body { gap: 0.7rem; }
+}
+
+@media (min-width: 641px) and (max-width: 1000px) {
+  #popup-window .palette-grid { gap: 1rem; }
+  #popup-window .palette-grid .section { padding: 0.2rem 0.6rem; }
+  #popup-window .palette-grid .section h3 { font-size: 0.95rem; margin-bottom: 0.55rem; }
+  /* il margin verticale e' quello che si vedeva davvero "attaccato": 0.22rem -> 0.42rem,
+     cioe' piu' largo perfino del desktop (0.34rem), perche' su tablet si tocca col dito. */
+  .blk { min-width: 100px; min-height: 44px; font-size: 0.85rem; padding: 0.45rem 0.9rem; margin: 0.42rem 0; }
+  .blk-parallelogram { padding: 0.45rem 1.4rem; }
+  .blk-diamond { min-width: 106px; min-height: 64px; padding: 0.45rem 1.1rem; }
+  .blk-hex { padding: 0.45rem 1.3rem; }
+}
+
+/* WP-M6o (Ismail 2026-07-21, screenshot: intestazione del tutorial grigio chiaro su riquadro
+   scuro): shepherd.css dichiara `.shepherd-header{background:#e6e6e6}` -- un grigio FISSO,
+   pensato per il tema chiaro della libreria. Il corpo del riquadro lo stiliamo noi e segue il
+   tema, l'intestazione no: da qui la fascia chiara col titolo quasi illeggibile.
+   L'intestazione prende ora lo STESSO fondo del riquadro (nessuna fascia) e il titolo il
+   colore primario del tema, come gia' fa .shepherd-title. */
+.shepherd-element .shepherd-header {
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  padding: 0.7rem 0.9rem 0.5rem;
+}
+body.dark-mode .shepherd-element .shepherd-header { background: transparent; }
+
+/* WP-M6o (Ismail: "non mi sembra molto giusta come posizione"): i passi ancorati al CANVAS
+   con `on: 'center'` non indicano un punto preciso -- il riquadro sta al centro e la punta
+   finisce in un angolo, staccata, a indicare il nulla. Per quei passi la punta si toglie:
+   una punta che non punta a niente confonde e basta. La classe la mette tutorial.js. */
+.shepherd-element.bf-no-arrow .shepherd-arrow { display: none; }
