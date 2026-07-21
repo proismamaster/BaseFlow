@@ -3,7 +3,7 @@
 // due archi orizzontali -- non si illumina; (2) l'arco verticale che scende nella while e' colorato
 // male. Qui dumpo frecce[] + i gruppi/lit della transizione if.true -> while, per capire cosa manca.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1000, H = 1000;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1000, H = 1000;
 function makeApp() {
   const styleMock=()=>({setProperty(){},removeProperty(){},getPropertyValue:()=>'',setAttribute(){}});
   const ctxMock = { strokeStyle:'#000',fillStyle:'#000',lineWidth:1,font:'',textAlign:'center',textBaseline:'middle',globalAlpha:1,beginPath(){},moveTo(){},lineTo(){},quadraticCurveTo(){},rect(){},closePath(){},stroke(){},fill(){},clearRect(){},fillText(){},measureText(t){return{width:(t||'').length*8};},save(){},restore(){},setLineDash(){},setTransform(){},arc(){} };

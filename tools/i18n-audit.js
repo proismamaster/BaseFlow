@@ -29,7 +29,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', 'app');
 
 // Carica il VERO oggetto I18N eseguendo i18n.js in una sandbox minimale (niente DOM/
 // localStorage: il file li usa solo dentro funzioni, mai al top-level) — molto più

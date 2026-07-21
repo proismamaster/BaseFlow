@@ -5,7 +5,7 @@
 // Uso: node tools/repro-bflow-format.js — exit 0 se tutto passa.
 
 const fs = require('fs'); const vm = require('vm');
-const REPO = __dirname + '/..';
+const REPO = __dirname + '/../app';
 
 const context = { console, Math, JSON, parseFloat, parseInt, String, Array, TextEncoder, TextDecoder, Uint8Array };
 vm.createContext(context);

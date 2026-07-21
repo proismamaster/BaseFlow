@@ -4,7 +4,7 @@ const fs = require('fs'); const vm = require('vm'); const path = require('path')
 // script quindi falliva "file not found" in QUALSIASI sessione futura. path.join(__dirname,
 // '..') e' portabile: funziona in ogni sessione/macchina, dato che tools/ resta sempre
 // un livello sotto la root del repo.
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W=1000,H=1000;
 let ops = [];
 function col(c){ if(!c || typeof c!=='string' || c.startsWith('var(')) return '#000'; return c; }

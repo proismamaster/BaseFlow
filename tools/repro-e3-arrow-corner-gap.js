@@ -17,7 +17,7 @@
 // lo resetti a un default diverso.
 
 const fs = require('fs'), path = require('path');
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 
 // Distanza punto-segmento (proiezione clampata), per calcolare se un punto e' "dentro" lo stroke
 // di un segmento di data linewidth e cap.

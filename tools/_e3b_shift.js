@@ -3,7 +3,7 @@
 // transizione if->while, e le confronta col vertice NERO reale dell'arco if_join. Se l'arancione e'
 // a x minore del nero -> shift a sinistra confermato + di quanto.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1000, H = 1000;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1000, H = 1000;
 function makeApp() {
   const ops = [];
   let cur = { fillStyle:'#000', strokeStyle:'#000', globalAlpha:1, lineWidth:1, font:'', textAlign:'', textBaseline:'' };

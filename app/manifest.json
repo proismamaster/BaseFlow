@@ -1,0 +1,27 @@
+{
+    "lang": "en",
+    "name": "BaseFlow",
+    "short_name": "BaseFlow",
+    "description": "Web-based flowcharts editor",
+    "id": "./",
+    "start_url": "./index.html",
+    "scope": "./",
+    "background_color": "#ffffff",
+    "theme_color": "#6200ea",
+    "orientation": "any",
+    "display": "standalone",
+    "icons": [
+        {
+            "src": "img/icon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "img/icon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

@@ -5,7 +5,7 @@
 //   - node-node box overlaps
 //   - backward-pointing structural arcs (if_join/loop arcs drawn upward)
 const fs = require('fs'); const vm = require('vm');
-const REPO = __dirname + '/..';
+const REPO = __dirname + '/../app';
 const W = 1400, H = 2000;
 let ops = [];
 function col(c){ if(!c || typeof c!=='string' || c.startsWith('var(')) return '#000'; return c; }

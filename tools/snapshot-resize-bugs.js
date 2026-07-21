@@ -1,6 +1,6 @@
 // Renders each resize-bug scenario to an SVG for visual verification.
 const fs=require('fs'),vm=require('vm');
-const REPO=__dirname+'/..';
+const REPO=__dirname+'/../app';
 const W=1500,H=1400;
 let ops=[];
 function col(c){ if(!c||typeof c!=='string'||c.startsWith('var('))return '#333'; return c; }

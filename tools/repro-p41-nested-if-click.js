@@ -8,7 +8,7 @@
 // lo disegna cliccabile all'altezza di if3). Verifica anche la NON regressione: l'arco
 // "dopo if2" (from=if2) resta cliccabile e l'inserimento produce un grafo valido.
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W = 1000, H = 1000;
 let ops = [];
 const ctxMock = {

@@ -3,7 +3,7 @@
 // stroke del ctx: con hoverArc impostato su un arco con punta, la linea rossa piu' lunga deve avere
 // lunghezza ~ len - cut (cut = min(9, len)), NON len.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1000, H = 1000;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1000, H = 1000;
 function makeApp() {
   const ops = [];
   let cur = { fillStyle:'#000', strokeStyle:'#000', globalAlpha:1, lineWidth:1, font:'', textAlign:'', textBaseline:'' };

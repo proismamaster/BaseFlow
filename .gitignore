@@ -24,3 +24,22 @@ AI.md
 CLAUDE.md
 AUDIT.md
 JOURNAL_*.md
+
+# --- Pacchetti nativi (Electron / Capacitor) ---
+
+# Output di electron-builder (installer .exe/.dmg/.AppImage: pesanti, rigenerabili)
+/dist/
+
+# Icone derivate: le rigenera "npm run icons" da app/img/icon.png, che e' la sorgente.
+# Committarle significa doverle riallineare a mano a ogni ritocco del logo.
+/build/icon.ico
+/build/icon.icns
+/build/icon.png
+/build/icons/
+
+# Progetto Android generato da Capacitor ("npm run android:add").
+# NB: se un giorno servisse personalizzare i file nativi (permessi nel Manifest,
+# splash screen, firma del release), quella cartella va COMMITTATA e questa riga
+# rimossa -- altrimenti ogni "cap add" ripristina i default e le modifiche spariscono.
+/android/
+/ios/

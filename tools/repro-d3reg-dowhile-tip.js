@@ -6,7 +6,7 @@
 // Questo harness registra i fill (punte) e verifica se, con l'arco entrante acceso, la punta di
 // un ALTRO arco del do-while che condivide quel vertice sparisce.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1000, H = 1000;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1000, H = 1000;
 function makeApp() {
   const ops = [];
   let cur = { fillStyle:'#000', strokeStyle:'#000', globalAlpha:1, lineWidth:1, font:'', textAlign:'', textBaseline:'' };

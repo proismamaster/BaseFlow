@@ -5,7 +5,7 @@
 //      ARANCIONE al vertice e ZERO fill NERI a quel vertice.
 //  D9: con viewSettings.showGrid=true draw() traccia linee-griglia (globalAlpha 0.08); con false, 0.
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1000, H = 1000;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1000, H = 1000;
 function makeApp() {
   const ops = []; // log delle operazioni di disegno
   let cur = { fillStyle:'#000', strokeStyle:'#000', globalAlpha:1, font:'', textAlign:'', textBaseline:'', lineWidth:1 };

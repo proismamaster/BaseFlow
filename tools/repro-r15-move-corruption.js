@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W = 1400, H = 1400;
 
 const ctxMockFactory = () => ({

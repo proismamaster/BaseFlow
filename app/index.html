@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <!-- AUDIT 2026-07-19 (#6): Content-Security-Policy come rete di sicurezza di secondo
+             livello (se un giorno sfuggisse una XSS). NB: l'app usa script inline (early-theme,
+             no-cache, contributors) e MOLTI handler onclick= inline, quindi script-src DEVE
+             includere 'unsafe-inline' (rimuoverlo richiederebbe riscrivere tutti gli onclick).
+             Anche così la CSP aggiunge valore reale: object-src 'none' (niente plugin/embed),
+             base-uri 'self' (niente dirottamento con <base>), form-action 'self', e connect-src
+             ristretto (l'esfiltrazione dati può andare solo verso api.github.com, l'unica fetch).
+             Se in futuro qualcosa si rompe (tour Shepherd, avatar, export), allentare la direttiva
+             giusta -- NON togliere object-src/base-uri/form-action, che sono a costo zero. -->
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+        <title>BaseFlow</title>
+        <script>
+        /* NO-CACHE in sviluppo (Ismail 2026-07-08): il service worker ha continuato a servire
+           JS/CSS VECCHI (forme della palette mancanti, click che non apriva i dialog). Ora, a
+           OGNI apertura, si eliminano tutte le cache e si DE-REGISTRANO i service worker; se la
+           pagina era controllata da un SW (quindi potenzialmente stantia) si ricarica UNA volta
+           per riottenere i file freschi. Cosi' le modifiche arrivano SEMPRE al browser. */
+        (function () {
+          try {
+            /* 2026-07-21: nei pacchetti nativi (Electron / Capacitor Android) questo purge non
+               serve -- i file sono gia' quelli del bundle, non c'e' nessun SW stantio -- e il
+               location.reload() farebbe lampeggiare la finestra a ogni avvio. Quindi si salta. */
+            var isNative = !!(window.BaseFlowDesktop || (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()));
+            if (isNative) return;
+            if (window.caches && caches.keys) { caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }); }
+            if (navigator.serviceWorker) {
+              if (navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); });
+              }
+              if (navigator.serviceWorker.controller && !sessionStorage.getItem('bf_sw_purged')) {
+                sessionStorage.setItem('bf_sw_purged', '1');
+                location.reload();
+              }
+            }
+          } catch (e) { /* API non disponibili: file caricati freschi comunque */ }
+        })();
+        </script>
+        <script>
+        /* WP-N5 (round 15-C, Ismail 2026-07-15, batch2 #1): niente flash del tema di default
+           al reload (FOUC). Il tema salvato viene applicato da loadDarkModePreference()
+           (theme.js), caricato come <script> a fondo pagina -- gira DOPO il primo paint, quindi
+           per un attimo si vedeva sempre il tema chiaro di :root. loadDarkModePreference()
+           resta l'UNICA fonte di verita' per lo stato applicativo (darkMode globale,
+           refreshThemeSelect ecc.) e gira comunque in init.js PRIMA del primo calcoloY/draw
+           (gia' cosi' da prima di questo WP -- i colori canvas partivano gia' giusti).
+           Qui si replica SOLO l'effetto VISIVO minimo di applyThemeClass() (theme.js:16), il
+           piu' presto possibile, in due punti che condividono questa stessa funzione:
+           1) SUBITO qui su document.documentElement, PRIMA del <link> CSS -- per i temi
+              PERSONALIZZATI le variabili CSS (style inline sull'elemento) hanno gia' effetto
+              per ereditarieta' sui discendenti, indipendentemente dalle classi/dal CSS esterno.
+           2) Sul <body>, appena creato (vedi lo <script> identico subito dopo <body> qui sotto)
+              -- le regole dei temi builtin in style.css sono TUTTE su body.dark-mode/body.theme-X
+              (decine di selettori sparsi): riscriverle per document.documentElement non sarebbe
+              chirurgico, mentre il <link> CSS e' comunque render-blocking, quindi il browser non
+              dipinge nulla finche' lo stylesheet non e' caricato -- in quella finestra questo
+              script sincrono, eseguito come primissimo contenuto del body, ha gia' finito. */
+        function _bfApplyEarlyTheme(target) {
+          try {
+            var THEMES = ['light', 'dark', 'retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'];
+            var stored = localStorage.getItem('baseflow-theme');
+            var base = stored, customColors = null;
+            if (stored && stored.indexOf('custom:') === 0) {
+              var ct = (JSON.parse(localStorage.getItem('baseflow-custom-themes') || '{}') || {})[stored.slice(7)];
+              if (ct) { base = (THEMES.indexOf(ct.base) !== -1) ? ct.base : 'light'; customColors = ct.colors || null; }
+              else base = 'light';
+            }
+            if (!base || THEMES.indexOf(base) === -1) base = (localStorage.getItem('baseflow-dark-mode') === '1') ? 'dark' : 'light';
+            var cl = target.classList;
+            cl.toggle('dark-mode', base === 'dark' || base === 'chalk' || base === 'neon');
+            ['retro', 'bw', 'ocean', 'chalk', 'neon', 'contrast'].forEach(function (t) { cl.toggle('theme-' + t, base === t); });
+            if (customColors && target.style && target.style.setProperty) {
+              // AUDIT 2026-07-19 (#8): solo variabili CSS con valore hex valido (stessa regola di
+              // _bfIsValidColorVar in theme.js) -- niente proprietà/valori arbitrari nel CSSOM.
+              var _hex = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+              Object.keys(customColors).forEach(function (k) {
+                if (/^--[\w-]+$/.test(k) && typeof customColors[k] === 'string' && _hex.test(customColors[k].trim())) {
+                  target.style.setProperty(k, customColors[k]);
+                }
+              });
+            }
+          } catch (e) { /* localStorage non disponibile: resta il tema di default, nessun blocco */ }
+        }
+        _bfApplyEarlyTheme(document.documentElement);
+        </script>
+        <link rel="stylesheet" href="style.css?v=20260721l">
+        <link rel="icon" type="image/png" href="img/icon.png" />
+        <link rel="manifest" href="manifest.json">
+    </head>
+    <body>
+        <script>if (typeof _bfApplyEarlyTheme === 'function') _bfApplyEarlyTheme(document.body);</script>
+        <!-- Service worker DISATTIVATO in sviluppo per evitare cache stantie (vedi script no-cache in <head>). -->
+
+        <div id="container">
+            <div id="toolbar">
+
+            <img id="logo" src="img/logoBaseFlow.png" alt="BaseFlow Logo">
+
+            <!-- WP-M (mobile, Ismail 2026-07-20): contenitori-riga per la header mobile a 2 righe
+                 (logo+nome / comandi principali + More). Vuoti e hidden su desktop: gli elementi
+                 vengono SPOSTATI qui dentro via JS solo sotto i 760px (vedi _bfSetupMobileHeader
+                 in init.js) e rimessi al loro posto originale tornando larghi. -->
+            <div class="tb-row" id="tb-row-brand" hidden></div>
+            <div class="tb-row" id="tb-row-main" hidden></div>
+            <div class="tb-row" id="tb-row-extra" hidden></div>
+
+            <!-- WP-M (Ismail 2026-07-20): "Nuovo file" RIMOSSO -- doppione di Svuota (richiesta
+                 esplicita "togli uno e lascia uno"). Svuota (#clear-btn -> clearCanvas) ora azzera
+                 anche nome/autore del progetto (vedi _doClearCanvas in execute.js), quindi copre
+                 in pieno il vecchio "Nuovo file" senza ricaricare la pagina. -->
+            <button class="tb-icon bf-icon" id="open-btn" data-i18n-title="open" title="Apri" onclick="openFileWithGuard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+            <input type="file" id="fileInput" style="display:none;" accept=".bflow,.json,application/json" multiple="false" />
+            <button class="tb-icon bf-icon" id="save-file-btn" data-i18n-title="save" title="Salva" onclick="saveFile()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button>
+            <button class="tb-icon bf-icon" id="save-as-btn" data-i18n-title="save_as" title="Salva con nome" onclick="saveFileAs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l4 4v3"/><polyline points="15 21 15 14 7 14 7 21"/><polyline points="7 3 7 8 13 8"/><path d="M21.7 13.3a1.5 1.5 0 0 0-2.1 0L15 18v3h3l4.6-4.6a1.5 1.5 0 0 0 0-2.1z"/></svg></button>
+            <button class="tb-icon bf-icon" id="undo-btn" onclick="undo()" data-i18n-title="undo" title="Annulla (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
+            <button class="tb-icon bf-icon" id="redo-btn" onclick="redo()" data-i18n-title="redo" title="Ripeti (Ctrl+Y)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+            <button class="tb-icon bf-icon" id="clear-btn" onclick="clearCanvas()" data-i18n-title="tip_clear" title="Svuota il canvas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            <button class="tb-icon bf-icon" id="export-btn" onclick="openExportPopup()" data-i18n-title="export" title="Esporta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+            <span class="tb-sep"></span>
+            <button class="tb-icon bf-icon" id="console-exe" onclick="(async () => { await executeFlow(flow); })();" data-i18n-title="execute" title="Esegui"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-step" onclick="(async () => { await executeStep(); })();" data-i18n-title="step" title="Passo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button><button class="tb-icon bf-icon" id="exec-pause" onclick="requestPause()" data-i18n-title="exec_pause" title="Pausa" disabled><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button><button class="tb-icon bf-icon" id="console-stop" onclick="requestStop()" data-i18n-title="stop" title="Ferma" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button><button class="tb-icon bf-icon" id="console-reset" onclick="resetFlow()" data-i18n-title="reset" title="Reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button><select id="run-speed" class="tb-select" onchange="setRunSpeed(this.value)" data-i18n-title="tip_runspeed" title="Velocità animazione"><option value="700" data-i18n="speed_slow">Lenta</option><option value="350" selected data-i18n="speed_normal">Normale</option><option value="120" data-i18n="speed_fast">Veloce</option><option value="0" data-i18n="speed_instant">Istantanea</option></select>
+            <span class="tb-sep"></span>
+            <button class="tb-icon bf-icon" id="settings-btn" onclick="openSettingsPopup()" data-i18n-title="tip_settings" title="Impostazioni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+
+            <button class="tb-icon bf-icon" id="help-btn" onclick="startTutorial()" data-i18n-title="help" title="Aiuto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+            <!-- R13-K (Ismail 2026-07-12): ingresso in toolbar al manuale (ora a capitoli, vedi
+                 manual.html) -- richiesta esplicita "non una pagina nel footer". <button> (non
+                 <a>): tutte le regole di stile della toolbar sono scoped a "#toolbar button"
+                 (elemento, non classe) -- un <a> con le stesse classi le avrebbe MANCATE tutte
+                 (colore/hover/dark-mode/temi), restando uno spoglio link blu di sistema.
+                 R14-D (Ismail 2026-07-13): non piu' una nuova scheda -- apre un overlay IN-APP
+                 (#manual-overlay sotto, iframe same-origin verso manual.html). Il manuale eredita
+                 tema/lingua da localStorage per conto proprio (script inline in testa a
+                 manual.html), non serve passare stato via query string; l'iframe si carica alla
+                 PRIMA apertura (openManualOverlay, popups.js) e resta in memoria dopo, cosi'
+                 riaprendo si ritrova lo stesso capitolo/scroll di prima.
+                 WP-D8 (round 15-D, Ismail 2026-07-17): un primo tentativo aveva spostato questo
+                 pulsante (+ Svuota/Esporta/Aiuto) in un menu "⋯" separato sotto i 900px --
+                 Ismail ha chiesto di NON nascondere pulsanti ("non sono piu' coerenti"), ma di
+                 farli RIMPICCIOLIRE insieme al resto: rimesso qui al suo posto originale, il
+                 fix vero ora e' _bfFitToolbar() (init.js) + le variabili --tb-scale (style.css). -->
+            <button class="tb-icon bf-icon" id="manual-btn" onclick="openManualOverlay()" data-i18n-title="manual" title="Manuale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></button>
+            <input type="file" id="theme-file-input" accept=".json,application/json" style="display:none" onchange="loadThemeFromFile(this)">
+            <!-- R13-D (Ismail 2026-07-12): identita' del progetto in elaborazione -- nome + autore,
+                 col pallino "non salvato" SPOSTATO qui accanto al nome (prima vicino al logo, area di
+                 hover minuscola: un solo carattere). margin-inline-start:auto lo spinge a fine riga,
+                 RTL-safe (in arabo l'inizio riga e' a destra, quindi "fine riga" resta a sinistra senza
+                 bisogno di una regola speculare dedicata). Popolato/aggiornato da updateProjectIdentity()
+                 (execute.js) -- vedi anche state.js (currentFileName/currentAuthor). -->
+            <!-- R14-B.2 (Ismail 2026-07-13): niente piu' data-i18n-title/title statici qui --
+                 il tooltip e' ora quello istantaneo di js/core/ux.js (stesso di .bf-icon),
+                 agganciato via #project-identity/#unsaved-indicator (vedi ux.js). Contenuto
+                 dinamico scritto in data-tip da updateProjectIdentity() (execute.js). -->
+            <div id="project-identity">
+              <span id="project-identity-text"></span>
+              <span id="unsaved-indicator" data-i18n-title="unsaved_dot" hidden>&#9679;</span>
+            </div>
+            </div>
+            <div id="main">
+            <div id="sidebar">
+                <label id="variabiliLabel" onclick="toggleVariables()" data-i18n-title="tip_hide_vars" title="Nascondi il pannello variabili"><span id="variabili-caret">‹</span> <span data-i18n="var_title">VARIABLES</span></label>
+                <div id="tableContainer">
+                <table id="tabVariabili">
+                    <tr> 
+                        <th data-i18n="var_name">Name</th>
+                        <th data-i18n="var_type">Type</th>
+                        <th data-i18n="var_value">Value</th>
+                    </tr>
+                    <tr>
+                        <td>
+                        <input class="inputVariable" data-tour-id="step-insert-name" type ="text">
+                        </td>
+                        <td>
+                        <select class="inputVariable"  data-tour-id="step-insert-type">
+                            <option value="int">Integer</option>
+                            <option value="float">Float</option>
+                            <option value="string">String</option>
+                            <option value="bool">Boolean</option>
+                            <!-- WP-M2 (Ismail 2026-07-20): tipo Array -- alla selezione compare la
+                                 seconda select col tipo degli elementi (variables.js). -->
+                            <option value="array">Array</option>
+                        </select>
+                        </td>
+                        <td>
+                        <div class="value-cell">
+                        <input type="checkbox" class="assign-check" data-i18n-title="blk_assign" title="Assegna" onchange="toggleAssign(this)">
+                        <input class="inputVariable value-input" data-tour-id="step-insert-value" type="text" disabled>
+                        <button type="button" class="var-del" data-i18n-title="var_delete" title="Elimina variabile" onclick="deleteVariableRow(this)">&times;</button>
+                        </div>
+                        </td>
+                    </tr>
+                </table>
+                <!-- R13-L (Ismail 2026-07-12): popover di editing per valori lunghi (doppio click
+                     sulla cella Valore, vedi openVarValuePopover in variables.js). Un solo elemento
+                     condiviso, ancorato dinamicamente sopra la riga cliccata. -->
+                <div id="var-value-popover" hidden>
+                  <textarea id="var-value-popover-textarea" rows="2"></textarea>
+                  <div class="var-value-popover-hint" id="var-value-popover-hint" data-i18n="var_value_popover_hint">Invio per confermare · Esc per annullare</div>
+                </div>
+                </div>
+            </div>    
+                 <button class="bf-icon" id="sidebar-reopen" onclick="toggleVariables()" data-i18n-title="tip_show_vars" title="Mostra le variabili">☰</button>
+                 <button class="bf-icon" id="terminal-reopen" onclick="toggleTerminal()" data-i18n-title="tip_terminal" title="Terminale">&#9002;_</button>
+                 <div id="canvas-container">
+                    <canvas id="canvas" width="800" height="600"></canvas>
+                    <!-- WP-M (Ismail 2026-07-20): maniglie .tg-rz -> la palette dei blocchi e'
+                         spostabile e ridimensionabile; al resize i blocchi rifluiscono
+                         (grid auto-fit, classe bf-user-sized -- vedi ux.js/style.css). -->
+                    <div id="popup-window">
+                    <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                    <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                    <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                    <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                    <div class="palette-grid">
+                    <div class="section" id="io-section">
+                        <h3 data-i18n="cat_interaction">Interaction</h3>
+                        <button id="input-btn" onclick="inserisciNodo('input')" class="blk blk-parallelogram blk-input" data-i18n="blk_input">Input</button>
+                        <button id="output-btn" onclick="inserisciNodo('print')" class="blk blk-parallelogram blk-output" data-i18n="blk_output">Output</button>
+                    </div>
+                    <div class="section" id="variables-section">
+                        <h3 data-i18n="cat_math">Math</h3>
+                        <button id="assign-btn" onclick="inserisciNodo('assign')" class="blk blk-rect blk-assign" data-i18n="blk_assign">Assign</button>
+                    </div>
+                    <div class="section" id="control-section">
+                        <h3 data-i18n="cat_selection">Selection</h3>
+                        <button id="if-btn" onclick="inserisciNodo('if')" class="blk blk-diamond blk-if" data-i18n="blk_if">If</button>
+                    </div>
+                    <div class="section" id="loops-section">
+                        <h3 data-i18n="cat_loops">Loops</h3>
+                        <button id="do-while-btn" onclick="inserisciNodo('do')" class="blk blk-hex blk-do" data-i18n="blk_dowhile">Do-While</button>
+                        <button id="while-btn" onclick="inserisciNodo('while')" class="blk blk-hex blk-while" data-i18n="blk_while">While</button>
+                        <button id="for-btn" onclick="inserisciNodo('for')" class="blk blk-hex blk-for" data-i18n="blk_for">For</button>
+                    </div>
+                    <div class="section" id="tools-section">
+                        <h3 data-i18n="cat_tools">Tools</h3>
+                        <button id="comment-btn" onclick="inserisciNodo('comment')" class="blk blk-dashed blk-comment" data-i18n="blk_comment">Comment</button>
+                        <button id="pause-btn" onclick="inserisciNodo('pause')" class="blk blk-hex blk-pause">&#10074;&#10074; <span data-i18n="blk_pause">Pause</span></button>
+                    </div>
+                    <div class="section" id="graphics-section">
+                        <h3 data-i18n="cat_graphics">Graphics</h3>
+                        <button id="forward-btn" onclick="inserisciNodo('forward')" class="blk blk-forward" data-i18n="blk_forward">Move/Draw</button>
+                        <button id="turn-btn" onclick="inserisciNodo('turn')" class="blk blk-turn" data-i18n="blk_turn">Turn</button>
+                        <button id="home-btn" onclick="inserisciNodo('home')" class="blk blk-home" data-i18n="blk_home">Home</button>
+                        <button id="pen-btn" onclick="inserisciNodo('pen')" class="blk blk-rect blk-pen" data-i18n="blk_pen">Pen</button>
+                        <button id="clearscreen-btn" onclick="inserisciNodo('gclear')" class="blk blk-rect blk-gclear" data-i18n="blk_clearscreen">Clear</button>
+                    </div>
+                    </div>
+                    <button id="close-popup" class="x-close" onclick="chiudiPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    </div>
+                    
+                    <div id="edit-node-popup">
+                        <button class="blk-help-btn" onclick="openBlockHelp((flow.nodes[nodoSelected]||{}).type)" data-i18n-title="tip_block_help" title="Guida al blocco" aria-label="?">?</button>
+                        <button class="x-close" onclick="chiudiEditPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                        <h3 id="edit-node-title" data-i18n="edit_title">Edit Node</h3>
+                        <input type="text" id="edit-node-input" data-i18n-ph="edit_ph" placeholder="Enter node information">
+                        <div id="assign-fields" hidden>
+                          <div class="assign-row"><label for="assign-var-input" data-i18n="assign_var_label">Variabile</label><input type="text" id="assign-var-input"></div>
+                          <div class="assign-row"><label for="assign-val-input" data-i18n="assign_val_label">Valore</label><input type="text" id="assign-val-input"></div>
+                        </div>
+                        <label id="out-newline-row" hidden><input type="checkbox" id="out-newline-check" checked> <span data-i18n="out_newline">A capo dopo la stampa</span></label>
+                        <div class="edit-actions">
+                        <button id="save-node-info" onclick="salvaInfo()" data-i18n="save">Save</button>
+                        <button id="delete-node-btn" onclick="deleteNode()" data-i18n="delete">Delete</button>
+                        </div>
+                    </div>
+
+                    <!-- WP-M (Ismail 2026-07-20): via il pulsante "Annulla" (la X in alto fa gia'
+                         da annulla); tre azioni: Ripristina (colori base del tema attivo),
+                         Imposta (applica i colori SENZA salvarli, vedi applyThemeEditorDraft in
+                         theme.js), Salva (salva e imposta, invariato). Aggiunte anche le 8
+                         maniglie .tg-rz: il popup ora e' spostabile (dalla testata) e
+                         ridimensionabile (vedi _bfWireWindowPopups in ux.js). -->
+                    <div id="theme-editor" hidden>
+                      <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                      <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                      <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                      <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                      <div class="te-head"><span data-i18n="theme_create">Crea nuovo tema</span>
+                        <button class="x-close" onclick="cancelThemeEditor()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                      </div>
+                      <label class="te-name-row"><span data-i18n="theme_name">Nome del tema</span>
+                        <input type="text" id="te-name" data-i18n-ph="theme_name_ph" placeholder="Il mio tema">
+                      </label>
+                      <div id="te-body"></div>
+                      <div class="te-actions">
+                        <button id="te-reset" onclick="resetDraftColors()" data-i18n="theme_reset">Ripristina</button>
+                        <button id="te-apply" onclick="applyThemeEditorDraft()" data-i18n="theme_apply">Imposta</button>
+                        <button id="te-save" onclick="saveNewTheme()" data-i18n="theme_save">Salva tema</button>
+                      </div>
+                    </div>
+                    <div id="for-popup">
+                    <button class="blk-help-btn" onclick="openBlockHelp('for')" data-i18n-title="tip_block_help" title="Guida al blocco" aria-label="?">?</button>
+                    <button class="x-close" onclick="closeForPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <h3 data-i18n="for_title">Configura ciclo For</h3>
+                    <label data-i18n="for_var">Variabile:</label>
+                    <input type="text" id="for-var" class="for-input">
+                    <div class="for-grid">
+                      <div><label data-i18n="for_init">Valore iniziale:</label><input type="text" id="for-init" class="for-input" value="0" autocomplete="off" spellcheck="false"></div>
+                      <div><label data-i18n="for_final">Valore finale:</label><input type="text" id="for-final" class="for-input" value="10" autocomplete="off" spellcheck="false"></div>
+                    </div>
+                    <div class="for-grid">
+                      <div>
+                        <label data-i18n="for_dir">Direzione:</label>
+                        <div class="for-radios">
+                          <label><input type="radio" name="for-dir" value="inc" checked> <span data-i18n="for_inc">Incrementa</span></label>
+                          <label><input type="radio" name="for-dir" value="dec"> <span data-i18n="for_dec">Decrementa</span></label>
+                        </div>
+                      </div>
+                      <div><label data-i18n="for_step">Valore passo:</label><input type="text" id="for-step" class="for-input" value="1" autocomplete="off" spellcheck="false"></div>
+                    </div>
+                    <div id="for-error" class="for-error" hidden></div>
+                    <div class="for-actions">
+                      <button id="for-ok" onclick="saveForNode()" data-i18n="ok">OK</button>
+                    </div>
+                    </div>
+
+                    <!-- R14-C (Ismail 2026-07-13): redesign per allinearlo alla famiglia bf-modal
+                         (showStyledConfirm/showUnsavedDialog) -- icona floppy in cerchio + titolo,
+                         X di chiusura (riusa closeSavePopup(), gia' nello stack Esc R13-F tramite
+                         _bfPushOverlay('save-popup') in saveFileAs()/_bfCloseOverlayById), pulsante
+                         Salva con la stessa classe .bf-modal-btn/.bf-modal-ok (nessuna nuova regola
+                         tema/dark-mode necessaria: e' gia' generica). Il popup resta un componente A
+                         PARTE da .bf-modal (overlay/#overlay/logica di apertura in popups.js
+                         INVARIATI) -- solo l'aspetto e' allineato.
+                         P2.1 (round 15-B S1, Ismail 2026-07-15): tolto il pulsante "Annulla" -- la X
+                         in alto a destra fa gia' da annulla (closeSavePopup, gia' nello stack Esc),
+                         resta un solo pulsante primario centrato, pattern uniforme con showUnsavedDialog
+                         (niente "Annulla" testuale in nessun popup del flusso salvataggio). -->
+                    <!-- WP-D4 (round 15-D, Ismail 2026-07-17, "esteticamente brutto"): markup
+                         riscritto per usare spaziatura via flex/gap (CSS sotto) invece della
+                         vecchia sequenza di <br><br> -- ogni campo e' avvolto in .save-field cosi'
+                         label+input restano un blocco coerente e allineato SEMPRE allo stesso modo
+                         (prima le label, centrate dal genitore, sembravano "fluttuare" sopra
+                         un input a tutta larghezza). Nessuna logica JS nuova: solo struttura e CSS. -->
+                    <div id="save-popup">
+                    <button type="button" class="x-close" id="save-popup-xclose" onclick="closeSavePopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <div class="bf-modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></div>
+                    <h3 class="bf-modal-title" data-i18n="save_project">Save project</h3>
+                    <!-- R13-D punto 4: sottotitolo col nome del progetto ATTUALE, se noto (Salva con
+                         nome puo' anche solo rinominare/cambiare autore dello stesso progetto). -->
+                    <p id="save-popup-current" hidden></p>
+                    <div class="save-field">
+                    <label for="filename-input" data-i18n="filename_label">File name (without extension):</label>
+                    <!-- WP-N12 (round 15-C, Ismail 2026-07-15): maxlength a monte, cosi' il
+                         nome non diventa mai assurdamente lungo (vedi anche il fix su
+                         #project-identity in style.css e i limiti di truncateName() in
+                         updateProjectIdentity(), execute.js). -->
+                    <input type="text" id="filename-input" data-i18n-ph="filename_ph" placeholder="Insert file name" maxlength="60">
+                    </div>
+                    <!-- R13-D (Ismail 2026-07-12): campo Autore, precompilato da currentAuthor o
+                         dall'ultimo autore usato (localStorage['baseflow-author']) -- vedi saveFileAs()/
+                         confirmSaveFromPopup() in popups.js.
+                         WP-N8 (round 15-C, Ismail 2026-07-15): rimossa la label "Autore:" -- solo
+                         l'input, come quello del Nome sopra, col placeholder (author_ph) a fare da
+                         etichetta.
+                         WP-D4 seguito (Ismail 2026-07-17): richiesta di rimetterla, per coerenza
+                         visiva col campo Nome file (ora anch'esso dentro un .save-field con la sua
+                         label, vedi sopra) -- author_label era rimasta in i18n.js inutilizzata dal
+                         markup, riusata qui SENZA aggiungere nulla di nuovo alle 4 lingue. -->
+                    <div class="save-field">
+                    <label for="save-author-input" data-i18n="author_label">Author:</label>
+                    <input type="text" id="save-author-input" data-i18n-ph="author_ph" placeholder="Author name" maxlength="40">
+                    </div>
+                    <div id="save-popup-actions">
+                    <button id="save-confirm-btn" class="bf-modal-btn bf-modal-ok" onclick="confirmSaveFromPopup()" data-i18n="save">Save</button>
+                    </div>
+                    </div>
+
+                    <!-- R14-D (Ismail 2026-07-13): manuale IN-APP -- overlay con un iframe
+                         same-origin verso manual.html (invece di window.open in una nuova
+                         scheda). X di chiusura + Esc (stack condiviso R13-F, vedi
+                         openManualOverlay/closeManualOverlay e _bfCloseOverlayById in popups.js).
+                         manual.html nasconde da solo il suo link "← BaseFlow" quando rileva di
+                         essere in un iframe (window.self !== window.top, vedi script inline in
+                         testa a manual.html) -- navigare "indietro" dentro l'iframe non avrebbe
+                         senso, si chiude l'overlay con X/Esc invece.
+                         P10.1 (round 15-B S10, Ismail 2026-07-15): ora e' una finestra vera,
+                         ridimensionabile (8 maniglie .tg-rz, stesse di console/tartaruga) e
+                         spostabile (trascinando #manual-overlay-bar) con raise-on-click
+                         (WINDOW_IDS in ux.js) -- vedi _manualSetupDragResize in popups.js. -->
+                    <div id="manual-overlay">
+                      <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                      <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                      <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                      <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                      <div id="manual-overlay-box">
+                        <!-- Barra dedicata SOLO per la X, sopra l'iframe: la X assoluta sull'iframe
+                             avrebbe coperto il selettore lingua del manuale (.man-lang, gia' in alto
+                             a destra dentro manual.html -- vedi .man-topbar). -->
+                        <div id="manual-overlay-bar">
+                          <button type="button" class="x-close" id="manual-overlay-xclose" onclick="closeManualOverlay()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                        </div>
+                        <!-- AUDIT 2026-07-19 (#7): sandbox come difesa in profondità. manual.html è
+                             same-origin e fidato; allow-scripts (il manuale usa JS proprio) +
+                             allow-same-origin (deve leggere il tema dal parent). NIENTE allow-top-navigation
+                             né allow-popups: il manuale non deve poter navigare/aprire finestre. -->
+                        <iframe id="manual-iframe" sandbox="allow-scripts allow-same-origin" data-i18n-title="manual" title="Manual"></iframe>
+                      </div>
+                    </div>
+
+                    <div id="console-popup" class="docked">
+                    <div id="console-resize-handle" data-i18n-title="tip_resize" title="Trascina per ridimensionare il pannello"></div>
+                    <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                    <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                    <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                    <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                    <div id="console-titlebar" onclick="onConsoleTitlebarClick(event)" role="button" tabindex="0" data-i18n-title="tip_hide_terminal" title="Nascondi terminale">
+                      <span id="console-title" data-i18n="console_title">Console</span>
+                      <span class="console-caret" aria-hidden="true">&rsaquo;</span>
+                      <button class="x-close console-x" onclick="event.stopPropagation(); closeConsole();" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    </div>
+                    <div id="console-watch" hidden></div>
+                    <div id="console-outwrap">
+                      <div id="console-cardbar">
+                        <button onclick="startConsoleTour()" id="console-help" class="term-badge" data-i18n-title="tip_console_help" title="Guida del terminale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+                        <span class="cardbar-spacer"></span>
+                        <button onclick="downloadConsoleOutput()" id="console-download" class="term-badge" data-i18n-title="tip_savelog" title="Scarica log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                        <button onclick="clearConsole()" id="console-clear-term" class="term-badge" data-i18n-title="clear" title="Pulisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+                      </div>
+                      <div id="console-output" role="log">
+                        <p data-i18n="console_ready">> Console ready...</p>
+                      </div>
+                      <div id="console-bottombar">
+                        <button id="console-mobile-toggle" class="term-icon" onclick="toggleConsoleDock()" data-i18n-title="tip_mobile" title="Terminale mobile" aria-label="Terminale mobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                        <div id="console-zoom">
+                          <button onclick="consoleFontZoom(0.15)" id="console-font-inc" data-i18n-title="tip_font_inc" title="Ingrandisci carattere">+</button>
+                          <button onclick="consoleFontZoom(-0.15)" id="console-font-dec" data-i18n-title="tip_font_dec" title="Riduci carattere">&minus;</button>
+                          <button onclick="consoleFontReset()" id="console-font-reset" data-i18n-title="tip_font_reset" title="Carattere predefinito">&#8635;</button>
+                        </div>
+                    </div>
+                      <div id="console-input-section">
+                        <input type="text" id="console-input" data-i18n-ph="value_ph" placeholder="Enter a value...">
+                        <button id="console-send" data-i18n="send">Send</button>
+                    </div>
+                    </div>
+                    </div>
+                    
+                    <div id="block-help-popup">
+                      <div class="bh-head">
+                        <span class="bh-qmark">?</span>
+                        <h3 id="block-help-title">Block</h3>
+                        <button class="x-close" onclick="closeBlockHelp()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                      </div>
+                      <p id="block-help-desc"></p>
+                    </div>
+
+                    <!-- WP-M (Ismail 2026-07-20): maniglie .tg-rz -> il popup Impostazioni e'
+                         spostabile (dal titolo) e ridimensionabile (vedi _bfWireWindowPopups, ux.js). -->
+                    <div id="settings-popup">
+                    <div class="tg-rz" data-dir="n"></div><div class="tg-rz" data-dir="s"></div>
+                    <div class="tg-rz" data-dir="e"></div><div class="tg-rz" data-dir="w"></div>
+                    <div class="tg-rz" data-dir="ne"></div><div class="tg-rz" data-dir="nw"></div>
+                    <div class="tg-rz" data-dir="se"></div><div class="tg-rz" data-dir="sw"></div>
+                    <button class="x-close" onclick="closeSettingsPopup()" data-i18n-title="close" title="Chiudi" aria-label="Chiudi">&times;</button>
+                    <h3 data-i18n="settings_title">Settings</h3>
+                    <div class="settings-body">
+                      <section class="settings-group">
+                        <h4 data-i18n="settings_appearance">Appearance</h4>
+                        <label class="settings-row"><span data-i18n="settings_lang">Language</span>
+                          <!-- WP-M (Ismail 2026-07-20): via le emoji-bandiera -- su mobile venivano
+                               renderizzate come bandierine colorate (su PC restavano lettere),
+                               incoerente. Solo le lettere della lingua, ovunque. -->
+                          <select id="lang-select" onchange="setLanguage(this.value)" aria-label="Language">
+                            <option value="it">IT</option>
+                            <option value="en">EN</option>
+                            <option value="ar">AR</option>
+                            <option value="zh">中文</option>
+                          </select>
+                        </label>
+                        <label class="settings-row"><span data-i18n="settings_theme">Theme</span>
+                          <select id="theme-select" onchange="onThemeSelect(this.value)" aria-label="Theme">
+                            <option value="light" data-i18n="theme_light">Chiaro</option>
+                            <option value="dark" data-i18n="theme_dark">Scuro</option>
+                            <option value="retro" data-i18n="theme_retro">Retro</option>
+                            <option value="bw" data-i18n="theme_bw">Bianco/Nero</option>
+                            <option value="ocean" data-i18n="theme_ocean">Oceano</option>
+                            <option value="chalk" data-i18n="theme_chalk">Lavagna</option>
+                            <option value="neon" data-i18n="theme_neon">Neon</option>
+                            <option value="contrast" data-i18n="theme_contrast">Alto contrasto</option>
+                          </select>
+                        </label>
+                        <div class="settings-theme-actions">
+                          <button id="settings-theme-edit" class="settings-themebtn" onclick="startCreateThemeFromSettings()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z"/></svg>
+                            <span data-i18n="settings_theme_edit">Crea tema</span>
+                          </button>
+                          <button id="settings-theme-load" class="settings-themebtn" onclick="loadThemeFromSettings()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            <span data-i18n="theme_load">Carica tema</span>
+                          </button>
+                        </div>
+                      </section>
+                      <section class="settings-group">
+                        <h4 data-i18n="settings_view">Vista</h4>
+                        <label class="settings-check"><input type="checkbox" id="view-grid" onchange="toggleViewSetting('showGrid', this.checked)"> <span data-i18n="view_grid">Griglia sul canvas</span></label>
+                      </section>
+                      <section class="settings-group">
+                        <h4 data-i18n="settings_console">Terminal messages</h4>
+                        <label class="settings-check"><input type="checkbox" id="cset-output" checked onchange="toggleConsoleSetting('output', this.checked)"> <span data-i18n="cset_output">Output</span></label>
+                        <label class="settings-check"><input type="checkbox" id="cset-cond" checked onchange="toggleConsoleSetting('cond', this.checked)"> <span data-i18n="cset_cond">Esiti condizioni (if)</span></label>
+                        <label class="settings-check"><input type="checkbox" id="cset-loop" checked onchange="toggleConsoleSetting('loop', this.checked)"> <span data-i18n="cset_loop">Esiti cicli</span></label>
+                        <label class="settings-check"><input type="checkbox" id="cset-debug" checked onchange="toggleConsoleSetting('debug', this.checked)"> <span data-i18n="cset_debug">Debug</span></label>
+                      </section>
+                      <section class="settings-group">
+                        <h4 data-i18n="perf_title">Prestazioni</h4>
+                        <label class="settings-check"><input type="checkbox" id="perf-anim" onchange="togglePerfSetting('reducedAnim', this.checked)"> <span data-i18n="perf_reduce_anim">Riduci animazioni</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-hover" checked onchange="togglePerfSetting('hoverHighlight', this.checked)"> <span data-i18n="perf_hover">Evidenzia frecce al passaggio del mouse</span></label>
+                        <!-- WP-M2 (Ismail 2026-07-20): nuove opzioni prestazioni -- vedi settings.js. -->
+                        <label class="settings-check"><input type="checkbox" id="perf-lowres" onchange="togglePerfSetting('lowRes', this.checked)"> <span data-i18n="perf_lowres">Risoluzione canvas ridotta (più veloce)</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-conmax" checked onchange="togglePerfSetting('consoleMax', this.checked)"> <span data-i18n="perf_conmax">Limita lo storico del terminale (300 righe)</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-turbo" onchange="togglePerfSetting('turbo', this.checked)"> <span data-i18n="perf_turbo">Turbo su Istantanea (niente evidenziazione né righe di servizio)</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-loopguard" checked onchange="togglePerfSetting('loopGuard', this.checked)"> <span data-i18n="perf_loopguard">Protezione anti-ciclo infinito (ferma dopo 50000 passi)</span></label>
+                        <label class="settings-check"><input type="checkbox" id="perf-fps" onchange="togglePerfSetting('fps', this.checked)"> <span data-i18n="perf_fps">Mostra contatore FPS (diagnostica)</span></label>
+                      </section>
+                    </div>
+                    <div class="settings-actions">
+                      <button id="settings-done" onclick="closeSettingsPopup()" data-i18n="settings_done">Done</button>
+                    </div>
+                    </div>
+
+                    <div id="export-popup">
+                    <h3 data-i18n="export">Export</h3>
+                    <div class="export-format-row">
+                        <label for="export-format" data-i18n="export_format">Formato</label>
+                        <select id="export-format" onchange="onExportFormatChange()">
+                            <optgroup label="Code">
+                                <option value="python">Python (.py)</option>
+                                <option value="javascript">JavaScript (.js)</option>
+                                <option value="c">C (.c)</option>
+                                <option value="cpp">C++ (.cpp)</option>
+                                <option value="java">Java (.java)</option>
+                            </optgroup>
+                            <optgroup label="Image / Document">
+                                <option value="png">PNG Image (.png)</option>
+                                <option value="jpg">JPG Image (.jpg)</option>
+                                <option value="pdf">PDF Document (.pdf)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <textarea id="export-code" rows="15" cols="60" readonly></textarea>
+                    <img id="export-preview" alt="Diagram preview" style="display:none;">
+                    <!-- WP-D7 (round 15-D, Ismail 2026-07-17): avviso per grafi molto grandi
+                         (export ora ad alta risoluzione, vedi exportUnified.js) -- mostrato/
+                         nascosto da renderExportPopup() solo per image/pdf. -->
+                    <div id="export-large-warn" class="export-large-warn" hidden data-i18n="export_large_warn"></div>
+                    <div class="export-actions">
+                        <button onclick="copyExportOutput()" id="copy-export-btn" data-i18n="ctx_copy">Copy</button>
+                        <button onclick="downloadExportOutput()" id="download-export-btn" data-i18n="download">Download</button>
+                        <button onclick="closeExportPopup()" id="close-export-btn" data-i18n="close">Close</button>
+                    </div>
+                    </div>
+
+                    <div id="overlay" ></div>
+                    <div id="ctx-menu" class="ctx-menu" hidden>
+                        <button class="ctx-item" data-act="copy-selection" onclick="ctxAction('copy-selection')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy_selection">Copia selezione</span><span class="ctx-sel-count"></span></button>
+                        <button class="ctx-item" data-act="cut-selection" onclick="ctxAction('cut-selection')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut_selection">Taglia selezione</span><span class="ctx-sel-count"></span></button>
+                        <button class="ctx-item ctx-danger" data-act="delete-selection" onclick="ctxAction('delete-selection')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span data-i18n="ctx_delete_selection">Elimina selezione</span><span class="ctx-sel-count"></span></button>
+                        <button class="ctx-item" data-act="edit" onclick="ctxAction('edit')"><span class="ctx-ico">&#9998;</span><span data-i18n="ctx_edit">Modifica</span></button>
+                        <button class="ctx-item" data-act="cut" onclick="ctxAction('cut')"><span class="ctx-ico">&#9986;</span><span data-i18n="ctx_cut">Taglia</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+X</span></button>
+                        <button class="ctx-item" data-act="copy" onclick="ctxAction('copy')"><span class="ctx-ico">&#10697;</span><span data-i18n="ctx_copy">Copia</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+C</span></button>
+                        <button class="ctx-item" data-act="paste" onclick="ctxAction('paste')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="4" rx="1" ry="1"/><path d="M9 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2h-2"/></svg></span><span data-i18n="ctx_paste">Incolla</span> <span style="opacity:.5;margin-inline-start:auto">Ctrl+V</span></button>
+                        <div class="ctx-sep"></div>
+                        <button class="ctx-item ctx-danger" data-act="delete" onclick="ctxAction('delete')"><span class="ctx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span data-i18n="delete">Elimina</span></button>
+                    </div>
+                    <div id="zoom-controls">
+                        <button class="bf-icon" id="zoom-in-btn" onclick="zoomIn()" data-i18n-title="tip_zoom_in" title="Zoom avanti">+</button>
+                        <button class="bf-icon" id="zoom-out-btn" onclick="zoomOut()" data-i18n-title="tip_zoom_out" title="Zoom indietro">−</button>
+                        <button class="bf-icon" id="zoom-reset-btn" onclick="zoomReset()" data-i18n-title="tip_zoom_reset" title="Reset zoom">↺</button>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        <footer id="credits-section">
+            <div>
+                <strong>BaseFlow</strong> &copy; 2025<br>
+                <span data-i18n="footer_credits">Created by Matteo Artifoni and Ismail Barakat | Open source educational project.</span><br>
+                <span data-i18n="footer_thanks_pre">Thanks to</span> <a href="https://shepherdjs.dev/" target="_blank" rel="noopener">Shepherd.js</a> <span data-i18n="footer_thanks_post">and other open source libraries.</span><br>
+                <div id="github-links"></div>
+                    <a href="https://github.com/proismamaster/BaseFlow" id="github-logo" target="_blank" rel="noopener" title="View on GitHub">
+                        <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub" width="24" height="24">
+                    </a>
+                    <span id="contributors"></span>
+                </div>
+                <nav id="footer-links">
+                    <!-- R13-K (Ismail 2026-07-12): voce "Manuale" rimossa da qui -- ora e' un
+                         pulsante libro in toolbar (id="manual-btn"), non una pagina nel footer
+                         (richiesta esplicita). Privacy/Cookie restano qui. -->
+                    <a href="privacy.html" data-i18n="footer_privacy">Privacy Policy</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="cookies.html" data-i18n="footer_cookie">Cookie Policy</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="https://github.com/proismamaster/BaseFlow" target="_blank" rel="noopener">GitHub</a>
+                    <span class="footer-dot" aria-hidden="true">&middot;</span>
+                    <a href="https://ismailbarakat.dev" target="_blank" rel="noopener" data-i18n="footer_portfolio">Portfolio</a>
+                </nav>
+                <script>
+                // fetch contributors from GitHub API and display their avatars
+                fetch('https://api.github.com/repos/proismamaster/BaseFlow/contributors')
+                  .then(response => response.json())
+                  .then(contributors => {
+                    const container = document.getElementById('contributors');
+                    contributors.forEach(user => {
+                      const a = document.createElement('a');
+                      // AUDIT 2026-07-19 (#9): accetta l'href SOLO se https:// (mai javascript:/data:),
+                      // anche se la sorgente è GitHub API su HTTPS -- difesa in profondità.
+                      a.href = (typeof user.html_url === 'string' && /^https:\/\//.test(user.html_url)) ? user.html_url : '#';
+                      a.target = '_blank';
+                      a.rel = 'noopener';
+                      a.title = user.login;
+                      a.style.marginRight = '4px';
+                      const img = document.createElement('img');
+                      // AUDIT 2026-07-19 (#9): carica l'avatar solo da URL https:// (mai data:/javascript:).
+                      img.src = (typeof user.avatar_url === 'string' && /^https:\/\//.test(user.avatar_url)) ? (user.avatar_url + '&s=24') : '';
+                      img.alt = user.login;
+                      img.width = 24;
+                      img.height = 24;
+                      img.style.verticalAlign = 'middle';
+                      img.style.borderRadius = '50%';
+                      img.style.background = 'transparent';
+                      a.appendChild(img);
+                      container.appendChild(a);
+                    });
+                  })
+                  .catch(() => {});
+                </script>
+            </div>
+        </footer>
+
+        <!-- Core modules (refactored from script.js) -->
+        <script src="js/core/state.js?v=20260720c"></script>
+        <script src="js/core/fileFormat.js?v=20260719b"></script>
+        <script src="js/core/utils.js?v=20260712a"></script>
+        <script src="js/core/variables.js?v=20260721l"></script>
+        <script src="js/core/layout.js?v=20260721a"></script>
+        <script src="js/core/rendering.js?v=20260720b"></script>
+        <script src="js/core/popups.js?v=20260720e"></script>
+        <script src="js/core/interaction.js?v=20260720c"></script>
+        <script src="js/core/fileIO.js?v=20260721f"></script>
+        <script src="js/core/theme.js?v=20260720c"></script>
+        <script src="js/core/i18n.js?v=20260721k"></script>
+        <script src="js/core/draw.js?v=20260721a"></script>
+        <script src="js/core/ux.js?v=20260720c"></script>
+        <script src="js/core/settings.js?v=20260720e"></script>
+        <script src="js/core/init.js?v=20260720e"></script>
+
+        <script src="js/core/safeEval.js?v=20260720e"></script>
+        <script src="js/execute.js?v=20260720f"></script>
+        <script src="js/saveOpen.js?v=20260719a"></script>
+        <script src="js/pythonTranslation.js?v=20260720f"></script>
+        <script src="js/multiTranslation.js?v=20260720f"></script>
+
+        <!-- S9 P9.1 (round 15-B, Ismail 2026-07-15): jsPDF servito LOCALMENTE (js/vendor/,
+             MIT license, vedi js/vendor/jspdf.LICENSE.txt) invece che da CDN -- l'export PDF
+             (exportUnified.js downloadDiagramAsPdf) ora funziona anche offline. -->
+        <script src="js/vendor/jspdf.umd.min.js?v=2.5.1"></script>
+        <script src="js/exportUnified.js?v=20260715c"></script>
+
+        <!-- AUDIT 2026-07-19 (#5) -> RISOLTO 2026-07-21: Shepherd.js e' ora SELF-HOSTATO in
+             js/vendor/ (v11.2.0, MIT, vedi js/vendor/shepherd.LICENSE.txt), come gia' jsPDF.
+             Motivo: i pacchetti desktop (Electron) e Android (Capacitor) girano da file://
+             o da un webview locale, quindi qualsiasi risorsa da CDN sparirebbe offline e il
+             tour guidato si romperebbe. Effetto collaterale positivo: la CSP non ha piu'
+             bisogno di cdn.jsdelivr.net in script-src/style-src (rimosso, vedi <head>). -->
+        <link rel="stylesheet" href="js/vendor/shepherd.css?v=11.2.0" />
+        <script src="js/vendor/shepherd.min.js?v=11.2.0"></script>
+        <script src="js/tutorial.js?v=20260720c"></script>
+
+        <script>
+        /* WP-M9 (Ismail 2026-07-21): completa il blocco dello zoom di PAGINA iniziato in
+           style.css con `touch-action: pan-x pan-y` su html/body.
+           Serve un secondo pezzo perche' Safari su iOS ignora touch-action per il proprio
+           zoom a pizzico e usa gli eventi NON standard gesturestart/gesturechange/gestureend
+           (e da iOS 10 ignora anche user-scalable=no nel meta viewport, quindi quella strada
+           e' chiusa). Prevenire questi tre eventi e' l'unico modo che resta.
+           Sugli altri browser i gesture* non esistono proprio: il listener non scatta mai e
+           non costa nulla. */
+        (function () {
+          ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (t) {
+            document.addEventListener(t, function (e) { e.preventDefault(); }, { passive: false });
+          });
+          /* Secondo dito giu' = mai uno scroll/zoom del browser. Senza questo, durante un
+             pizzico su un componente che ha il suo zoom (canvas, terminale) il browser puo'
+             decidere a meta' gesto che stai scorrendo e ANNULLARE i puntatori (pointercancel),
+             troncando lo zoom a meta'. Il tocco a un dito non passa di qui: lo scorrimento
+             normale resta intatto. */
+          document.addEventListener('touchmove', function (e) {
+            if (e.touches && e.touches.length > 1) e.preventDefault();
+          }, { passive: false });
+        })();
+        </script>
+    </body>
+</html>

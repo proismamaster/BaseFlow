@@ -1,0 +1,94 @@
+# electron-builder -- configurazione dei pacchetti desktop di BaseFlow.
+# Documentazione: https://www.electron.build/configuration/configuration
+#
+# Nota sul "files": l'app web sta in app/ e viene copiata dentro le resources del
+# pacchetto (extraResources), non dentro l'asar. Motivo: main.js serve quei file via
+# protocollo custom leggendoli dal disco con fs, e leggere dall'asar funziona ma
+# complica il debug (i path dentro l'archivio non sono ispezionabili a mano).
+# Tenerli fuori costa qualche MB e rende banale verificare cosa e' stato spedito.
+
+appId: dev.ismailbarakat.baseflow
+productName: BaseFlow
+copyright: Copyright © 2026 Ismail Barakat
+
+directories:
+  output: dist
+  buildResources: build
+
+# Cosa finisce dentro l'asar (solo il codice Electron: main + preload).
+files:
+  - electron/**/*
+  - package.json
+
+# L'app web, servita a runtime da app://baseflow
+extraResources:
+  - from: app
+    to: app
+    filter:
+      - '**/*'
+
+# --------------------------------------------------------------------------
+# Windows
+# --------------------------------------------------------------------------
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis        # installer classico .exe
+      arch: [x64]
+    - target: portable    # .exe singolo che gira senza installare
+      arch: [x64]
+
+nsis:
+  oneClick: false                    # mostra il wizard invece di installare di forza
+  allowToChangeInstallationDirectory: true
+  perMachine: false                  # installa per utente: niente prompt UAC
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BaseFlow
+  artifactName: ${productName}-${version}-setup-${arch}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable-${arch}.${ext}
+
+# --------------------------------------------------------------------------
+# macOS
+# --------------------------------------------------------------------------
+# ATTENZIONE: senza firma Apple ($99/anno) il .dmg si apre solo con
+# "tasto destro > Apri" e un avviso di sicurezza. Funziona, ma va detto agli utenti.
+# hardenedRuntime + entitlements servono se in futuro si firma e si fa notarizzare.
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [x64, arm64]     # arm64 = Apple Silicon, x64 = Intel
+    - target: zip
+      arch: [x64, arm64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# --------------------------------------------------------------------------
+# Linux
+# --------------------------------------------------------------------------
+linux:
+  icon: build/icons          # cartella con i png alle varie dimensioni
+  category: Development
+  synopsis: Editor di diagrammi di flusso
+  description: BaseFlow -- editor di diagrammi di flusso con esecuzione passo-passo e traduzione in codice.
+  desktop:
+    StartupWMClass: BaseFlow
+  target:
+    - target: AppImage       # gira su qualsiasi distro, zero installazione
+      arch: [x64]
+    - target: deb            # Debian / Ubuntu / Mint
+      arch: [x64]
+    - target: rpm            # Fedora / openSUSE
+      arch: [x64]
+
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}

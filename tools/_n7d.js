@@ -1,4 +1,4 @@
-const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..','app');const W=1000,H=1000;
 const errs=[];
 const consoleOut={appendChild:(el)=>{ if(el&&el.textContent) errs.push(el.textContent); },scrollTop:0,scrollHeight:0,style:{}};
 const gg=()=>{const o={appendChild:function(){},addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',innerHTML:'',textContent:'',dataset:{},rows:[],cells:[],setAttribute:()=>{},removeAttribute:()=>{},getAttribute:()=>null,hasAttribute:()=>false,disabled:false};o.querySelector=()=>gg();o.querySelectorAll=()=>[];return o;};

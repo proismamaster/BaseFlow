@@ -7,7 +7,7 @@
 // Il mock del canvas registra ogni STROKE col colore corrente al momento dello stroke()
 // (drawLine imposta strokeStyle DOPO lineTo, prima di stroke()).
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W = 1000, H = 1000;
 let strokes = []; // {x1,y1,x2,y2,c}
 const ctxMock = {

@@ -23,7 +23,7 @@
 // del caso gia' coperto da P6.2 (repro-p6c-dowhile-nesting-space.js, Do-in-Do annidato,
 // NON toccato da questo fix) resta verde (eseguito separatamente).
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1400, H = 1400;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1400, H = 1400;
 let ops = [];
 function col(c) { if (!c || typeof c !== 'string' || c.startsWith('var(')) return '#000'; return c; }
 function makeCtxMock() {

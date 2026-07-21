@@ -41,7 +41,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W = 1400, H = 1400;
 
 function col(c) { if (!c || typeof c !== 'string' || c.startsWith('var(')) return '#000'; return c; }

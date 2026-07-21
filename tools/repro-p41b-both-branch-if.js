@@ -6,7 +6,7 @@
 // SOLO l'IF corretto (entrambi i suoi rami) senza corrompere -> nessun "un ramo si allunga,
 // l'altro no". Ogni scenario gira in un contesto VM FRESCO (reset pulito e totale).
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', 'app');
 const W = 1000, H = 1000;
 
 function freshApp() {

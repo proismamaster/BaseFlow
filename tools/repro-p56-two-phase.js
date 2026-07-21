@@ -9,7 +9,7 @@
 //     la fase 'out' NO -> "prima esci, poi torni su".
 // Testata su piu' strutture, inclusi annidamenti di if dentro cicli e cicli dentro cicli.
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..'); const W=1000,H=1000;
+const REPO = path.join(__dirname, '..', 'app'); const W=1000,H=1000;
 
 function makeApp(){
   let strokes=[];

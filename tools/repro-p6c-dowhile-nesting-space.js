@@ -14,7 +14,7 @@
 // backEdgeX+4] alla stessa quota Y del back-edge (nessuna sovrapposizione con contenuto
 // estraneo, non solo fra i due Do-While).
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
-const REPO = path.join(__dirname, '..'); const W = 1200, H = 1200;
+const REPO = path.join(__dirname, '..', 'app'); const W = 1200, H = 1200;
 let ops = [];
 function col(c){ if(!c || typeof c!=='string' || c.startsWith('var(')) return '#000'; return c; }
 const ctxMock = {

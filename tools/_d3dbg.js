@@ -1,4 +1,4 @@
-const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');const W=1000,H=1000;
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..','app');const W=1000,H=1000;
 let rec=[]; let cur={x:0,y:0}; let last=null;
 const styleMock=()=>({setProperty:function(){},removeProperty:function(){},getPropertyValue:function(){return '';}});
 const ctxMock={_ss:'#000',_fs:'#000',get strokeStyle(){return this._ss;},set strokeStyle(v){this._ss=v;},get fillStyle(){return this._fs;},set fillStyle(v){this._fs=v;},lineWidth:1,font:'',textAlign:'center',textBaseline:'middle',beginPath(){last=null;},moveTo(x,y){cur={x:x,y:y};last={x:x,y:y};},lineTo(x,y){if(last)rec.push({t:'line',c:this._ss,a:[Math.round(last.x),Math.round(last.y)],b:[Math.round(x),Math.round(y)]});last={x:x,y:y};cur={x:x,y:y};},quadraticCurveTo(){},rect(){},closePath(){},stroke(){},fill(){rec.push({t:'arrow',c:this._fs});},clearRect(){},fillText(){},measureText(t){return{width:(t||'').length*8};},save(){},restore(){},setLineDash(){},setTransform(){},arc(){}};

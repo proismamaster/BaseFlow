@@ -1,4 +1,4 @@
-const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..');
+const fs=require('fs'),vm=require('vm'),path=require('path');const REPO=path.join(__dirname,'..','app');
 const gg=()=>({addEventListener:()=>{},classList:{add:()=>{},remove:()=>{},contains:()=>false,toggle:()=>{}},style:{},value:'',querySelector:()=>gg(),querySelectorAll:()=>[],appendChild:()=>{},innerHTML:'',textContent:'',setAttribute:()=>{},getAttribute:()=>null});
 const documentMock={getElementById:()=>gg(),addEventListener:()=>{},createElement:()=>gg(),querySelector:()=>gg(),querySelectorAll:()=>[],body:gg(),documentElement:{lang:'',dir:'',classList:{toggle:()=>{}}}};
 const ctx={document:documentMock,window:{addEventListener:()=>{}},localStorage:{getItem:()=>null,setItem:()=>{}},console:{log:function(){},warn:function(){},error:function(){}},Math,JSON,parseInt,parseFloat,isNaN,Set,Array,Object,String,Number,RegExp,Promise,setTimeout:()=>0,eval,location:{}};
