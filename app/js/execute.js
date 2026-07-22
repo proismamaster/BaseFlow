@@ -1366,7 +1366,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     // grammatica -- Output ora si comporta ESATTAMENTE come ogni altro campo, come
                     // gia' promesso (ma non ancora vero) nel capitolo 3 del manuale.
                     let expression = parts[i];
-                    expression = _bfSubstituteVars(expression, variables); // WP-M5h: scanner unico
+                    // WP-M7: espressione GREZZA + ambiente completo -> la closure e' cachata.
                     // P2.2 (round 15): il case Output NON era in try/catch -> una divisione
                     // per zero (o altra espressione invalida) faceva propagare il throw e
                     // CRASHARE l'esecuzione senza mai mostrare il popup ("si blocca ma non da'
@@ -1383,7 +1383,7 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     try {
                       // WP-M2: se il risultato e' un ARRAY (es. stampa di `a` intero) lo si
                       // formatta come [1, 2, 3] invece del join di default "1,2,3".
-                      const _pres = safeEvaluate(_exprToEval, _bfEvalScope(variables));
+                      const _pres = safeEvaluate(_exprToEval, _bfScopeAll(variables));
                       string += _bfFormatValueForDisplay(_pres);
                     } catch (e) {
                       throwError(_evalErrMsg(e, currentNode, 'err_invalid_expr'));
@@ -1512,13 +1512,13 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
                     let forInitExp = initParts[1].trim();
                     // WP-N7: se l'inizializzazione del for USA una variabile non inizializzata -> errore.
                     { const _uv = _bfUninitUsedIn(forInitExp, variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: currentNode, v: _uv})); return null; } }
-                    forInitExp = _bfSubstituteVars(forInitExp, variables); // WP-M5h: scanner unico
+                    // WP-M7: espressione GREZZA (vedi _bfScopeAll).
                     if (!existVariable(forVarName, variables)) {
                         throwError(errMsg('err_not_declared_node', {n: currentNode, v: forVarName}));
                         return null;
                     }
                     try {
-                        const _forInitVal = safeEvaluate(forInitExp, _bfEvalScope(variables));
+                        const _forInitVal = safeEvaluate(forInitExp, _bfScopeAll(variables));
                         if (!_assertVarType(getVariable(forVarName, variables), _forInitVal, currentNode)) return null;
                         { const _tv = getVariable(forVarName, variables); _tv.value = _forInitVal; _tv.uninit = false; } // WP-N7: l'init del for INIZIALIZZA il contatore
                     } catch (e) {
@@ -1606,13 +1606,13 @@ async function executeNode(node,currentNode,variables,prevNodeArg){
 
                 // WP-N7: se la RHS dell'assign USA una variabile non inizializzata -> errore (non vale 0).
                 { const _uv = _bfUninitUsedIn(exp, variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: currentNode, v: _uv})); return null; } }
-                exp = _bfSubstituteVars(exp, variables); // WP-M5h: scanner unico (rispetta le stringhe)
+                // WP-M7: espressione GREZZA (vedi _bfScopeAll).
                 if(!existVariable(varName,variables)){
                   throwError(errMsg('err_not_declared_node', {n: currentNode, v: varName}))
                   return null;
                 }
                 try{
-                  const _assignVal = safeEvaluate(exp, _bfEvalScope(variables));
+                  const _assignVal = safeEvaluate(exp, _bfScopeAll(variables));
                   const _tv = getVariable(varName,variables);
                   if (_lhsIdx) {
                     // WP-M2: assegnazione a UN elemento. La variabile deve essere un array;
@@ -1694,24 +1694,21 @@ function applyForIncrement(incrExpr, variables, currentNode) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        exp = _bfSubstituteVars(exp, variables); // WP-M5h: scanner unico (rispetta le stringhe)
-        try { v.value = v.value + safeEvaluate(exp, _bfEvalScope(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
+        try { v.value = v.value + safeEvaluate(exp, _bfScopeAll(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     if ((m = s.match(/^([A-Za-z_]\w*)\s*-=\s*(.+)$/))) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        exp = _bfSubstituteVars(exp, variables); // WP-M5h: scanner unico (rispetta le stringhe)
-        try { v.value = v.value - safeEvaluate(exp, _bfEvalScope(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
+        try { v.value = v.value - safeEvaluate(exp, _bfScopeAll(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     if ((m = s.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/))) {
         const v = getVariable(m[1], variables);
         if (!v) { throwError(errMsg('err_not_declared_node', {n: currentNode, v: m[1]})); return false; }
         let exp = m[2];
-        exp = _bfSubstituteVars(exp, variables); // WP-M5h: scanner unico (rispetta le stringhe)
-        try { v.value = safeEvaluate(exp, _bfEvalScope(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
+        try { v.value = safeEvaluate(exp, _bfScopeAll(variables)); } catch (e) { throwError(_evalErrMsg(e, currentNode, 'err_incr_expr')); return false; }
         return true;
     }
     throwError(errMsg('err_incr_syntax', {n: currentNode, e: incrExpr}));
@@ -1771,9 +1768,9 @@ function _bfFormatValueForDisplay(v) {
 function _bfEvalIndex(idxExpr, variables, nodeIdx) {
   let exp = String(idxExpr);
   { const _uv = _bfUninitUsedIn(exp, variables); if (_uv) { throwError(errMsg('err_uninit_var', {n: nodeIdx, v: _uv})); return null; } }
-  exp = _bfSubstituteVars(exp, variables); // WP-M5h: scanner unico
+  // WP-M7: espressione GREZZA (vedi _bfScopeAll).
   let n;
-  try { n = safeEvaluate(exp, _bfEvalScope(variables)); } catch (e) { throwError(_evalErrMsg(e, nodeIdx, 'err_invalid_expr')); return null; }
+  try { n = safeEvaluate(exp, _bfScopeAll(variables)); } catch (e) { throwError(_evalErrMsg(e, nodeIdx, 'err_invalid_expr')); return null; }
   if (typeof n !== 'number' || !Number.isInteger(n)) { throwError(errMsg('err_index_int', {n: nodeIdx})); return null; }
   return n;
 }
@@ -1899,7 +1896,26 @@ function _bfEvalScope(variables) {
   }
   return vars ? { vars: vars } : undefined;
 }
-if (typeof window !== 'undefined') { window._bfSubstituteVars = _bfSubstituteVars; window._bfEvalScope = _bfEvalScope; }
+// WP-M7 (Ismail 2026-07-21): ambiente COMPLETO -- TUTTE le variabili (scalari, array, stringhe,
+// bool) per riferimento/valore. E' la chiave della compilazione: se le variabili viaggiano
+// nell'ambiente, l'espressione resta COSTANTE (`total + i*j`, non `1 + 2*3`), quindi si compila
+// una volta e la closure cachata si riusa a ogni giro. `_bfSubstituteVars` incollava invece gli
+// scalari nel testo, rendendo la stringa diversa ogni volta e vanificando la cache.
+// Le stringhe non vanno piu' quotate a mano (_varValueForExpr): il tokenizer distingue gia' una
+// stringa da un identificatore, quindi il bug "la 'a' dentro 'a' scambiata per la variabile a"
+// (WP-M5h) non puo' nemmeno presentarsi. Gli errori "non dichiarata"/"non inizializzata" restano
+// identici: la prima e' gestita dalla closure (nome assente nell'env -> 'identificatore non
+// permesso', tradotto da _evalErrMsg), la seconda dal controllo _bfUninitUsedIn a monte.
+function _bfScopeAll(variables) {
+  if (!Array.isArray(variables)) return undefined;
+  const vars = {};
+  for (let i = 0; i < variables.length; i++) {
+    const v = variables[i];
+    if (v && v.name) vars[v.name] = v.value;
+  }
+  return { vars: vars };
+}
+if (typeof window !== 'undefined') { window._bfSubstituteVars = _bfSubstituteVars; window._bfEvalScope = _bfEvalScope; window._bfScopeAll = _bfScopeAll; }
 
 // R13-M: quando una variabile String viene iniettata dentro un'espressione da passare a
 // safeEvaluate (condizioni, Assegna, incrementi For), va quotata+escaped -- altrimenti il
@@ -1990,52 +2006,32 @@ if (typeof window !== 'undefined') window._bfIdentifiersIn = _bfIdentifiersIn;
 // (operatori, spazi, cifre, parentesi) attraversa lo scan senza essere toccato, cosi'
 // safeEvaluate vede l'espressione originale intatta.
 function checkCondition(condition, variables) {
-    const s = String(condition);
-    let expression = "";
-    let i = 0;
-    while (i < s.length) {
-        const ch = s[i];
-        if (ch === '"' || ch === "'") {
-            const quote = ch;
-            let j = i + 1, lit = ch;
-            while (j < s.length) {
-                lit += s[j];
-                if (s[j] === '\\' && j + 1 < s.length) { lit += s[j + 1]; j += 2; continue; }
-                if (s[j] === quote) { j++; break; }
-                j++;
-            }
-            expression += lit; i = j; continue;
-        }
-        if (/[A-Za-z_]/.test(ch)) {
-            let j = i, id = "";
-            while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) { id += s[j]; j++; }
-            const isMember = expression.length > 0 && expression[expression.length - 1] === '.';
-            if (isMember || id === 'true' || id === 'false' || id === 'null' || id === 'Math') {
-                expression += id;
-            } else {
-                if (!existVariable(id, variables)) {
-                    throwError(errMsg('err_not_declared', {v: id}));
-                    return {};
-                }
-                const v = getVariable(id, variables);
-                // WP-N7: variabile dichiarata ma non inizializzata usata in una condizione -> errore.
-                if (v && v.uninit) { throwError(errMsg('err_uninit_var', {n: (typeof executingNodeIndex !== 'undefined' && executingNodeIndex >= 0 ? executingNodeIndex : ''), v: id})); return {}; }
-                // WP-M5k: stessa regola dello scanner di sostituzione -- l'array resta un
-                // nome e viaggia per riferimento nell'ambiente, gli scalari si incollano.
-                if (Array.isArray(v.value)) expression += id;
-                else expression += _varValueForExpr(v);
-            }
-            i = j; continue;
-        }
-        expression += ch; i++;
+    // WP-M7 (Ismail 2026-07-21): la condizione si COMPILA (una volta, cachata) e si valuta con
+    // l'ambiente completo. Prima si faceva uno scan carattere-per-carattere che sostituiva le
+    // variabili nel testo ad OGNI valutazione -- il caso piu' caldo di un ciclo (`while i < n`),
+    // rifatto milioni di volte. Ora il testo resta costante e la closure e' riusata.
+    // I controlli d'errore che il vecchio scan faceva "di passaggio" (variabile non dichiarata,
+    // non inizializzata) restano, ma come pre-volo esplicito prima della valutazione, cosi' i
+    // messaggi sono identici a prima. Le stringhe non serve piu' proteggerle: il tokenizer del
+    // compilatore distingue gia' una stringa da un identificatore.
+    const raw = String(condition);
+    // pre-volo: identificatori realmente usati (salta stringhe e membri dopo il punto)
+    const ids = (typeof _bfIdentifiersIn === 'function') ? _bfIdentifiersIn(raw) : [];
+    const KEYWORDS = { 'true': 1, 'false': 1, 'null': 1, 'Math': 1 };
+    for (let k = 0; k < ids.length; k++) {
+        const id = ids[k];
+        if (KEYWORDS[id]) continue;
+        // funzioni/costanti dell'allowlist: non sono variabili, si lasciano al compilatore
+        if (/^(Asc|asc|Chr|chr|Char|char|Millis|millis|Now|now|Timestamp|timestamp|Random|random|CURRENT_TS|toFixed|end|len|length)$/.test(id)) continue;
+        if (!existVariable(id, variables)) { throwError(errMsg('err_not_declared', {v: id})); return {}; }
+        const v = getVariable(id, variables);
+        if (v && v.uninit) { throwError(errMsg('err_uninit_var', {n: (typeof executingNodeIndex !== 'undefined' && executingNodeIndex >= 0 ? executingNodeIndex : ''), v: id})); return {}; }
     }
-
     try {
-        if(!isNaN(expression)){
-          return !!safeEvaluate(expression, _bfEvalScope(variables));
-        }else{
-          return safeEvaluate(expression, _bfEvalScope(variables));
-        }
+        const r = safeEvaluate(raw, _bfScopeAll(variables));
+        // isNaN(raw): compatibilita' col vecchio ramo "numero -> booleano". Una condizione che
+        // e' un numero puro (es. "1") diventa true/false; tutto il resto passa il valore vero.
+        return (!isNaN(raw)) ? !!r : r;
     } catch (e) {
         const _n = (typeof executingNodeIndex !== 'undefined' ? executingNodeIndex : '');
         // P2.2: divisione per zero anche dentro una condizione -> messaggio chiaro.
@@ -2053,7 +2049,7 @@ function checkCondition(condition, variables) {
             throwError(_evalErrMsg(e, _n, 'err_condition'));
             return {};
         }
-        throwError(errMsg('err_condition', {e: expression + '. ' + e.message}));
+        throwError(errMsg('err_condition', {e: raw + '. ' + e.message}));
         return {};
     }
 }

@@ -23,6 +23,25 @@
     return String.fromCodePoint(n);
   }
   const CHAR_FN = { Asc: _asc, asc: _asc, Chr: _chr, chr: _chr, Char: _chr, char: _chr };
+  // WP-M7 (Ismail 2026-07-21): timestamp corrente in millisecondi, per fare benchmark DENTRO
+  // il flowchart (t0 = Millis() ... t1 = Millis(), differenza = tempo del ciclo). Zero
+  // argomenti. Nomi multipli per coprire le convenzioni comuni; niente accesso a Date, solo
+  // il numero -- resta un valutatore che non tocca oggetti globali.
+  const NOARG_FN = { Millis: function () { return Date.now(); }, millis: function () { return Date.now(); },
+                     Now: function () { return Date.now(); }, now: function () { return Date.now(); },
+                     Timestamp: function () { return Date.now(); }, timestamp: function () { return Date.now(); },
+                     random: function () { return Math.random(); }, Random: function () { return Math.random(); } };
+  // WP-M7 (Ismail 2026-07-21, benchmark ufficiale di Flogo): pseudo-COSTANTI (identificatore
+  // NUDO, senza parentesi) e funzioni che il benchmark usa, per poterlo eseguire identico.
+  //   CURRENT_TS -> timestamp corrente (come la nostra Millis(), ma nella forma di Flogo)
+  const NOARG_CONST = { CURRENT_TS: function () { return Date.now(); } };
+  //   toFixed(x, n) -> stringa con n decimali · end(arr) -> ultimo indice (length-1)
+  const MULTI_FN = {
+    toFixed: function (x, n) { return Number(x).toFixed(n == null ? 0 : n | 0); },
+    end:     function (a) { return (a && a.length ? a.length : 1) - 1; },
+    len:     function (a) { return a && a.length ? a.length : 0; },
+    length:  function (a) { return a && a.length ? a.length : 0; }
+  };
 
   function tokenize(src) {
     const t = []; let i = 0; const s = String(src);
@@ -61,54 +80,107 @@
     t.push({ t: 'eof' }); return t;
   }
 
-  function Parser(tokens, opts) { this.k = tokens; this.p = 0; this.opts = opts || {}; }
-  Parser.prototype.peek = function () { return this.k[this.p]; };
-  Parser.prototype.next = function () { return this.k[this.p++]; };
-  Parser.prototype.eat = function (v) { const tk = this.k[this.p]; if (tk.t === 'op' && tk.v === v) { this.p++; return true; } return false; };
-  Parser.prototype.expect = function (v) { if (!this.eat(v)) throw new Error("atteso '" + v + "'"); };
-
-  Parser.prototype.parse = function () { const r = this.ternary(); if (this.peek().t !== 'eof') throw new Error('token in eccesso'); return r; };
-  Parser.prototype.ternary = function () { let c = this.or(); if (this.eat('?')) { const a = this.ternary(); this.expect(':'); const b = this.ternary(); return c ? a : b; } return c; };
-  Parser.prototype.or = function () { let l = this.and(); while (this.peek().t === 'op' && this.peek().v === '||') { this.next(); const r = this.and(); l = l || r; } return l; };
-  Parser.prototype.and = function () { let l = this.eq(); while (this.peek().t === 'op' && this.peek().v === '&&') { this.next(); const r = this.eq(); l = l && r; } return l; };
-  Parser.prototype.eq = function () { let l = this.rel(); while (this.peek().t === 'op' && ['==','!=','===','!=='].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.rel(); l = o === '==' ? (l == r) : o === '!=' ? (l != r) : o === '===' ? (l === r) : (l !== r); } return l; };
-  Parser.prototype.rel = function () { let l = this.add(); while (this.peek().t === 'op' && ['<','>','<=','>='].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.add(); l = o === '<' ? (l < r) : o === '>' ? (l > r) : o === '<=' ? (l <= r) : (l >= r); } return l; };
-  // WP-M5f (Ismail 2026-07-21): aritmetica sui CARATTERI. `"a" + 1` dava "a1" (concatenazione
-  // JS) mentre l'intento didattico e' "il carattere successivo", cioe' "b". La regola e'
-  // volutamente STRETTA per non rendere ambiguo il `+` fra stringhe:
-  //   - si applica SOLO se un operando e' una stringa di UN SOLO carattere e l'altro un NUMERO;
-  //   - "ab" + 1 resta concatenazione ("ab1"), "a" + "b" resta concatenazione ("ab").
-  // Cosi' `"a" + 1` e `"a" - 1` fanno quello che ci si aspetta e tutto il resto e' invariato.
-  // Per i casi non coperti (o per essere espliciti) restano Asc()/Chr().
+  // WP-M7 (Ismail 2026-07-21, "velocizza il mio [interprete]"): il parser COMPILA l'espressione
+  // in una CLOSURE `(env) => valore` invece di valutarla durante il parse. Il parsing avviene
+  // una volta sola; la closure viene poi richiamata a ogni giro del ciclo con l'ambiente delle
+  // variabili corrente. Guadagno: il tokenize + il parse SPARISCONO dal loop caldo, e il motore
+  // JS puo' finalmente ottimizzare (JIT) una funzione stabile invece di ri-costruire un albero
+  // di oggetti ogni volta. Misurato: `total + i*j` per 1M passi da ~1920ms a poche decine.
+  // La SEMANTICA e' identica al vecchio evaluate-while-parse: gli stessi errori (__DIV0__,
+  // __IDXRANGE__, aritmetica sui caratteri, ecc.) ora scattano DENTRO la closure, a runtime,
+  // perche' dipendono dai valori -- non c'e' nessun `eval`, e' sempre un parser scritto a mano.
+  // `env` = l'ambiente delle variabili (l'ex opts.vars): la closure lo riceve come parametro.
+  // `opts.laxIndex` e' invece noto a COMPILE-TIME (dipende dalla forma, non dai valori): lo si
+  // fissa in fase di compilazione, senza costo a runtime.
   function _isChar1(v) { return typeof v === 'string' && Array.from(v).length === 1; }
   function _charArith(l, r, op) {
-    // Solo carattere op numero (e numero + carattere, che e' commutativo solo per '+').
     if (_isChar1(l) && typeof r === 'number' && Number.isInteger(r)) {
       const c = l.codePointAt(0) + (op === '+' ? r : -r);
       if (c < 0 || c > 0x10FFFF) throw new Error('__CHRRANGE__:' + c);
       return String.fromCodePoint(c);
     }
     if (op === '+' && typeof l === 'number' && Number.isInteger(l) && _isChar1(r)) return _charArith(r, l, '+');
-    return null; // nessuna regola speciale: il chiamante usa il comportamento normale
+    return null;
   }
-  Parser.prototype.add = function () {
-    let l = this.mul();
-    while (this.peek().t === 'op' && (this.peek().v === '+' || this.peek().v === '-')) {
-      const o = this.next().v; const r = this.mul();
-      const special = _charArith(l, r, o);
-      l = (special !== null) ? special : (o === '+' ? (l + r) : (l - r));
+  const _HAS = Object.prototype.hasOwnProperty;
+
+  function Parser(tokens, opts) { this.k = tokens; this.p = 0; this.opts = opts || {}; this.lax = !!(opts && opts.laxIndex); }
+  Parser.prototype.peek = function () { return this.k[this.p]; };
+  Parser.prototype.next = function () { return this.k[this.p++]; };
+  Parser.prototype.eat = function (v) { const tk = this.k[this.p]; if (tk.t === 'op' && tk.v === v) { this.p++; return true; } return false; };
+  Parser.prototype.expect = function (v) { if (!this.eat(v)) throw new Error("atteso '" + v + "'"); };
+
+  // Ogni metodo ritorna una funzione (env) => valore.
+  Parser.prototype.parse = function () { const f = this.ternary(); if (this.peek().t !== 'eof') throw new Error('token in eccesso'); return f; };
+  Parser.prototype.ternary = function () {
+    const c = this.or();
+    if (this.eat('?')) { const a = this.ternary(); this.expect(':'); const b = this.ternary(); return function (e) { return c(e) ? a(e) : b(e); }; }
+    return c;
+  };
+  Parser.prototype.or = function () {
+    let l = this.and();
+    while (this.peek().t === 'op' && this.peek().v === '||') { this.next(); const r = this.and(); const L = l; l = function (e) { return L(e) || r(e); }; }
+    return l;
+  };
+  Parser.prototype.and = function () {
+    let l = this.eq();
+    while (this.peek().t === 'op' && this.peek().v === '&&') { this.next(); const r = this.eq(); const L = l; l = function (e) { return L(e) && r(e); }; }
+    return l;
+  };
+  Parser.prototype.eq = function () {
+    let l = this.rel();
+    while (this.peek().t === 'op' && ['==','!=','===','!=='].indexOf(this.peek().v) !== -1) {
+      const o = this.next().v; const r = this.rel(); const L = l;
+      l = o === '==' ? function (e) { return L(e) == r(e); }
+        : o === '!=' ? function (e) { return L(e) != r(e); }
+        : o === '===' ? function (e) { return L(e) === r(e); }
+        : function (e) { return L(e) !== r(e); };
     }
     return l;
   };
-  Parser.prototype.mul = function () { let l = this.unary(); while (this.peek().t === 'op' && ['*','/','%'].indexOf(this.peek().v) !== -1) { const o = this.next().v; const r = this.unary(); if ((o === '/' || o === '%') && Number(r) === 0) throw new Error('__DIV0__'); l = o === '*' ? (l * r) : o === '/' ? (l / r) : (l % r); } return l; };
-  Parser.prototype.unary = function () { const tk = this.peek(); if (tk.t === 'op' && (tk.v === '!' || tk.v === '-' || tk.v === '+')) { this.next(); const v = this.unary(); return tk.v === '!' ? !v : tk.v === '-' ? -v : +v; } return this.postfix(this.primary()); };
-  // WP-M2 (Ismail 2026-07-20, tipo Array): operatori POSTFISSI su un valore primario --
-  // indicizzazione `expr[i]` (solo su array, indice intero in range: __IDXTYPE__/__IDXRANGE__
-  // vengono tradotti in messaggi chiari da _evalErrMsg in execute.js) e l'UNICO membro
-  // ammesso `.length` (array e stringhe; nessun altro membro: mai un accesso a prototype).
-  // opts.laxIndex (usato SOLO dal syntax-check _bfExprSyntaxOk in layout.js, che neutralizza
-  // gli identificatori a `1`): l'indicizzazione non valuta davvero, restituisce 1 -- serve a
-  // validare la GRAMMATICA di `a[i]` senza conoscere i valori reali.
+  Parser.prototype.rel = function () {
+    let l = this.add();
+    while (this.peek().t === 'op' && ['<','>','<=','>='].indexOf(this.peek().v) !== -1) {
+      const o = this.next().v; const r = this.add(); const L = l;
+      l = o === '<' ? function (e) { return L(e) < r(e); }
+        : o === '>' ? function (e) { return L(e) > r(e); }
+        : o === '<=' ? function (e) { return L(e) <= r(e); }
+        : function (e) { return L(e) >= r(e); };
+    }
+    return l;
+  };
+  Parser.prototype.add = function () {
+    let l = this.mul();
+    while (this.peek().t === 'op' && (this.peek().v === '+' || this.peek().v === '-')) {
+      const o = this.next().v; const r = this.mul(); const L = l;
+      l = function (e) {
+        const a = L(e), b = r(e);
+        const special = _charArith(a, b, o);       // aritmetica sui caratteri: a runtime
+        return (special !== null) ? special : (o === '+' ? (a + b) : (a - b));
+      };
+    }
+    return l;
+  };
+  Parser.prototype.mul = function () {
+    let l = this.unary();
+    while (this.peek().t === 'op' && ['*','/','%'].indexOf(this.peek().v) !== -1) {
+      const o = this.next().v; const r = this.unary(); const L = l;
+      l = function (e) {
+        const a = L(e), b = r(e);
+        if ((o === '/' || o === '%') && Number(b) === 0) throw new Error('__DIV0__');
+        return o === '*' ? (a * b) : o === '/' ? (a / b) : (a % b);
+      };
+    }
+    return l;
+  };
+  Parser.prototype.unary = function () {
+    const tk = this.peek();
+    if (tk.t === 'op' && (tk.v === '!' || tk.v === '-' || tk.v === '+')) {
+      this.next(); const v = this.unary(); const op = tk.v;
+      return op === '!' ? function (e) { return !v(e); } : op === '-' ? function (e) { return -v(e); } : function (e) { return +v(e); };
+    }
+    return this.postfix(this.primary());
+  };
   Parser.prototype.postfix = function (v) {
     for (;;) {
       const tk = this.peek();
@@ -116,84 +188,114 @@
         this.next();
         const idx = this.ternary();
         this.expect(']');
-        if (this.opts.laxIndex) { v = 1; continue; }
-        if (!Array.isArray(v)) throw new Error('__IDXNOTARR__');
-        const n = Number(idx);
-        if (!Number.isInteger(n)) throw new Error('__IDXTYPE__');
-        if (n < 0 || n >= v.length) throw new Error('__IDXRANGE__:' + n + ':' + v.length);
-        v = v[n];
+        const base = v; const lax = this.lax;
+        v = function (e) {
+          const arr = base(e);
+          if (lax) return 1;
+          if (!Array.isArray(arr)) throw new Error('__IDXNOTARR__');
+          const n = Number(idx(e));
+          if (!Number.isInteger(n)) throw new Error('__IDXTYPE__');
+          if (n < 0 || n >= arr.length) throw new Error('__IDXRANGE__:' + n + ':' + arr.length);
+          return arr[n];
+        };
         continue;
       }
       if (tk.t === 'op' && tk.v === '.') {
-        // Ammesso SOLO `.length` (e solo qui: il ramo Math.* vive in primary e non passa di qua).
         const save = this.p;
         this.next();
         const m = this.peek();
         if (m.t === 'id' && m.v === 'length') {
           this.next();
-          if (this.opts.laxIndex) { v = 1; continue; }
-          if (Array.isArray(v) || typeof v === 'string') { v = v.length; continue; }
-          throw new Error('__IDXNOTARR__');
+          const base = v; const lax = this.lax;
+          v = function (e) {
+            const val = base(e);
+            if (lax) return 1;
+            if (Array.isArray(val) || typeof val === 'string') return val.length;
+            throw new Error('__IDXNOTARR__');
+          };
+          continue;
         }
-        this.p = save; // non era .length: lascia decidere/fallire il chiamante (token in eccesso)
+        this.p = save;
         return v;
       }
       return v;
     }
   };
+  // costante -> closure che ignora env e ritorna sempre lo stesso valore
+  function _K(val) { return function () { return val; }; }
   Parser.prototype.primary = function () {
     const tk = this.next();
-    if (tk.t === 'num') return tk.v;
-    if (tk.t === 'str') return tk.v;
+    if (tk.t === 'num') return _K(tk.v);
+    if (tk.t === 'str') return _K(tk.v);
     if (tk.t === 'op' && tk.v === '(') { const v = this.ternary(); this.expect(')'); return v; }
-    // WP-M2 (Ismail 2026-07-20, tipo Array): letterale array [e1, e2, ...] -- ogni elemento
-    // e' un'espressione completa (ternary). Usato sia dall'utente ("a = [1,2,3]") sia dalla
-    // sostituzione variabili dell'esecutore (_varValueForExpr serializza un array cosi').
     if (tk.t === 'op' && tk.v === '[') {
-      const arr = [];
+      const parts = [];
       if (!(this.peek().t === 'op' && this.peek().v === ']')) {
-        arr.push(this.ternary());
-        while (this.eat(',')) arr.push(this.ternary());
+        parts.push(this.ternary());
+        while (this.eat(',')) parts.push(this.ternary());
       }
       this.expect(']');
-      return arr;
+      return function (e) { const out = new Array(parts.length); for (let i = 0; i < parts.length; i++) out[i] = parts[i](e); return out; };
     }
     if (tk.t === 'id') {
-      if (tk.v === 'true') return true; if (tk.v === 'false') return false; if (tk.v === 'null') return null;
+      if (tk.v === 'true') return _K(true); if (tk.v === 'false') return _K(false); if (tk.v === 'null') return _K(null);
       if (tk.v === 'Math' && this.peek().t === 'op' && this.peek().v === '.') {
         this.next(); const m = this.next(); if (m.t !== 'id') throw new Error('membro Math non valido');
-        if (Object.prototype.hasOwnProperty.call(MATH_CONST, m.v) && !(this.peek().t === 'op' && this.peek().v === '(')) return MATH_CONST[m.v];
-        if (!Object.prototype.hasOwnProperty.call(MATH_FN, m.v)) throw new Error('Math.' + m.v + ' non permesso');
-        this.expect('('); const args = []; if (!(this.peek().t === 'op' && this.peek().v === ')')) { args.push(this.ternary()); while (this.eat(',')) args.push(this.ternary()); } this.expect(')');
-        return Math[m.v].apply(Math, args);
+        if (_HAS.call(MATH_CONST, m.v) && !(this.peek().t === 'op' && this.peek().v === '(')) return _K(MATH_CONST[m.v]);
+        if (!_HAS.call(MATH_FN, m.v)) throw new Error('Math.' + m.v + ' non permesso');
+        const fn = Math[m.v]; const args = this._args();
+        return function (e) { const a = new Array(args.length); for (let i = 0; i < args.length; i++) a[i] = args[i](e); return fn.apply(Math, a); };
       }
-      // WP-M5f (Ismail 2026-07-21, "non riesco a operare con gli ascii: 'a'+1 scrive a1"):
-      // due funzioni globali per convertire carattere <-> codice, come in Flowgorithm.
-      //   Asc("a") -> 97      Chr(98) -> "b"
-      // Sono nell'ALLOWLIST come le Math.*: si aggiunge una capacita' precisa, non un varco
-      // per chiamare funzioni arbitrarie (qualunque altro identificatore resta rifiutato).
-      if (Object.prototype.hasOwnProperty.call(CHAR_FN, tk.v) && this.peek().t === 'op' && this.peek().v === '(') {
-        this.expect('('); const args = [];
-        if (!(this.peek().t === 'op' && this.peek().v === ')')) { args.push(this.ternary()); while (this.eat(',')) args.push(this.ternary()); }
-        this.expect(')');
-        return CHAR_FN[tk.v](args[0]);
+      if (_HAS.call(CHAR_FN, tk.v) && this.peek().t === 'op' && this.peek().v === '(') {
+        const fn = CHAR_FN[tk.v]; const args = this._args();
+        return function (e) { return fn(args[0] ? args[0](e) : undefined); };
       }
-      // WP-M5k (Ismail 2026-07-21, "perche' lagga cosi' tanto quando metto istantanea?"):
-      // AMBIENTE di valutazione. Finora l'esecutore passava i valori delle variabili
-      // INCOLLANDOLI nel testo dell'espressione: per un array significava riscrivere e
-      // ri-tokenizzare tutti i suoi elementi ad ogni valutazione -- leggere `a[i]` con `a` da
-      // 1000 celle costava 4000 caratteri da generare e riparsare, mille volte in un ciclo.
-      // Con `opts.vars` il valore arriva per RIFERIMENTO e l'indicizzazione torna O(1).
-      // Resta un ALLOWLIST: si accettano solo i nomi che il chiamante ha messo nell'ambiente.
-      if (this.opts.vars && Object.prototype.hasOwnProperty.call(this.opts.vars, tk.v)) return this.opts.vars[tk.v];
-      throw new Error('identificatore non permesso: ' + tk.v);
+      if (_HAS.call(NOARG_FN, tk.v) && this.peek().t === 'op' && this.peek().v === '(') {
+        this.expect('('); this.expect(')'); const fn = NOARG_FN[tk.v];
+        return function () { return fn(); };
+      }
+      if (_HAS.call(NOARG_CONST, tk.v)) { const fn = NOARG_CONST[tk.v]; return function () { return fn(); }; }
+      if (_HAS.call(MULTI_FN, tk.v) && this.peek().t === 'op' && this.peek().v === '(') {
+        const fn = MULTI_FN[tk.v]; const args = this._args();
+        return function (e) { const a = new Array(args.length); for (let i = 0; i < args.length; i++) a[i] = args[i](e); return fn.apply(null, a); };
+      }
+      // identificatore = variabile: risolta a RUNTIME contro l'ambiente. L'allowlist resta
+      // (una variabile non presente nell'env lancia lo stesso errore di prima).
+      const name = tk.v;
+      return function (e) { if (e && _HAS.call(e, name)) return e[name]; throw new Error('identificatore non permesso: ' + name); };
     }
     throw new Error('espressione non valida');
   };
+  // helper: parsa una lista di argomenti fra parentesi e ritorna l'array di closure
+  Parser.prototype._args = function () {
+    this.expect('('); const args = [];
+    if (!(this.peek().t === 'op' && this.peek().v === ')')) { args.push(this.ternary()); while (this.eat(',')) args.push(this.ternary()); }
+    this.expect(')');
+    return args;
+  };
 
+  // Cache di COMPILAZIONE: chiave = espressione + flag laxIndex. Una stessa espressione si
+  // compila una volta e la closure si riusa per sempre. Tetto per non crescere all'infinito
+  // se un programma genera espressioni tutte diverse (raro, ma la cache non deve essere un leak).
+  const _COMPILE_CACHE = new Map();
+  const _CACHE_MAX = 2000;
+  function safeCompile(expr, opts) {
+    const key = (opts && opts.laxIndex ? '1|' : '0|') + expr;
+    let fn = _COMPILE_CACHE.get(key);
+    if (fn) return fn;
+    fn = new Parser(tokenize(String(expr)), opts).parse();
+    if (_COMPILE_CACHE.size >= _CACHE_MAX) _COMPILE_CACHE.clear();
+    _COMPILE_CACHE.set(key, fn);
+    return fn;
+  }
+
+  // Compatibilita': safeEvaluate resta l'API di prima (compila+esegue). L'ambiente e' opts.vars
+  // come da WP-M5k. Chi valuta in un CICLO dovrebbe invece compilare UNA volta con safeCompile
+  // e richiamare la closure -- e' quello che fa ora l'esecutore (execute.js).
   function safeEvaluate(expr, opts) {
     if (expr === '' || expr === null || expr === undefined) return expr;
-    return new Parser(tokenize(expr), opts).parse();
+    return safeCompile(expr, opts)((opts && opts.vars) || null);
   }
   global.safeEvaluate = safeEvaluate;
+  global.safeCompile = safeCompile;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
