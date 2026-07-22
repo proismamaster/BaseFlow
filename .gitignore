@@ -43,3 +43,7 @@ JOURNAL_*.md
 # rimossa -- altrimenti ogni "cap add" ripristina i default e le modifiche spariscono.
 /android/
 /ios/
+
+# File binari degli installer pronti per l'upload manuale come asset di una GitHub Release
+# (non vanno mai committati: superano il limite di 100MB di GitHub per file su git normale)
+/release-assets/

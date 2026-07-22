@@ -10,6 +10,21 @@ Users can insert nodes of various types (Input, Output, Assignment, Condition, L
 
 Open-source project by **Matteo Artifoni** and **Ismail Barakat**.
 
+## Try it / Download
+
+**[Try BaseFlow online](https://ismailbarakat.dev/baseflow/)** — no install needed, runs directly in the browser.
+
+Prefer a native app? Desktop (Electron) and Android (Capacitor) builds are available from the [v0.2.0 release](https://github.com/proismamaster/BaseFlow/releases/tag/v0.2.0):
+
+| Platform | Download |
+|---|---|
+| Windows | [BaseFlow-0.2.0-setup-x64.exe](https://github.com/proismamaster/BaseFlow/releases/download/v0.2.0/BaseFlow-0.2.0-setup-x64.exe) |
+| macOS | [BaseFlow-0.2.0-x64.dmg](https://github.com/proismamaster/BaseFlow/releases/download/v0.2.0/BaseFlow-0.2.0-x64.dmg) |
+| Linux | [BaseFlow-0.2.0-x86_64.AppImage](https://github.com/proismamaster/BaseFlow/releases/download/v0.2.0/BaseFlow-0.2.0-x86_64.AppImage) |
+| Android | [BaseFlow-0.2.0-android-debug.apk](https://github.com/proismamaster/BaseFlow/releases/download/v0.2.0/BaseFlow-0.2.0-android-debug.apk) (debug build) |
+
+None of the desktop/mobile builds are code-signed yet, so Windows SmartScreen, macOS Gatekeeper and Android will warn about an unrecognized app on first launch — see [BUILD.md](BUILD.md) for details.
+
 ## Goals
 
 - Provide a **visual programming environment** accessible to beginners
