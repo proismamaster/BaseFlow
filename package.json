@@ -1,7 +1,7 @@
 {
   "name": "baseflow",
   "productName": "BaseFlow",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Editor di diagrammi di flusso con esecuzione passo-passo e traduzione in codice",
   "author": {
     "name": "Ismail Barakat",
